@@ -3,6 +3,8 @@ package skiplist
 import (
 	"bytes"
 	"math/rand"
+	"sync/atomic"
+	"unsafe"
 )
 
 const MaxLevel = 32
@@ -52,7 +54,7 @@ func (i *nilItem) Compare(itm Item) int {
 type Skiplist struct {
 	head  *Node
 	tail  *Node
-	level uint16
+	level int32
 }
 
 func New() *Skiplist {
@@ -68,7 +70,7 @@ func New() *Skiplist {
 	tail := newNode(maxItem, MaxLevel)
 
 	for i := 0; i <= MaxLevel; i++ {
-		head.next[i] = tail
+		head.setNext(i, tail, false)
 	}
 
 	s := &Skiplist{
@@ -80,22 +82,52 @@ func New() *Skiplist {
 }
 
 type Node struct {
-	next  []*Node
+	next  []unsafe.Pointer
 	itm   Item
 	level uint16
 }
+type NodeRef struct {
+	deleted bool
+	ptr     *Node
+}
 
-func newNode(itm Item, level uint16) *Node {
+func newNode(itm Item, level int) *Node {
 	return &Node{
-		next:  make([]*Node, level+1),
+		next:  make([]unsafe.Pointer, level+1),
 		itm:   itm,
-		level: level,
+		level: uint16(level),
 	}
 }
 
-func (s *Skiplist) randomLevel() (uint16, bool) {
-	var nextLevel uint16 = 0
-	var created bool
+func (n *Node) setNext(level int, ptr *Node, deleted bool) {
+	atomic.StorePointer(&n.next[level], unsafe.Pointer(&NodeRef{ptr: ptr, deleted: deleted}))
+}
+
+func (n *Node) getNext(level int) (*Node, bool) {
+	ref := (*NodeRef)(atomic.LoadPointer(&n.next[level]))
+	if ref != nil {
+		return ref.ptr, ref.deleted
+	}
+
+	return nil, false
+}
+
+func (n *Node) dcasNext(level int, prevPtr, newPtr *Node, prevIsdeleted, newIsdeleted bool) bool {
+	var swapped bool
+	addr := &n.next[level]
+	ref := (*NodeRef)(atomic.LoadPointer(addr))
+	if ref != nil {
+		if ref.ptr == prevPtr && ref.deleted == prevIsdeleted {
+			swapped = atomic.CompareAndSwapPointer(addr, unsafe.Pointer(ref),
+				unsafe.Pointer(&NodeRef{ptr: newPtr, deleted: newIsdeleted}))
+		}
+	}
+
+	return swapped
+}
+
+func (s *Skiplist) randomLevel() int {
+	var nextLevel int
 
 	for ; rand.Float32() < p; nextLevel++ {
 	}
@@ -104,89 +136,111 @@ func (s *Skiplist) randomLevel() (uint16, bool) {
 		nextLevel = MaxLevel
 	}
 
-	if nextLevel > s.level {
-		s.level += 1
-		nextLevel = s.level
-		created = true
+	level := int(atomic.LoadInt32(&s.level))
+	if nextLevel > level {
+		atomic.CompareAndSwapInt32(&s.level, int32(level), int32(level+1))
+		nextLevel = level + 1
 	}
 
-	return nextLevel, created
+	return nextLevel
 }
 
-func (s Skiplist) findPath(itm Item) (preds, succs []*Node, found bool) {
+func (s *Skiplist) helpDelete(level int, prev, curr, next *Node) bool {
+	return prev.dcasNext(level, curr, next, false, false)
+}
+
+func (s *Skiplist) findPath(itm Item) (preds, succs []*Node, found bool) {
 	var cmpVal int = 1
 
 	preds = make([]*Node, MaxLevel+1)
 	succs = make([]*Node, MaxLevel+1)
+
+retry:
 	prev := s.head
-loop1:
-	for i := int(s.level); i >= 0; i-- {
-		curr := prev.next[i]
-		if curr == nil {
-			break loop1
-		}
-	loop2:
+	level := int(atomic.LoadInt32(&s.level))
+	for i := level; i >= 0; i-- {
+		curr, _ := prev.getNext(i)
+	levelSearch:
 		for {
+			next, deleted := curr.getNext(i)
+			for deleted {
+				if !s.helpDelete(i, prev, curr, next) {
+					goto retry
+				}
+
+				curr, _ = prev.getNext(i)
+				next, deleted = curr.getNext(i)
+			}
+
 			cmpVal = curr.itm.Compare(itm)
 			if cmpVal < 0 {
 				prev = curr
-				curr = prev.next[i]
+				curr, _ = prev.getNext(i)
 			} else {
-				break loop2
+				break levelSearch
 			}
-		}
-
-		if cmpVal == 0 {
-			found = true
 		}
 
 		preds[i] = prev
 		succs[i] = curr
 	}
 
+	if cmpVal == 0 {
+		found = true
+	}
 	return
 }
 
 func (s *Skiplist) Insert(itm Item) {
-	preds, succs, _ := s.findPath(itm)
-	itemLevel, created := s.randomLevel()
+	itemLevel := s.randomLevel()
 	x := newNode(itm, itemLevel)
+retry:
+	preds, succs, _ := s.findPath(itm)
 
-	if created {
-		preds[itemLevel] = s.head
-		succs[itemLevel] = s.tail
+	x.setNext(0, succs[0], false)
+	if !preds[0].dcasNext(0, succs[0], x, false, false) {
+		goto retry
 	}
 
-	for i := 0; i <= int(itemLevel); i++ {
-		x.next[i] = succs[i]
-		preds[i].next[i] = x
+	for i := 1; i <= int(itemLevel); i++ {
+	fixThisLevel:
+		for {
+			x.setNext(i, succs[i], false)
+			if preds[i].dcasNext(i, succs[i], x, false, false) {
+				break fixThisLevel
+			}
+			preds, succs, _ = s.findPath(itm)
+		}
 	}
 }
 
 func (s *Skiplist) Delete(itm Item) {
-	preds, succs, found := s.findPath(itm)
+	var deleteMarked bool
+	_, succs, found := s.findPath(itm)
 	if !found {
 		return
 	}
 
-	for i := 0; i <= int(s.level); i++ {
-
-		if itm.Compare(preds[i].next[i].itm) != 0 {
-			break
+	delNode := succs[0]
+	targetLevel := int(delNode.level)
+	for i := targetLevel; i >= 0; i-- {
+		next, deleted := delNode.getNext(i)
+		for !deleted {
+			deleteMarked = delNode.dcasNext(i, next, next, false, true)
+			next, deleted = delNode.getNext(i)
 		}
-
-		preds[i].next[i] = succs[i].next[i]
 	}
 
-	if s.head.next[s.level] == s.tail {
-		s.level--
+	if deleteMarked {
+		s.findPath(itm)
 	}
+
 }
 
 type Iterator struct {
-	s     *Skiplist
-	curr  *Node
-	valid bool
+	s          *Skiplist
+	prev, curr *Node
+	valid      bool
 }
 
 func (s *Skiplist) NewIterator() *Iterator {
@@ -196,13 +250,15 @@ func (s *Skiplist) NewIterator() *Iterator {
 }
 
 func (it *Iterator) SeekFirst() {
-	it.curr = it.s.head.next[0]
+	it.prev = it.s.head
+	it.curr, _ = it.s.head.getNext(0)
 	it.valid = true
 }
 
 func (it *Iterator) Seek(itm Item) {
 	it.valid = true
-	_, succs, found := it.s.findPath(itm)
+	preds, succs, found := it.s.findPath(itm)
+	it.prev = preds[0]
 	it.curr = succs[0]
 	if !found {
 		it.valid = false
@@ -222,6 +278,25 @@ func (it *Iterator) Get() Item {
 }
 
 func (it *Iterator) Next() {
+retry:
 	it.valid = true
-	it.curr = it.curr.next[0]
+	next, deleted := it.curr.getNext(0)
+	for deleted {
+		if !it.s.helpDelete(0, it.prev, it.curr, next) {
+			preds, succs, found := it.s.findPath(it.curr.itm)
+			last := it.curr
+			it.prev = preds[0]
+			it.curr = succs[0]
+			if found && last == it.curr {
+				goto retry
+			} else {
+				return
+			}
+		}
+		it.curr, _ = it.prev.getNext(0)
+		next, deleted = it.curr.getNext(0)
+	}
+
+	it.prev = it.curr
+	it.curr = next
 }
