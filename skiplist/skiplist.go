@@ -1,7 +1,6 @@
 package skiplist
 
 import (
-	"bytes"
 	"math/rand"
 	"sync/atomic"
 	"unsafe"
@@ -12,40 +11,6 @@ const p = 0.25
 
 type Item interface {
 	Compare(Item) int
-}
-
-type byteKeyItem []byte
-
-func (itm *byteKeyItem) String() string {
-	return string(*itm)
-}
-
-func NewByteKeyItem(k []byte) Item {
-	itm := byteKeyItem(k)
-	return &itm
-}
-
-func (itm *byteKeyItem) Compare(other Item) int {
-	var otherItem *byteKeyItem
-	var ok bool
-
-	if other == nil {
-		return 1
-	}
-
-	if otherItem, ok = other.(*byteKeyItem); !ok {
-		return 1
-	}
-
-	return bytes.Compare([]byte(*itm), []byte(*otherItem))
-}
-
-type nilItem struct {
-	cmp int
-}
-
-func (i *nilItem) Compare(itm Item) int {
-	return i.cmp
 }
 
 type Skiplist struct {
@@ -232,68 +197,4 @@ func (s *Skiplist) Delete(itm Item) {
 		s.findPath(itm)
 	}
 
-}
-
-type Iterator struct {
-	s          *Skiplist
-	prev, curr *Node
-	valid      bool
-}
-
-func (s *Skiplist) NewIterator() *Iterator {
-	return &Iterator{
-		s: s,
-	}
-}
-
-func (it *Iterator) SeekFirst() {
-	it.prev = it.s.head
-	it.curr, _ = it.s.head.getNext(0)
-	it.valid = true
-}
-
-func (it *Iterator) Seek(itm Item) {
-	it.valid = true
-	preds, succs, found := it.s.findPath(itm)
-	it.prev = preds[0]
-	it.curr = succs[0]
-	if !found {
-		it.valid = false
-	}
-}
-
-func (it *Iterator) Valid() bool {
-	if it.valid && it.curr == it.s.tail {
-		it.valid = false
-	}
-
-	return it.valid
-}
-
-func (it *Iterator) Get() Item {
-	return it.curr.itm
-}
-
-func (it *Iterator) Next() {
-retry:
-	it.valid = true
-	next, deleted := it.curr.getNext(0)
-	for deleted {
-		if !it.s.helpDelete(0, it.prev, it.curr, next) {
-			preds, succs, found := it.s.findPath(it.curr.itm)
-			last := it.curr
-			it.prev = preds[0]
-			it.curr = succs[0]
-			if found && last == it.curr {
-				goto retry
-			} else {
-				return
-			}
-		}
-		it.curr, _ = it.prev.getNext(0)
-		next, deleted = it.curr.getNext(0)
-	}
-
-	it.prev = it.curr
-	it.curr = next
 }
