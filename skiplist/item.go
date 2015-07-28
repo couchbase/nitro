@@ -2,7 +2,16 @@ package skiplist
 
 import (
 	"bytes"
+	"fmt"
 )
+
+type nilItem struct {
+	cmp int
+}
+
+func (i *nilItem) Compare(itm Item) int {
+	return i.cmp
+}
 
 type byteKeyItem []byte
 
@@ -30,10 +39,23 @@ func (itm *byteKeyItem) Compare(other Item) int {
 	return bytes.Compare([]byte(*itm), []byte(*otherItem))
 }
 
-type nilItem struct {
-	cmp int
+type intKeyItem int
+
+func (itm *intKeyItem) String() string {
+	return fmt.Sprint(*itm)
 }
 
-func (i *nilItem) Compare(itm Item) int {
-	return i.cmp
+func (itm *intKeyItem) Compare(other Item) int {
+	var otherItem *intKeyItem
+	var ok bool
+
+	if other == nil {
+		return 1
+	}
+
+	if otherItem, ok = other.(*intKeyItem); !ok {
+		return 1
+	}
+
+	return int(*itm) - int(*otherItem)
 }
