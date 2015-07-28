@@ -88,10 +88,10 @@ func (n *Node) dcasNext(level int, prevPtr, newPtr *Node, prevIsdeleted, newIsde
 	return swapped
 }
 
-func (s *Skiplist) randomLevel() int {
+func (s *Skiplist) randomLevel(randFn func() float32) int {
 	var nextLevel int
 
-	for ; rand.Float32() < p; nextLevel++ {
+	for ; randFn() < p; nextLevel++ {
 	}
 
 	if nextLevel > MaxLevel {
@@ -154,7 +154,11 @@ retry:
 }
 
 func (s *Skiplist) Insert(itm Item) {
-	itemLevel := s.randomLevel()
+	s.Insert2(itm, rand.Float32)
+}
+
+func (s *Skiplist) Insert2(itm Item, randFn func() float32) {
+	itemLevel := s.randomLevel(randFn)
 	x := newNode(itm, itemLevel)
 retry:
 	preds, succs, _ := s.findPath(itm)
