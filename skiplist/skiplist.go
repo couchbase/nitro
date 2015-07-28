@@ -14,18 +14,15 @@ type Item interface {
 	Compare(Item) int
 }
 
-type byteKeyItem struct {
-	key []byte
-}
+type byteKeyItem []byte
 
 func (itm *byteKeyItem) String() string {
-	return string(itm.key)
+	return string(*itm)
 }
 
 func NewByteKeyItem(k []byte) Item {
-	return &byteKeyItem{
-		key: k,
-	}
+	itm := byteKeyItem(k)
+	return &itm
 }
 
 func (itm *byteKeyItem) Compare(other Item) int {
@@ -40,7 +37,7 @@ func (itm *byteKeyItem) Compare(other Item) int {
 		return 1
 	}
 
-	return bytes.Compare(itm.key, otherItem.key)
+	return bytes.Compare([]byte(*itm), []byte(*otherItem))
 }
 
 type nilItem struct {
