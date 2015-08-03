@@ -62,7 +62,7 @@ func newNode(itm Item, level int) *Node {
 }
 
 func (n *Node) setNext(level int, ptr *Node, deleted bool) {
-	atomic.StorePointer(&n.next[level], unsafe.Pointer(&NodeRef{ptr: ptr, deleted: deleted}))
+	n.next[level] = unsafe.Pointer(&NodeRef{ptr: ptr, deleted: deleted})
 }
 
 func (n *Node) getNext(level int) (*Node, bool) {
