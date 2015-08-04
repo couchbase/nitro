@@ -35,12 +35,30 @@ func TestInsert(t *testing.T) {
 	}
 }
 
-func doInsert(sl *Skiplist, wg *sync.WaitGroup, n int) {
+func doInsert(sl *Skiplist, wg *sync.WaitGroup, n int, isRand bool) {
 	defer wg.Done()
 	rnd := rand.New(rand.NewSource(int64(rand.Int())))
 	for i := 0; i < n; i++ {
-		itm := intKeyItem(rnd.Int())
+		var val int
+		if isRand {
+			val = rnd.Int()
+		} else {
+			val = i
+		}
+
+		itm := intKeyItem(val)
 		sl.Insert2(&itm, rnd.Float32)
+	}
+}
+
+func doGet(sl *Skiplist, wg *sync.WaitGroup, n int) {
+	defer wg.Done()
+	rnd := rand.New(rand.NewSource(int64(rand.Int())))
+	for i := 0; i < n; i++ {
+		val := rnd.Int() % n
+		itm := intKeyItem(val)
+		itr := sl.NewIterator()
+		itr.Seek(&itm)
 	}
 }
 
@@ -52,10 +70,29 @@ func TestInsertPerf(t *testing.T) {
 	total := n * runtime.NumCPU()
 	for i := 0; i < runtime.NumCPU(); i++ {
 		wg.Add(1)
-		go doInsert(sl, &wg, n)
+		go doInsert(sl, &wg, n, true)
 	}
 	wg.Wait()
 
 	dur := time.Since(t0)
 	fmt.Printf("%d items took %v -> %v items/s\n", total, dur, float64(total)/float64(dur.Seconds()))
+}
+
+func TestGetPerf(t *testing.T) {
+	var wg sync.WaitGroup
+	sl := New()
+	n := 5000000
+	go doInsert(sl, &wg, n, false)
+	wg.Wait()
+
+	t0 := time.Now()
+	total := n * runtime.NumCPU()
+	for i := 0; i < runtime.NumCPU(); i++ {
+		wg.Add(1)
+		go doGet(sl, &wg, n)
+	}
+	wg.Wait()
+	dur := time.Since(t0)
+	fmt.Printf("%d items took %v -> %v items/s\n", total, dur, float64(total)/float64(dur.Seconds()))
+
 }
