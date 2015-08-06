@@ -5,13 +5,30 @@
 
 static unsigned int seed;
 
-void insert(Skiplist *s, int n) {
+void insert(Skiplist *s, int n, bool is_rand) {
     for (int x=0; x < n; x++) {
-        unsigned r = rand_r(&seed);
+        unsigned r;
+        if (is_rand) {
+            r = rand_r(&seed);
+        } else {
+            r = x;
+        }
         int *v = (int *) skiplist_malloc(sizeof(int));
         *v = r;
         Item *itm = newItem(v, sizeof(int));
         Skiplist_Insert(s, itm);
+    }
+}
+
+void lookup(Skiplist *s, int n) {
+    Node *preds[MaxLevel], *succs[MaxLevel];
+    for (int x=0; x < n; x++) {
+        unsigned r = rand_r(&seed);
+        int *v = (int *) skiplist_malloc(sizeof(int));
+        *v = r % n;
+        Item *itm = newItem(v, sizeof(int));
+        Skiplist_findPath(s, itm, preds, succs);
+        skiplist_free(itm);
     }
 }
 
@@ -22,11 +39,20 @@ int main() {
     Skiplist *s = newSkiplist();
     std::vector<std::thread> threads;
 
+    insert(s, 10000000, false);
+
+    time_t t0 = time(NULL);
+    /*
     for (int x=0; x < 8; x++) {
-        threads.push_back(std::thread(&insert,s, 1000000));
+        threads.push_back(std::thread(&insert,s, 1000000, true));
+    }
+    */
+    for (int x=0; x < 8; x++) {
+        threads.push_back(std::thread(&lookup,s, 1000000));
     }
 
     for (auto& th : threads) th.join();
+    std::cout<<"took "<<(time(NULL)-t0)<<"s"<<std::endl;
 
     exit(0);
     int count = 0;
