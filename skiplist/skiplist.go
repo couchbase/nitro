@@ -9,9 +9,9 @@ import (
 const MaxLevel = 32
 const p = 0.25
 
-type Item interface {
-	Compare(Item) int
-}
+type Item interface{}
+
+type CompareFn func(Item, Item) int
 
 type Skiplist struct {
 	head  *Node
@@ -20,16 +20,8 @@ type Skiplist struct {
 }
 
 func New() *Skiplist {
-	minItem := &nilItem{
-		cmp: -1,
-	}
-
-	maxItem := &nilItem{
-		cmp: 1,
-	}
-
-	head := newNode(minItem, MaxLevel)
-	tail := newNode(maxItem, MaxLevel)
+	head := newNode(nil, MaxLevel)
+	tail := newNode(nil, MaxLevel)
 
 	for i := 0; i <= MaxLevel; i++ {
 		head.setNext(i, tail, false)
@@ -111,7 +103,7 @@ func (s *Skiplist) helpDelete(level int, prev, curr, next *Node) bool {
 	return prev.dcasNext(level, curr, next, false, false)
 }
 
-func (s *Skiplist) findPath(itm Item) (preds, succs []*Node, found bool) {
+func (s *Skiplist) findPath(itm Item, cmp CompareFn) (preds, succs []*Node, found bool) {
 	var cmpVal int = 1
 
 	preds = make([]*Node, MaxLevel+1)
@@ -134,7 +126,7 @@ retry:
 				next, deleted = curr.getNext(i)
 			}
 
-			cmpVal = curr.itm.Compare(itm)
+			cmpVal = compare(cmp, curr.itm, itm)
 			if cmpVal < 0 {
 				prev = curr
 				curr, _ = prev.getNext(i)
@@ -153,15 +145,15 @@ retry:
 	return
 }
 
-func (s *Skiplist) Insert(itm Item) {
-	s.Insert2(itm, rand.Float32)
+func (s *Skiplist) Insert(itm Item, cmp CompareFn) {
+	s.Insert2(itm, cmp, rand.Float32)
 }
 
-func (s *Skiplist) Insert2(itm Item, randFn func() float32) {
+func (s *Skiplist) Insert2(itm Item, cmp CompareFn, randFn func() float32) {
 	itemLevel := s.randomLevel(randFn)
 	x := newNode(itm, itemLevel)
 retry:
-	preds, succs, _ := s.findPath(itm)
+	preds, succs, _ := s.findPath(itm, cmp)
 
 	x.setNext(0, succs[0], false)
 	if !preds[0].dcasNext(0, succs[0], x, false, false) {
@@ -175,14 +167,14 @@ retry:
 			if preds[i].dcasNext(i, succs[i], x, false, false) {
 				break fixThisLevel
 			}
-			preds, succs, _ = s.findPath(itm)
+			preds, succs, _ = s.findPath(itm, cmp)
 		}
 	}
 }
 
-func (s *Skiplist) Delete(itm Item) {
+func (s *Skiplist) Delete(itm Item, cmp CompareFn) {
 	var deleteMarked bool
-	_, succs, found := s.findPath(itm)
+	_, succs, found := s.findPath(itm, cmp)
 	if !found {
 		return
 	}
@@ -198,7 +190,7 @@ func (s *Skiplist) Delete(itm Item) {
 	}
 
 	if deleteMarked {
-		s.findPath(itm)
+		s.findPath(itm, cmp)
 	}
 
 }

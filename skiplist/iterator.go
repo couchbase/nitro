@@ -1,14 +1,16 @@
 package skiplist
 
 type Iterator struct {
+	cmp        CompareFn
 	s          *Skiplist
 	prev, curr *Node
 	valid      bool
 }
 
-func (s *Skiplist) NewIterator() *Iterator {
+func (s *Skiplist) NewIterator(cmp CompareFn) *Iterator {
 	return &Iterator{
-		s: s,
+		cmp: cmp,
+		s:   s,
 	}
 }
 
@@ -20,7 +22,7 @@ func (it *Iterator) SeekFirst() {
 
 func (it *Iterator) Seek(itm Item) {
 	it.valid = true
-	preds, succs, found := it.s.findPath(itm)
+	preds, succs, found := it.s.findPath(itm, it.cmp)
 	it.prev = preds[0]
 	it.curr = succs[0]
 	if !found {
@@ -46,7 +48,7 @@ retry:
 	next, deleted := it.curr.getNext(0)
 	for deleted {
 		if !it.s.helpDelete(0, it.prev, it.curr, next) {
-			preds, succs, found := it.s.findPath(it.curr.itm)
+			preds, succs, found := it.s.findPath(it.curr.itm, it.cmp)
 			last := it.curr
 			it.prev = preds[0]
 			it.curr = succs[0]

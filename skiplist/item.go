@@ -5,12 +5,12 @@ import (
 	"fmt"
 )
 
-type nilItem struct {
-	cmp int
-}
+func compare(cmp CompareFn, this, that Item) int {
+	if this == nil {
+		return 1
+	}
 
-func (i *nilItem) Compare(itm Item) int {
-	return i.cmp
+	return cmp(this, that)
 }
 
 type byteKeyItem []byte
@@ -24,19 +24,10 @@ func NewByteKeyItem(k []byte) Item {
 	return &itm
 }
 
-func (itm *byteKeyItem) Compare(other Item) int {
-	var otherItem *byteKeyItem
-	var ok bool
-
-	if other == nil {
-		return 1
-	}
-
-	if otherItem, ok = other.(*byteKeyItem); !ok {
-		return 1
-	}
-
-	return bytes.Compare([]byte(*itm), []byte(*otherItem))
+func CompareBytes(this Item, that Item) int {
+	thisItem := this.(*byteKeyItem)
+	thatItem := that.(*byteKeyItem)
+	return bytes.Compare([]byte(*thisItem), []byte(*thatItem))
 }
 
 type intKeyItem int
@@ -45,17 +36,8 @@ func (itm *intKeyItem) String() string {
 	return fmt.Sprint(*itm)
 }
 
-func (itm *intKeyItem) Compare(other Item) int {
-	var otherItem *intKeyItem
-	var ok bool
-
-	if other == nil {
-		return 1
-	}
-
-	if otherItem, ok = other.(*intKeyItem); !ok {
-		return 1
-	}
-
-	return int(*itm) - int(*otherItem)
+func CompareInt(this Item, that Item) int {
+	thisItem := this.(*intKeyItem)
+	thatItem := that.(*intKeyItem)
+	return int(*thisItem - *thatItem)
 }

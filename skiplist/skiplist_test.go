@@ -9,15 +9,16 @@ import "time"
 
 func TestInsert(t *testing.T) {
 	s := New()
+	cmp := CompareBytes
 	for i := 0; i < 2000; i++ {
-		s.Insert(NewByteKeyItem([]byte(fmt.Sprintf("%010d", i))))
+		s.Insert(NewByteKeyItem([]byte(fmt.Sprintf("%010d", i))), cmp)
 	}
 
 	for i := 1750; i < 2000; i++ {
-		s.Delete(NewByteKeyItem([]byte(fmt.Sprintf("%010d", i))))
+		s.Delete(NewByteKeyItem([]byte(fmt.Sprintf("%010d", i))), cmp)
 	}
 
-	itr := s.NewIterator()
+	itr := s.NewIterator(cmp)
 	count := 0
 	itr.SeekFirst()
 	itr.Seek(NewByteKeyItem([]byte(fmt.Sprintf("%010d", 1500))))
@@ -37,6 +38,7 @@ func TestInsert(t *testing.T) {
 
 func doInsert(sl *Skiplist, wg *sync.WaitGroup, n int, isRand bool) {
 	defer wg.Done()
+	cmp := CompareInt
 	rnd := rand.New(rand.NewSource(int64(rand.Int())))
 	for i := 0; i < n; i++ {
 		var val int
@@ -47,19 +49,22 @@ func doInsert(sl *Skiplist, wg *sync.WaitGroup, n int, isRand bool) {
 		}
 
 		itm := intKeyItem(val)
-		sl.Insert2(&itm, rnd.Float32)
+		sl.Insert2(&itm, cmp, rnd.Float32)
 	}
 }
 
 func doGet(sl *Skiplist, wg *sync.WaitGroup, n int) {
 	defer wg.Done()
 	rnd := rand.New(rand.NewSource(int64(rand.Int())))
+	cmp := CompareInt
+
 	for i := 0; i < n; i++ {
 		val := rnd.Int() % n
 		itm := intKeyItem(val)
-		itr := sl.NewIterator()
+		itr := sl.NewIterator(cmp)
 		itr.Seek(&itm)
 	}
+
 }
 
 func TestInsertPerf(t *testing.T) {
@@ -81,7 +86,7 @@ func TestInsertPerf(t *testing.T) {
 func TestGetPerf(t *testing.T) {
 	var wg sync.WaitGroup
 	sl := New()
-	n := 5000000
+	n := 1000000
 	go doInsert(sl, &wg, n, false)
 	wg.Wait()
 
