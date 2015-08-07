@@ -91,6 +91,7 @@ func TestGetPerf(t *testing.T) {
 	var wg sync.WaitGroup
 	sl := New()
 	n := 1000000
+	wg.Add(1)
 	go doInsert(sl, &wg, n, false)
 	wg.Wait()
 
