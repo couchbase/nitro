@@ -10,12 +10,14 @@ import "time"
 func TestInsert(t *testing.T) {
 	s := New()
 	cmp := CompareBytes
+	preds := make([]*Node, MaxLevel)
+	succs := make([]*Node, MaxLevel)
 	for i := 0; i < 2000; i++ {
-		s.Insert(NewByteKeyItem([]byte(fmt.Sprintf("%010d", i))), cmp)
+		s.Insert(NewByteKeyItem([]byte(fmt.Sprintf("%010d", i))), cmp, preds, succs)
 	}
 
 	for i := 1750; i < 2000; i++ {
-		s.Delete(NewByteKeyItem([]byte(fmt.Sprintf("%010d", i))), cmp)
+		s.Delete(NewByteKeyItem([]byte(fmt.Sprintf("%010d", i))), cmp, preds, succs)
 	}
 
 	itr := s.NewIterator(cmp)
@@ -38,6 +40,8 @@ func TestInsert(t *testing.T) {
 
 func doInsert(sl *Skiplist, wg *sync.WaitGroup, n int, isRand bool) {
 	defer wg.Done()
+	preds := make([]*Node, MaxLevel)
+	succs := make([]*Node, MaxLevel)
 	cmp := CompareInt
 	rnd := rand.New(rand.NewSource(int64(rand.Int())))
 	for i := 0; i < n; i++ {
@@ -49,7 +53,7 @@ func doInsert(sl *Skiplist, wg *sync.WaitGroup, n int, isRand bool) {
 		}
 
 		itm := intKeyItem(val)
-		sl.Insert2(&itm, cmp, rnd.Float32)
+		sl.Insert2(&itm, cmp, preds, succs, rnd.Float32)
 	}
 }
 
@@ -58,10 +62,10 @@ func doGet(sl *Skiplist, wg *sync.WaitGroup, n int) {
 	rnd := rand.New(rand.NewSource(int64(rand.Int())))
 	cmp := CompareInt
 
+	itr := sl.NewIterator(cmp)
 	for i := 0; i < n; i++ {
 		val := rnd.Int() % n
 		itm := intKeyItem(val)
-		itr := sl.NewIterator(cmp)
 		itr.Seek(&itm)
 	}
 

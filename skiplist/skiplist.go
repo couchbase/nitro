@@ -103,11 +103,8 @@ func (s *Skiplist) helpDelete(level int, prev, curr, next *Node) bool {
 	return prev.dcasNext(level, curr, next, false, false)
 }
 
-func (s *Skiplist) findPath(itm Item, cmp CompareFn) (preds, succs []*Node, found bool) {
+func (s *Skiplist) findPath(itm Item, cmp CompareFn, preds, succs []*Node) (found bool) {
 	var cmpVal int = 1
-
-	preds = make([]*Node, MaxLevel+1)
-	succs = make([]*Node, MaxLevel+1)
 
 retry:
 	prev := s.head
@@ -145,15 +142,15 @@ retry:
 	return
 }
 
-func (s *Skiplist) Insert(itm Item, cmp CompareFn) {
-	s.Insert2(itm, cmp, rand.Float32)
+func (s *Skiplist) Insert(itm Item, cmp CompareFn, preds, succs []*Node) {
+	s.Insert2(itm, cmp, preds, succs, rand.Float32)
 }
 
-func (s *Skiplist) Insert2(itm Item, cmp CompareFn, randFn func() float32) {
+func (s *Skiplist) Insert2(itm Item, cmp CompareFn, preds, succs []*Node, randFn func() float32) {
 	itemLevel := s.randomLevel(randFn)
 	x := newNode(itm, itemLevel)
 retry:
-	preds, succs, _ := s.findPath(itm, cmp)
+	s.findPath(itm, cmp, preds, succs)
 
 	x.setNext(0, succs[0], false)
 	if !preds[0].dcasNext(0, succs[0], x, false, false) {
@@ -167,14 +164,14 @@ retry:
 			if preds[i].dcasNext(i, succs[i], x, false, false) {
 				break fixThisLevel
 			}
-			preds, succs, _ = s.findPath(itm, cmp)
+			s.findPath(itm, cmp, preds, succs)
 		}
 	}
 }
 
-func (s *Skiplist) Delete(itm Item, cmp CompareFn) {
+func (s *Skiplist) Delete(itm Item, cmp CompareFn, preds, succs []*Node) {
 	var deleteMarked bool
-	_, succs, found := s.findPath(itm, cmp)
+	found := s.findPath(itm, cmp, preds, succs)
 	if !found {
 		return
 	}
@@ -190,7 +187,7 @@ func (s *Skiplist) Delete(itm Item, cmp CompareFn) {
 	}
 
 	if deleteMarked {
-		s.findPath(itm, cmp)
+		s.findPath(itm, cmp, preds, succs)
 	}
 
 }
