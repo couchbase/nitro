@@ -12,8 +12,8 @@ func (s *Skiplist) NewIterator(cmp CompareFn) *Iterator {
 	return &Iterator{
 		cmp:   cmp,
 		s:     s,
-		preds: make([]*Node, MaxLevel),
-		succs: make([]*Node, MaxLevel),
+		preds: make([]*Node, MaxLevel+1),
+		succs: make([]*Node, MaxLevel+1),
 	}
 }
 

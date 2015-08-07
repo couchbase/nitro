@@ -10,8 +10,8 @@ import "time"
 func TestInsert(t *testing.T) {
 	s := New()
 	cmp := CompareBytes
-	preds := make([]*Node, MaxLevel)
-	succs := make([]*Node, MaxLevel)
+	preds := make([]*Node, MaxLevel+1)
+	succs := make([]*Node, MaxLevel+1)
 	for i := 0; i < 2000; i++ {
 		s.Insert(NewByteKeyItem([]byte(fmt.Sprintf("%010d", i))), cmp, preds, succs)
 	}
@@ -40,8 +40,8 @@ func TestInsert(t *testing.T) {
 
 func doInsert(sl *Skiplist, wg *sync.WaitGroup, n int, isRand bool) {
 	defer wg.Done()
-	preds := make([]*Node, MaxLevel)
-	succs := make([]*Node, MaxLevel)
+	preds := make([]*Node, MaxLevel+1)
+	succs := make([]*Node, MaxLevel+1)
 	cmp := CompareInt
 	rnd := rand.New(rand.NewSource(int64(rand.Int())))
 	for i := 0; i < n; i++ {
