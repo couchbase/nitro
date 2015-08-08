@@ -1,19 +1,20 @@
 package skiplist
 
 type Iterator struct {
-	cmp          CompareFn
-	s            *Skiplist
-	prev, curr   *Node
-	valid        bool
-	preds, succs []*Node
+	cmp        CompareFn
+	s          *Skiplist
+	prev, curr *Node
+	valid      bool
+	buf        *ActionBuffer
 }
 
-func (s *Skiplist) NewIterator(cmp CompareFn) *Iterator {
+func (s *Skiplist) NewIterator(cmp CompareFn,
+	buf *ActionBuffer) *Iterator {
+
 	return &Iterator{
-		cmp:   cmp,
-		s:     s,
-		preds: make([]*Node, MaxLevel+1),
-		succs: make([]*Node, MaxLevel+1),
+		cmp: cmp,
+		s:   s,
+		buf: buf,
 	}
 }
 
@@ -25,9 +26,9 @@ func (it *Iterator) SeekFirst() {
 
 func (it *Iterator) Seek(itm Item) {
 	it.valid = true
-	found := it.s.findPath(itm, it.cmp, it.preds, it.succs)
-	it.prev = it.preds[0]
-	it.curr = it.succs[0]
+	found := it.s.findPath(itm, it.cmp, it.buf)
+	it.prev = it.buf.preds[0]
+	it.curr = it.buf.succs[0]
 	if !found {
 		it.valid = false
 	}
@@ -51,10 +52,10 @@ retry:
 	next, deleted := it.curr.getNext(0)
 	for deleted {
 		if !it.s.helpDelete(0, it.prev, it.curr, next) {
-			found := it.s.findPath(it.curr.itm, it.cmp, it.preds, it.succs)
+			found := it.s.findPath(it.curr.itm, it.cmp, it.buf)
 			last := it.curr
-			it.prev = it.preds[0]
-			it.curr = it.succs[0]
+			it.prev = it.buf.preds[0]
+			it.curr = it.buf.succs[0]
 			if found && last == it.curr {
 				goto retry
 			} else {

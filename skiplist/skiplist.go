@@ -40,6 +40,22 @@ func New() *Skiplist {
 	return s
 }
 
+type ActionBuffer struct {
+	preds []*Node
+	succs []*Node
+}
+
+func (s *Skiplist) MakeBuf() *ActionBuffer {
+	return &ActionBuffer{
+		preds: make([]*Node, MaxLevel+1),
+		succs: make([]*Node, MaxLevel+1),
+	}
+}
+
+// TODO: Use sync pool
+func (s *Skiplist) FreeBuf(b *ActionBuffer) {
+}
+
 type Node struct {
 	next  []unsafe.Pointer
 	itm   Item
@@ -108,7 +124,8 @@ func (s *Skiplist) helpDelete(level int, prev, curr, next *Node) bool {
 	return prev.dcasNext(level, curr, next, false, false)
 }
 
-func (s *Skiplist) findPath(itm Item, cmp CompareFn, preds, succs []*Node) (found bool) {
+func (s *Skiplist) findPath(itm Item, cmp CompareFn,
+	buf *ActionBuffer) (found bool) {
 	var cmpVal int = 1
 
 retry:
@@ -138,8 +155,8 @@ retry:
 			}
 		}
 
-		preds[i] = prev
-		succs[i] = curr
+		buf.preds[i] = prev
+		buf.succs[i] = curr
 	}
 
 	if cmpVal == 0 {
@@ -148,18 +165,19 @@ retry:
 	return
 }
 
-func (s *Skiplist) Insert(itm Item, cmp CompareFn, preds, succs []*Node) {
-	s.Insert2(itm, cmp, preds, succs, rand.Float32)
+func (s *Skiplist) Insert(itm Item, cmp CompareFn, buf *ActionBuffer) {
+	s.Insert2(itm, cmp, buf, rand.Float32)
 }
 
-func (s *Skiplist) Insert2(itm Item, cmp CompareFn, preds, succs []*Node, randFn func() float32) {
+func (s *Skiplist) Insert2(itm Item, cmp CompareFn,
+	buf *ActionBuffer, randFn func() float32) {
 	itemLevel := s.randomLevel(randFn)
 	x := newNode(itm, itemLevel)
 retry:
-	s.findPath(itm, cmp, preds, succs)
+	s.findPath(itm, cmp, buf)
 
-	x.setNext(0, succs[0], false)
-	if !preds[0].dcasNext(0, succs[0], x, false, false) {
+	x.setNext(0, buf.succs[0], false)
+	if !buf.preds[0].dcasNext(0, buf.succs[0], x, false, false) {
 		atomic.AddUint32(&InsertConflicts, 1)
 		goto retry
 	}
@@ -167,23 +185,23 @@ retry:
 	for i := 1; i <= int(itemLevel); i++ {
 	fixThisLevel:
 		for {
-			x.setNext(i, succs[i], false)
-			if preds[i].dcasNext(i, succs[i], x, false, false) {
+			x.setNext(i, buf.succs[i], false)
+			if buf.preds[i].dcasNext(i, buf.succs[i], x, false, false) {
 				break fixThisLevel
 			}
-			s.findPath(itm, cmp, preds, succs)
+			s.findPath(itm, cmp, buf)
 		}
 	}
 }
 
-func (s *Skiplist) Delete(itm Item, cmp CompareFn, preds, succs []*Node) {
+func (s *Skiplist) Delete(itm Item, cmp CompareFn, buf *ActionBuffer) {
 	var deleteMarked bool
-	found := s.findPath(itm, cmp, preds, succs)
+	found := s.findPath(itm, cmp, buf)
 	if !found {
 		return
 	}
 
-	delNode := succs[0]
+	delNode := buf.succs[0]
 	targetLevel := int(delNode.level)
 	for i := targetLevel; i >= 0; i-- {
 		next, deleted := delNode.getNext(i)
@@ -194,7 +212,7 @@ func (s *Skiplist) Delete(itm Item, cmp CompareFn, preds, succs []*Node) {
 	}
 
 	if deleteMarked {
-		s.findPath(itm, cmp, preds, succs)
+		s.findPath(itm, cmp, buf)
 	}
 
 }
