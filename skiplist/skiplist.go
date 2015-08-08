@@ -9,6 +9,11 @@ import (
 const MaxLevel = 32
 const p = 0.25
 
+var (
+	InsertConflicts uint32
+	ReadConflicts   uint32
+)
+
 type Item interface{}
 
 type CompareFn func(Item, Item) int
@@ -116,6 +121,7 @@ retry:
 			next, deleted := curr.getNext(i)
 			for deleted {
 				if !s.helpDelete(i, prev, curr, next) {
+					atomic.AddUint32(&ReadConflicts, 1)
 					goto retry
 				}
 
@@ -154,6 +160,7 @@ retry:
 
 	x.setNext(0, succs[0], false)
 	if !preds[0].dcasNext(0, succs[0], x, false, false) {
+		atomic.AddUint32(&InsertConflicts, 1)
 		goto retry
 	}
 
