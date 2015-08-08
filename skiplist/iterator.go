@@ -24,14 +24,12 @@ func (it *Iterator) SeekFirst() {
 	it.valid = true
 }
 
-func (it *Iterator) Seek(itm Item) {
+func (it *Iterator) Seek(itm Item) bool {
 	it.valid = true
 	found := it.s.findPath(itm, it.cmp, it.buf)
 	it.prev = it.buf.preds[0]
 	it.curr = it.buf.succs[0]
-	if !found {
-		it.valid = false
-	}
+	return found
 }
 
 func (it *Iterator) Valid() bool {
