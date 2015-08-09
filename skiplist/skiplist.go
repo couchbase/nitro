@@ -194,11 +194,11 @@ retry:
 	}
 }
 
-func (s *Skiplist) Delete(itm Item, cmp CompareFn, buf *ActionBuffer) {
+func (s *Skiplist) Delete(itm Item, cmp CompareFn, buf *ActionBuffer) bool {
 	var deleteMarked bool
 	found := s.findPath(itm, cmp, buf)
 	if !found {
-		return
+		return false
 	}
 
 	delNode := buf.succs[0]
@@ -213,6 +213,9 @@ func (s *Skiplist) Delete(itm Item, cmp CompareFn, buf *ActionBuffer) {
 
 	if deleteMarked {
 		s.findPath(itm, cmp, buf)
+		return true
 	}
+
+	return false
 
 }
