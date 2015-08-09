@@ -12,6 +12,12 @@ type Item struct {
 	data           []byte
 }
 
+func NewItem(data []byte) *Item {
+	return &Item{
+		data: data,
+	}
+}
+
 func InsertCompare(this skiplist.Item, that skiplist.Item) int {
 	var v int
 	if v = DataCompare(this, that); v == 0 {
@@ -93,10 +99,19 @@ func (w *Writer) Get(x *Item) *Item {
 }
 
 type MemDB struct {
-	store     *skiplist.Skiplist
-	currSn    uint32
-	snapshots *skiplist.Skiplist
-	lastGCSn  uint32
+	store       *skiplist.Skiplist
+	currSn      uint32
+	snapshots   *skiplist.Skiplist
+	isGCRunning int32
+	lastGCSn    uint32
+}
+
+func New() *MemDB {
+	return &MemDB{
+		store:     skiplist.New(),
+		snapshots: skiplist.New(),
+		currSn:    1,
+	}
 }
 
 func (m *MemDB) getCurrSn() uint32 {
@@ -134,7 +149,9 @@ func (s *Snapshot) Close() {
 		buf := s.db.snapshots.MakeBuf()
 		defer s.db.snapshots.FreeBuf(buf)
 		s.db.snapshots.Delete(s, CompareSnapshot, buf)
-		s.db.GC()
+		if atomic.CompareAndSwapInt32(&s.db.isGCRunning, 0, 1) {
+			go s.db.GC()
+		}
 	}
 }
 
@@ -142,7 +159,7 @@ func CompareSnapshot(this skiplist.Item, that skiplist.Item) int {
 	thisItem := this.(*Snapshot)
 	thatItem := that.(*Snapshot)
 
-	return int(thisItem.sn - thatItem.sn)
+	return int(thisItem.sn) - int(thatItem.sn)
 }
 
 func (m *MemDB) NewSnapshot() *Snapshot {
@@ -167,7 +184,7 @@ loop:
 		return
 	}
 	itm := it.iter.Get().(*Item)
-	if itm.bornSn > it.snap.sn || itm.deadSn <= it.snap.sn {
+	if itm.bornSn > it.snap.sn || (itm.deadSn > 0 && itm.deadSn <= it.snap.sn) {
 		it.iter.Next()
 		goto loop
 	}
@@ -219,9 +236,10 @@ func (m *MemDB) collectDead(sn uint32) {
 	defer m.snapshots.FreeBuf(buf1)
 	defer m.snapshots.FreeBuf(buf2)
 	iter := m.store.NewIterator(DataCompare, buf1)
+	iter.SeekFirst()
 	for ; iter.Valid(); iter.Next() {
 		itm := iter.Get().(*Item)
-		if itm.deadSn <= sn {
+		if itm.deadSn > 0 && itm.deadSn <= sn {
 			m.store.Delete(itm, DataCompare, buf2)
 		}
 	}
@@ -240,4 +258,19 @@ func (m *MemDB) GC() {
 			m.collectDead(m.lastGCSn)
 		}
 	}
+
+	atomic.CompareAndSwapInt32(&m.isGCRunning, 1, 0)
+}
+
+func (m *MemDB) GetSnapshots() []*Snapshot {
+	var snaps []*Snapshot
+	buf := m.snapshots.MakeBuf()
+	defer m.snapshots.FreeBuf(buf)
+	iter := m.snapshots.NewIterator(CompareSnapshot, buf)
+	iter.SeekFirst()
+	for ; iter.Valid(); iter.Next() {
+		snaps = append(snaps, iter.Get().(*Snapshot))
+	}
+
+	return snaps
 }
