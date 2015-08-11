@@ -10,9 +10,9 @@ const MaxLevel = 32
 const p = 0.25
 
 var (
-	InsertConflicts uint32
-	ReadConflicts   uint32
-	LevelStats      [MaxLevel]uint32
+	insertConflicts uint32
+	readConflicts   uint32
+	levelNodesCount [MaxLevel + 1]uint32
 )
 
 type Item interface{}
@@ -68,7 +68,7 @@ type NodeRef struct {
 }
 
 func newNode(itm Item, level int) *Node {
-	atomic.AddUint32(&LevelStats[level], 1)
+	atomic.AddUint32(&levelNodesCount[level], 1)
 	return &Node{
 		next:  make([]unsafe.Pointer, level+1),
 		itm:   itm,
@@ -140,7 +140,7 @@ retry:
 			next, deleted := curr.getNext(i)
 			for deleted {
 				if !s.helpDelete(i, prev, curr, next) {
-					atomic.AddUint32(&ReadConflicts, 1)
+					atomic.AddUint32(&readConflicts, 1)
 					goto retry
 				}
 
@@ -180,7 +180,7 @@ retry:
 
 	x.setNext(0, buf.succs[0], false)
 	if !buf.preds[0].dcasNext(0, buf.succs[0], x, false, false) {
-		atomic.AddUint32(&InsertConflicts, 1)
+		atomic.AddUint32(&insertConflicts, 1)
 		goto retry
 	}
 

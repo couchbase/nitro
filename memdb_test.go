@@ -8,6 +8,7 @@ import "math/rand"
 import "sync"
 import "runtime"
 import "encoding/binary"
+import "github.com/t3rm1n4l/memdb/skiplist"
 
 func TestInsert(t *testing.T) {
 	db := New()
@@ -145,6 +146,7 @@ func TestLoadStoreDisk(t *testing.T) {
 	fmt.Printf("Inserting %v items took %v\n", n, time.Since(t0))
 	snap := db.NewSnapshot()
 	snap = db.NewSnapshot()
+	fmt.Println(skiplist.GetStats())
 
 	t0 = time.Now()
 	err := db.StoreToDisk("db.dump", snap)
@@ -167,4 +169,5 @@ func TestLoadStoreDisk(t *testing.T) {
 	if count != n {
 		t.Errorf("Expected %v, got %v", n, count)
 	}
+	fmt.Println(skiplist.GetStats())
 }
