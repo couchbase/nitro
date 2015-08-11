@@ -1,15 +1,55 @@
 package memdb
 
 import (
+	"bufio"
 	"bytes"
+	"encoding/binary"
+	"errors"
 	"github.com/t3rm1n4l/memdb/skiplist"
+	"io"
 	"math/rand"
+	"os"
+	"path"
 	"sync/atomic"
+)
+
+const DiskBlockSize = 512 * 1024
+
+var (
+	ErrNotEnoughSpace = errors.New("Not enough space in the buffer")
 )
 
 type Item struct {
 	bornSn, deadSn uint32
 	data           []byte
+}
+
+func (itm *Item) Encode(buf []byte, w io.Writer) error {
+	l := 2
+	if len(buf) < l {
+		return ErrNotEnoughSpace
+	}
+
+	binary.BigEndian.PutUint16(buf[0:2], uint16(len(itm.data)))
+	if _, err := w.Write(buf[0:2]); err != nil {
+		return err
+	}
+	if _, err := w.Write(itm.data); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (itm *Item) Decode(buf []byte, r io.Reader) error {
+	if _, err := io.ReadFull(r, buf[0:2]); err != nil {
+		return err
+	}
+	l := binary.BigEndian.Uint16(buf[0:2])
+	itm.data = make([]byte, int(l))
+	_, err := io.ReadFull(r, itm.data)
+
+	return err
 }
 
 func NewItem(data []byte) *Item {
@@ -133,6 +173,29 @@ type Snapshot struct {
 	sn       uint32
 	refCount int32
 	db       *MemDB
+}
+
+func (s *Snapshot) Encode(buf []byte, w io.Writer) error {
+	l := 4
+	if len(buf) < l {
+		return ErrNotEnoughSpace
+	}
+
+	binary.BigEndian.PutUint32(buf[0:4], s.sn)
+	if _, err := w.Write(buf[0:4]); err != nil {
+		return err
+	}
+
+	return nil
+
+}
+
+func (s *Snapshot) Decode(buf []byte, r io.Reader) error {
+	if _, err := io.ReadFull(r, buf[0:4]); err != nil {
+		return err
+	}
+	s.sn = binary.BigEndian.Uint32(buf[0:4])
+	return nil
 }
 
 func (s *Snapshot) Open() bool {
@@ -273,4 +336,82 @@ func (m *MemDB) GetSnapshots() []*Snapshot {
 	}
 
 	return snaps
+}
+
+func (m *MemDB) DumpToDisk(dir string, snap *Snapshot) error {
+	os.MkdirAll(dir, 0755)
+	file, err := os.OpenFile(path.Join(dir, "records.data"), os.O_WRONLY|os.O_CREATE, 0755)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	w := bufio.NewWriterSize(file, DiskBlockSize)
+	defer w.Flush()
+
+	buf := make([]byte, 4)
+	itr := m.NewIterator(snap)
+	if itr == nil {
+		return errors.New("Invalid snapshot")
+	}
+	defer itr.Close()
+
+	if err := snap.Encode(buf, w); err != nil {
+		return err
+	}
+
+	for itr.SeekFirst(); itr.Valid(); itr.Next() {
+		itm := itr.Get()
+		if err := itm.Encode(buf, w); err != nil {
+			return err
+		}
+	}
+
+	endItem := &Item{
+		data: []byte(nil),
+	}
+
+	if err := endItem.Encode(buf, w); err != nil {
+		return err
+	}
+
+	w.Flush()
+
+	return nil
+}
+
+func (m *MemDB) LoadFromDisk(dir string) (*Snapshot, error) {
+	file, err := os.OpenFile(path.Join(dir, "records.data"), os.O_RDONLY, 0755)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	w := m.NewWriter()
+
+	buf := make([]byte, 4)
+	r := bufio.NewReaderSize(file, DiskBlockSize)
+	snap := &Snapshot{db: m, refCount: 1}
+	if err := snap.Decode(buf, r); err != nil {
+		return nil, err
+	}
+	m.currSn = snap.sn
+
+loop:
+	for {
+		itm := &Item{}
+		itm.Decode(buf, r)
+		if len(itm.data) == 0 {
+			break loop
+		}
+
+		w.Put(itm)
+	}
+
+	snbuf := m.snapshots.MakeBuf()
+	defer m.snapshots.FreeBuf(snbuf)
+	m.snapshots.Insert(snap, CompareSnapshot, snbuf)
+	m.currSn++
+
+	return snap, nil
 }
