@@ -12,6 +12,7 @@ const p = 0.25
 var (
 	InsertConflicts uint32
 	ReadConflicts   uint32
+	LevelStats      [MaxLevel]uint32
 )
 
 type Item interface{}
@@ -67,6 +68,7 @@ type NodeRef struct {
 }
 
 func newNode(itm Item, level int) *Node {
+	atomic.AddUint32(&LevelStats[level], 1)
 	return &Node{
 		next:  make([]unsafe.Pointer, level+1),
 		itm:   itm,
