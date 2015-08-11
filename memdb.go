@@ -338,7 +338,7 @@ func (m *MemDB) GetSnapshots() []*Snapshot {
 	return snaps
 }
 
-func (m *MemDB) DumpToDisk(dir string, snap *Snapshot) error {
+func (m *MemDB) StoreToDisk(dir string, snap *Snapshot) error {
 	os.MkdirAll(dir, 0755)
 	file, err := os.OpenFile(path.Join(dir, "records.data"), os.O_WRONLY|os.O_CREATE, 0755)
 	if err != nil {
