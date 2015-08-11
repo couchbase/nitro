@@ -10,6 +10,8 @@ import (
 	"math/rand"
 	"os"
 	"path"
+	"runtime"
+	"sync"
 	"sync/atomic"
 )
 
@@ -381,13 +383,12 @@ func (m *MemDB) StoreToDisk(dir string, snap *Snapshot) error {
 }
 
 func (m *MemDB) LoadFromDisk(dir string) (*Snapshot, error) {
+	var wg sync.WaitGroup
 	file, err := os.OpenFile(path.Join(dir, "records.data"), os.O_RDONLY, 0755)
 	if err != nil {
 		return nil, err
 	}
 	defer file.Close()
-
-	w := m.NewWriter()
 
 	buf := make([]byte, 4)
 	r := bufio.NewReaderSize(file, DiskBlockSize)
@@ -397,6 +398,18 @@ func (m *MemDB) LoadFromDisk(dir string) (*Snapshot, error) {
 	}
 	m.currSn = snap.sn
 
+	ch := make(chan *Item, 100000)
+	for i := 0; i < runtime.NumCPU(); i++ {
+		wg.Add(1)
+		go func(wg *sync.WaitGroup) {
+			defer wg.Done()
+			w := m.NewWriter()
+			for itm := range ch {
+				w.Put(itm)
+			}
+		}(&wg)
+	}
+
 loop:
 	for {
 		itm := &Item{}
@@ -405,8 +418,11 @@ loop:
 			break loop
 		}
 
-		w.Put(itm)
+		ch <- itm
 	}
+
+	close(ch)
+	wg.Wait()
 
 	snbuf := m.snapshots.MakeBuf()
 	defer m.snapshots.FreeBuf(snbuf)
