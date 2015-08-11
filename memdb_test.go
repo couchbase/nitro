@@ -1,6 +1,7 @@
 package memdb
 
 import "fmt"
+import "os"
 import "testing"
 import "time"
 import "math/rand"
@@ -44,7 +45,7 @@ func TestInsert(t *testing.T) {
 	}
 }
 
-func doInsert(db *MemDB, wg *sync.WaitGroup, n int, isRand bool) {
+func doInsert(db *MemDB, wg *sync.WaitGroup, n int, isRand bool, shouldSnap bool) {
 	defer wg.Done()
 	w := db.NewWriter()
 	rnd := rand.New(rand.NewSource(int64(rand.Int())))
@@ -55,7 +56,7 @@ func doInsert(db *MemDB, wg *sync.WaitGroup, n int, isRand bool) {
 		} else {
 			val = i
 		}
-		if i%100000 == 0 {
+		if shouldSnap && i%100000 == 0 {
 			s := w.NewSnapshot()
 			s.Close()
 		}
@@ -74,7 +75,7 @@ func TestInsertPerf(t *testing.T) {
 	total := n * runtime.NumCPU()
 	for i := 0; i < runtime.NumCPU(); i++ {
 		wg.Add(1)
-		go doInsert(db, &wg, n, true)
+		go doInsert(db, &wg, n, true, true)
 	}
 	wg.Wait()
 
@@ -105,7 +106,7 @@ func TestGetPerf(t *testing.T) {
 	db := New()
 	n := 1000000
 	wg.Add(1)
-	go doInsert(db, &wg, n, false)
+	go doInsert(db, &wg, n, false, true)
 	wg.Wait()
 	snap := db.NewSnapshot()
 
@@ -118,4 +119,50 @@ func TestGetPerf(t *testing.T) {
 	wg.Wait()
 	dur := time.Since(t0)
 	fmt.Printf("%d items took %v -> %v items/s\n", total, dur, float64(total)/float64(dur.Seconds()))
+}
+
+func CountItems(db *MemDB, snap *Snapshot) int {
+	var count int
+	itr := db.NewIterator(snap)
+	for itr.SeekFirst(); itr.Valid(); itr.Next() {
+		count++
+	}
+	itr.Close()
+	return count
+}
+
+func TestLoadStoreDisk(t *testing.T) {
+	os.RemoveAll("db.dump")
+	var wg sync.WaitGroup
+	db := New()
+	n := 1000000
+	t0 := time.Now()
+	wg.Add(1)
+	go doInsert(db, &wg, n, false, false)
+	wg.Wait()
+	fmt.Printf("Inserting %v items took %v\n", n, time.Since(t0))
+	snap := db.NewSnapshot()
+	snap = db.NewSnapshot()
+
+	t0 = time.Now()
+	err := db.DumpToDisk("db.dump", snap)
+	if err != nil {
+		t.Errorf("Expected no error. got=%v", err)
+	}
+
+	fmt.Printf("Dumping to disk took %v\n", time.Since(t0))
+
+	snap.Close()
+	db = New()
+	t0 = time.Now()
+	snap, err = db.LoadFromDisk("db.dump")
+	if err != nil {
+		t.Errorf("Expected no error. got=%v", err)
+	}
+	fmt.Printf("Loading from disk took %v\n", time.Since(t0))
+
+	count := CountItems(db, snap)
+	if count != n {
+		t.Errorf("Expected %v, got %v", n, count)
+	}
 }
