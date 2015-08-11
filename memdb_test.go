@@ -145,12 +145,12 @@ func TestLoadStoreDisk(t *testing.T) {
 	snap = db.NewSnapshot()
 
 	t0 = time.Now()
-	err := db.DumpToDisk("db.dump", snap)
+	err := db.StoreToDisk("db.dump", snap)
 	if err != nil {
 		t.Errorf("Expected no error. got=%v", err)
 	}
 
-	fmt.Printf("Dumping to disk took %v\n", time.Since(t0))
+	fmt.Printf("Storing to disk took %v\n", time.Since(t0))
 
 	snap.Close()
 	db = New()
