@@ -58,10 +58,14 @@ func (s *Skiplist) FreeBuf(b *ActionBuffer) {
 }
 
 type Node struct {
-	next  []unsafe.Pointer
-	itm   Item
-	level uint16
+	next []unsafe.Pointer
+	itm  Item
 }
+
+func (n Node) getLevel() int {
+	return int(len(n.next) - 1)
+}
+
 type NodeRef struct {
 	deleted bool
 	ptr     *Node
@@ -70,9 +74,8 @@ type NodeRef struct {
 func newNode(itm Item, level int) *Node {
 	atomic.AddUint32(&levelNodesCount[level], 1)
 	return &Node{
-		next:  make([]unsafe.Pointer, level+1),
-		itm:   itm,
-		level: uint16(level),
+		next: make([]unsafe.Pointer, level+1),
+		itm:  itm,
 	}
 }
 
@@ -204,7 +207,7 @@ func (s *Skiplist) Delete(itm Item, cmp CompareFn, buf *ActionBuffer) bool {
 	}
 
 	delNode := buf.succs[0]
-	targetLevel := int(delNode.level)
+	targetLevel := delNode.getLevel()
 	for i := targetLevel; i >= 0; i-- {
 		next, deleted := delNode.getNext(i)
 		for !deleted {
