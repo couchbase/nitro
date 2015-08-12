@@ -100,11 +100,15 @@ func (w *Writer) Put(x *Item) {
 	w.store.Insert2(x, InsertCompare, w.buf, w.rand.Float32)
 }
 
-// find first item, seek until dead=0, mark dead=sn
+// Find first item, seek until dead=0, mark dead=sn
 func (w *Writer) Delete(x *Item) bool {
 	gotItem := w.Get(x)
 	if gotItem != nil {
 		sn := w.getCurrSn()
+		if gotItem.bornSn == sn {
+			return w.store.Delete(x, DataCompare, w.buf)
+		}
+
 		return atomic.CompareAndSwapUint32(&gotItem.deadSn, 0, sn)
 	}
 
