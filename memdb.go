@@ -21,6 +21,8 @@ var (
 	ErrNotEnoughSpace = errors.New("Not enough space in the buffer")
 )
 
+type KeyCompare func([]byte, []byte) int
+
 type Item struct {
 	bornSn, deadSn uint32
 	data           []byte
@@ -60,30 +62,39 @@ func NewItem(data []byte) *Item {
 	}
 }
 
-func InsertCompare(this skiplist.Item, that skiplist.Item) int {
-	var v int
-	if v = DataCompare(this, that); v == 0 {
+func newInsertCompare(keyCmp KeyCompare) skiplist.CompareFn {
+	return func(this skiplist.Item, that skiplist.Item) int {
+		var v int
 		thisItem := this.(*Item)
 		thatItem := that.(*Item)
-		v = int(thisItem.bornSn - thatItem.bornSn)
-	}
+		if v = keyCmp(thisItem.data, thatItem.data); v == 0 {
+			v = int(thisItem.bornSn - thatItem.bornSn)
+		}
 
-	return v
+		return v
+	}
 }
 
-func DataCompare(this skiplist.Item, that skiplist.Item) int {
-	var l int
-	thisItem := this.(*Item)
-	thatItem := that.(*Item)
+func newIterCompare(keyCmp KeyCompare) skiplist.CompareFn {
+	return func(this skiplist.Item, that skiplist.Item) int {
+		thisItem := this.(*Item)
+		thatItem := that.(*Item)
+		return keyCmp(thisItem.data, thatItem.data)
+	}
+}
 
-	l1 := len(thisItem.data)
-	l2 := len(thatItem.data)
+func defaultKeyCmp(this []byte, that []byte) int {
+	var l int
+
+	l1 := len(this)
+	l2 := len(that)
 	if l1 < l2 {
 		l = l1
 	} else {
 		l = l2
 	}
-	return bytes.Compare(thisItem.data[:l], thatItem.data[:l])
+
+	return bytes.Compare(this[:l], that[:l])
 }
 
 //
@@ -97,7 +108,7 @@ type Writer struct {
 
 func (w *Writer) Put(x *Item) {
 	x.bornSn = w.getCurrSn()
-	w.store.Insert2(x, InsertCompare, w.buf, w.rand.Float32)
+	w.store.Insert2(x, w.insCmp, w.buf, w.rand.Float32)
 }
 
 // Find first item, seek until dead=0, mark dead=sn
@@ -106,7 +117,7 @@ func (w *Writer) Delete(x *Item) bool {
 	if gotItem != nil {
 		sn := w.getCurrSn()
 		if gotItem.bornSn == sn {
-			return w.store.Delete(x, DataCompare, w.buf)
+			return w.store.Delete(x, w.iterCmp, w.buf)
 		}
 
 		return atomic.CompareAndSwapUint32(&gotItem.deadSn, 0, sn)
@@ -130,7 +141,7 @@ func (w *Writer) Get(x *Item) *Item {
 			break
 		}
 		next := w.iter.Get().(*Item)
-		if DataCompare(next, curr) != 0 {
+		if w.iterCmp(next, curr) != 0 {
 			break
 		}
 
@@ -150,14 +161,27 @@ type MemDB struct {
 	snapshots   *skiplist.Skiplist
 	isGCRunning int32
 	lastGCSn    uint32
+
+	keyCmp  KeyCompare
+	insCmp  skiplist.CompareFn
+	iterCmp skiplist.CompareFn
 }
 
 func New() *MemDB {
-	return &MemDB{
+	m := &MemDB{
 		store:     skiplist.New(),
 		snapshots: skiplist.New(),
 		currSn:    1,
 	}
+
+	m.SetKeyComparator(defaultKeyCmp)
+	return m
+}
+
+func (m *MemDB) SetKeyComparator(cmp KeyCompare) {
+	m.keyCmp = cmp
+	m.insCmp = newInsertCompare(cmp)
+	m.iterCmp = newIterCompare(cmp)
 }
 
 func (m *MemDB) getCurrSn() uint32 {
@@ -170,7 +194,7 @@ func (m *MemDB) NewWriter() *Writer {
 	return &Writer{
 		rand:  rand.New(rand.NewSource(int64(rand.Int()))),
 		buf:   buf,
-		iter:  m.store.NewIterator(DataCompare, buf),
+		iter:  m.store.NewIterator(m.iterCmp, buf),
 		MemDB: m,
 	}
 }
@@ -294,7 +318,7 @@ func (m *MemDB) NewIterator(snap *Snapshot) *Iterator {
 	buf := snap.db.store.MakeBuf()
 	return &Iterator{
 		snap: snap,
-		iter: m.store.NewIterator(DataCompare, buf),
+		iter: m.store.NewIterator(m.iterCmp, buf),
 		buf:  buf,
 	}
 }
@@ -304,12 +328,12 @@ func (m *MemDB) collectDead(sn uint32) {
 	buf2 := m.snapshots.MakeBuf()
 	defer m.snapshots.FreeBuf(buf1)
 	defer m.snapshots.FreeBuf(buf2)
-	iter := m.store.NewIterator(DataCompare, buf1)
+	iter := m.store.NewIterator(m.iterCmp, buf1)
 	iter.SeekFirst()
 	for ; iter.Valid(); iter.Next() {
 		itm := iter.Get().(*Item)
 		if itm.deadSn > 0 && itm.deadSn <= sn {
-			m.store.Delete(itm, DataCompare, buf2)
+			m.store.Delete(itm, m.iterCmp, buf2)
 		}
 	}
 }
