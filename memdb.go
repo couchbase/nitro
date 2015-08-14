@@ -248,6 +248,10 @@ func (s *Snapshot) Close() {
 	}
 }
 
+func (s *Snapshot) NewIterator() *Iterator {
+	return s.db.NewIterator(s)
+}
+
 func CompareSnapshot(this skiplist.Item, that skiplist.Item) int {
 	thisItem := this.(*Snapshot)
 	thatItem := that.(*Snapshot)
