@@ -2,14 +2,20 @@ package skiplist
 
 import "fmt"
 
-type Stats struct {
-	ReadConflicts       int
-	InsertConflicts     int
+type StatsReport struct {
+	ReadConflicts       uint64
+	InsertConflicts     uint64
 	NextPointersPerNode float64
-	NodeDistribution    [MaxLevel + 1]uint32
+	NodeDistribution    [MaxLevel + 1]int64
 }
 
-func (s Stats) String() string {
+type stats struct {
+	insertConflicts uint64
+	readConflicts   uint64
+	levelNodesCount [MaxLevel + 1]int64
+}
+
+func (s StatsReport) String() string {
 	str := "\nskiplist stats\n==============\n"
 	str += fmt.Sprintf(
 		"read_conflicts         = %d\n"+
@@ -27,19 +33,19 @@ func (s Stats) String() string {
 	return str
 }
 
-func GetStats() Stats {
-	var s Stats
+func (s *Skiplist) GetStats() StatsReport {
+	var report StatsReport
 	var totalNextPtrs int
 	var totalNodes int
-	s.ReadConflicts = int(readConflicts)
-	s.InsertConflicts = int(insertConflicts)
+	report.ReadConflicts = s.stats.readConflicts
+	report.InsertConflicts = s.stats.insertConflicts
 
-	for i, c := range levelNodesCount {
+	for i, c := range s.stats.levelNodesCount {
 		totalNodes += int(c)
 		totalNextPtrs += (i + 1) * int(c)
 	}
-	s.NodeDistribution = levelNodesCount
 
-	s.NextPointersPerNode = float64(totalNextPtrs) / float64(totalNodes)
-	return s
+	report.NodeDistribution = s.stats.levelNodesCount
+	report.NextPointersPerNode = float64(totalNextPtrs) / float64(totalNodes)
+	return report
 }

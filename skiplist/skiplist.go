@@ -9,12 +9,6 @@ import (
 const MaxLevel = 32
 const p = 0.25
 
-var (
-	insertConflicts uint32
-	readConflicts   uint32
-	levelNodesCount [MaxLevel + 1]uint32
-)
-
 type Item interface{}
 
 type CompareFn func(Item, Item) int
@@ -24,6 +18,7 @@ type Skiplist struct {
 	tail  *Node
 	level int32
 	count int64
+	stats stats
 }
 
 func New() *Skiplist {
@@ -73,7 +68,6 @@ type NodeRef struct {
 }
 
 func newNode(itm Item, level int) *Node {
-	atomic.AddUint32(&levelNodesCount[level], 1)
 	return &Node{
 		next: make([]unsafe.Pointer, level+1),
 		itm:  itm,
@@ -144,7 +138,7 @@ retry:
 			next, deleted := curr.getNext(i)
 			for deleted {
 				if !s.helpDelete(i, prev, curr, next) {
-					atomic.AddUint32(&readConflicts, 1)
+					atomic.AddUint64(&s.stats.readConflicts, 1)
 					goto retry
 				}
 
@@ -185,12 +179,13 @@ func (s *Skiplist) Insert2(itm Item, cmp CompareFn,
 
 	itemLevel := s.randomLevel(randFn)
 	x := newNode(itm, itemLevel)
+	atomic.AddInt64(&s.stats.levelNodesCount[itemLevel], 1)
 retry:
 	s.findPath(itm, cmp, buf)
 
 	x.setNext(0, buf.succs[0], false)
 	if !buf.preds[0].dcasNext(0, buf.succs[0], x, false, false) {
-		atomic.AddUint32(&insertConflicts, 1)
+		atomic.AddUint64(&s.stats.insertConflicts, 1)
 		goto retry
 	}
 
@@ -226,9 +221,9 @@ func (s *Skiplist) Delete(itm Item, cmp CompareFn, buf *ActionBuffer) bool {
 	if deleteMarked {
 		s.findPath(itm, cmp, buf)
 		atomic.AddInt64(&s.count, -1)
+		atomic.AddInt64(&s.stats.levelNodesCount[delNode.getLevel()], -1)
 		return true
 	}
 
 	return false
-
 }
