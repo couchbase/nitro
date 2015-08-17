@@ -56,6 +56,10 @@ func (itm *Item) Decode(buf []byte, r io.Reader) error {
 	return err
 }
 
+func (itm *Item) Bytes() []byte {
+	return itm.data
+}
+
 func NewItem(data []byte) *Item {
 	return &Item{
 		data: data,
