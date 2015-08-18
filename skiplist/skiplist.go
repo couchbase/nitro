@@ -23,6 +23,7 @@ type Skiplist struct {
 	head  *Node
 	tail  *Node
 	level int32
+	count int64
 }
 
 func New() *Skiplist {
@@ -170,12 +171,18 @@ retry:
 	return
 }
 
+func (s *Skiplist) Count() int64 {
+	return atomic.LoadInt64(&s.count)
+}
+
 func (s *Skiplist) Insert(itm Item, cmp CompareFn, buf *ActionBuffer) {
 	s.Insert2(itm, cmp, buf, rand.Float32)
 }
 
 func (s *Skiplist) Insert2(itm Item, cmp CompareFn,
 	buf *ActionBuffer, randFn func() float32) {
+	defer atomic.AddInt64(&s.count, 1)
+
 	itemLevel := s.randomLevel(randFn)
 	x := newNode(itm, itemLevel)
 retry:
@@ -218,6 +225,7 @@ func (s *Skiplist) Delete(itm Item, cmp CompareFn, buf *ActionBuffer) bool {
 
 	if deleteMarked {
 		s.findPath(itm, cmp, buf)
+		atomic.AddInt64(&s.count, -1)
 		return true
 	}
 
