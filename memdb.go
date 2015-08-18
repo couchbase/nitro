@@ -207,6 +207,11 @@ type Snapshot struct {
 	sn       uint32
 	refCount int32
 	db       *MemDB
+	count    int64
+}
+
+func (s Snapshot) Count() int64 {
+	return s.count
 }
 
 func (s *Snapshot) Encode(buf []byte, w io.Writer) error {
@@ -267,7 +272,7 @@ func (m *MemDB) NewSnapshot() *Snapshot {
 	buf := m.snapshots.MakeBuf()
 	defer m.snapshots.FreeBuf(buf)
 
-	snap := &Snapshot{db: m, sn: m.getCurrSn(), refCount: 1}
+	snap := &Snapshot{db: m, sn: m.getCurrSn(), refCount: 1, count: m.store.Count()}
 	m.snapshots.Insert(snap, CompareSnapshot, buf)
 	atomic.AddUint32(&m.currSn, 1)
 	return snap
@@ -329,6 +334,10 @@ func (m *MemDB) NewIterator(snap *Snapshot) *Iterator {
 		iter: m.store.NewIterator(m.iterCmp, buf),
 		buf:  buf,
 	}
+}
+
+func (m *MemDB) ItemsCount() int64 {
+	return m.store.Count()
 }
 
 func (m *MemDB) collectDead(sn uint32) {
