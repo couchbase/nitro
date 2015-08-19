@@ -476,3 +476,7 @@ loop:
 
 	return snap, nil
 }
+
+func (m *MemDB) DumpStats() string {
+	return m.store.GetStats().String()
+}
