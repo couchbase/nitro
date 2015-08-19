@@ -80,8 +80,8 @@ func TestInsertPerf(t *testing.T) {
 	sl := New()
 	n := 1000000
 	t0 := time.Now()
-	total := n * runtime.NumCPU()
-	for i := 0; i < runtime.NumCPU(); i++ {
+	total := n * runtime.GOMAXPROCS(0)
+	for i := 0; i < runtime.GOMAXPROCS(0); i++ {
 		wg.Add(1)
 		go doInsert(sl, &wg, n, true)
 	}
@@ -101,8 +101,8 @@ func TestGetPerf(t *testing.T) {
 	wg.Wait()
 
 	t0 := time.Now()
-	total := n * runtime.NumCPU()
-	for i := 0; i < runtime.NumCPU(); i++ {
+	total := n * runtime.GOMAXPROCS(0)
+	for i := 0; i < runtime.GOMAXPROCS(0); i++ {
 		wg.Add(1)
 		go doGet(sl, &wg, n)
 	}
