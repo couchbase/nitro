@@ -88,7 +88,8 @@ func TestInsertPerf(t *testing.T) {
 	wg.Wait()
 
 	dur := time.Since(t0)
-	fmt.Printf("%d items took %v -> %v items/s conflicts %v\n", total, dur, float64(total)/float64(dur.Seconds()), InsertConflicts)
+
+	fmt.Printf("%d items took %v -> %v items/s conflicts %v\n", total, dur, float64(total)/float64(dur.Seconds()), sl.GetStats().InsertConflicts)
 }
 
 func TestGetPerf(t *testing.T) {
