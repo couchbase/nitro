@@ -7,6 +7,7 @@ type StatsReport struct {
 	InsertConflicts     uint64
 	NextPointersPerNode float64
 	NodeDistribution    [MaxLevel + 1]int64
+	NodeCount           int
 }
 
 type stats struct {
@@ -18,10 +19,11 @@ type stats struct {
 func (s StatsReport) String() string {
 	str := "\nskiplist stats\n==============\n"
 	str += fmt.Sprintf(
-		"read_conflicts         = %d\n"+
+		"node_count             = %d\n"+
+			"read_conflicts         = %d\n"+
 			"insert_conflicts       = %d\n"+
 			"next_pointers_per_node = %.4f\n\n",
-		s.ReadConflicts, s.InsertConflicts,
+		s.NodeCount, s.ReadConflicts, s.InsertConflicts,
 		s.NextPointersPerNode)
 
 	str += "level_node_distribution:\n"
@@ -45,6 +47,7 @@ func (s *Skiplist) GetStats() StatsReport {
 		totalNextPtrs += (i + 1) * int(c)
 	}
 
+	report.NodeCount = totalNodes
 	report.NodeDistribution = s.stats.levelNodesCount
 	report.NextPointersPerNode = float64(totalNextPtrs) / float64(totalNodes)
 	return report
