@@ -113,21 +113,30 @@ type Writer struct {
 func (w *Writer) Put(x *Item) {
 	x.bornSn = w.getCurrSn()
 	w.store.Insert2(x, w.insCmp, w.buf, w.rand.Float32)
+	atomic.AddInt64(&w.count, 1)
 }
 
 // Find first item, seek until dead=0, mark dead=sn
-func (w *Writer) Delete(x *Item) bool {
+func (w *Writer) Delete(x *Item) (success bool) {
+	defer func() {
+		if success {
+			atomic.AddInt64(&w.count, -1)
+		}
+	}()
+
 	gotItem := w.Get(x)
 	if gotItem != nil {
 		sn := w.getCurrSn()
 		if gotItem.bornSn == sn {
-			return w.store.Delete(x, w.iterCmp, w.buf)
+			success = w.store.Delete(x, w.iterCmp, w.buf)
+			return
 		}
 
-		return atomic.CompareAndSwapUint32(&gotItem.deadSn, 0, sn)
+		success = atomic.CompareAndSwapUint32(&gotItem.deadSn, 0, sn)
+		return
 	}
 
-	return false
+	return
 }
 
 func (w *Writer) Get(x *Item) *Item {
@@ -165,6 +174,7 @@ type MemDB struct {
 	snapshots   *skiplist.Skiplist
 	isGCRunning int32
 	lastGCSn    uint32
+	count       int64
 
 	keyCmp  KeyCompare
 	insCmp  skiplist.CompareFn
@@ -272,7 +282,7 @@ func (m *MemDB) NewSnapshot() *Snapshot {
 	buf := m.snapshots.MakeBuf()
 	defer m.snapshots.FreeBuf(buf)
 
-	snap := &Snapshot{db: m, sn: m.getCurrSn(), refCount: 1, count: m.store.Count()}
+	snap := &Snapshot{db: m, sn: m.getCurrSn(), refCount: 1, count: m.ItemsCount()}
 	m.snapshots.Insert(snap, CompareSnapshot, buf)
 	atomic.AddUint32(&m.currSn, 1)
 	return snap
@@ -337,7 +347,7 @@ func (m *MemDB) NewIterator(snap *Snapshot) *Iterator {
 }
 
 func (m *MemDB) ItemsCount() int64 {
-	return m.store.Count()
+	return atomic.LoadInt64(&m.count)
 }
 
 func (m *MemDB) collectDead(sn uint32) {
