@@ -170,3 +170,40 @@ func TestLoadStoreDisk(t *testing.T) {
 	}
 	fmt.Println(db.store.GetStats())
 }
+
+func TestDelete(t *testing.T) {
+	expected := 10
+	db := New()
+	w := db.NewWriter()
+	for i := 0; i < expected; i++ {
+		w.Put(NewItem([]byte(fmt.Sprintf("%010d", i))))
+	}
+
+	snap1 := w.NewSnapshot()
+	got := CountItems(db, snap1)
+	if got != expected {
+		t.Errorf("Expected 2000, got %d", got)
+	}
+	fmt.Println(db.store.GetStats())
+
+	for i := 0; i < expected; i++ {
+		w.Delete(NewItem([]byte(fmt.Sprintf("%010d", i))))
+	}
+
+	for i := 0; i < expected; i++ {
+		w.Put(NewItem([]byte(fmt.Sprintf("%010d", i))))
+	}
+	snap2 := w.NewSnapshot()
+	snap1.Close()
+	snap3 := w.NewSnapshot()
+	snap2.Close()
+	time.Sleep(time.Second)
+
+	got = CountItems(db, snap3)
+	snap3.Close()
+
+	if got != expected {
+		t.Errorf("Expected %d, got %d", expected, got)
+	}
+	fmt.Println(db.store.GetStats())
+}

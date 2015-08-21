@@ -128,7 +128,7 @@ func (w *Writer) Delete(x *Item) (success bool) {
 	if gotItem != nil {
 		sn := w.getCurrSn()
 		if gotItem.bornSn == sn {
-			success = w.store.Delete(x, w.iterCmp, w.buf)
+			success = w.store.Delete(gotItem, w.insCmp, w.buf)
 			return
 		}
 
@@ -360,7 +360,7 @@ func (m *MemDB) collectDead(sn uint32) {
 	for ; iter.Valid(); iter.Next() {
 		itm := iter.Get().(*Item)
 		if itm.deadSn > 0 && itm.deadSn <= sn {
-			m.store.Delete(itm, m.iterCmp, buf2)
+			m.store.Delete(itm, m.insCmp, buf2)
 		}
 	}
 }
