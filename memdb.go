@@ -24,6 +24,13 @@ var (
 type KeyCompare func([]byte, []byte) int
 type ItemCallback func(*Item)
 
+type FileType int
+
+const (
+	ForestdbFile FileType = iota
+	RawdbFile
+)
+
 type Item struct {
 	bornSn, deadSn uint32
 	data           []byte
@@ -169,6 +176,31 @@ func (w *Writer) Get(x *Item) *Item {
 	return curr
 }
 
+type Config struct {
+	keyCmp  KeyCompare
+	insCmp  skiplist.CompareFn
+	iterCmp skiplist.CompareFn
+
+	fileType FileType
+}
+
+func (cfg *Config) SetKeyComparator(cmp KeyCompare) {
+	cfg.keyCmp = cmp
+	cfg.insCmp = newInsertCompare(cmp)
+	cfg.iterCmp = newIterCompare(cmp)
+}
+
+func (cfg *Config) SetFileType(t FileType) error {
+	switch t {
+	case ForestdbFile, RawdbFile:
+	default:
+		return errors.New("Invalid format")
+	}
+
+	cfg.fileType = t
+	return nil
+}
+
 type MemDB struct {
 	store       *skiplist.Skiplist
 	currSn      uint32
@@ -177,26 +209,26 @@ type MemDB struct {
 	lastGCSn    uint32
 	count       int64
 
-	keyCmp  KeyCompare
-	insCmp  skiplist.CompareFn
-	iterCmp skiplist.CompareFn
+	Config
 }
 
-func New() *MemDB {
+func NewWithConfig(cfg Config) *MemDB {
 	m := &MemDB{
 		store:     skiplist.New(),
 		snapshots: skiplist.New(),
 		currSn:    1,
+		Config:    cfg,
 	}
 
-	m.SetKeyComparator(defaultKeyCmp)
 	return m
+
 }
 
-func (m *MemDB) SetKeyComparator(cmp KeyCompare) {
-	m.keyCmp = cmp
-	m.insCmp = newInsertCompare(cmp)
-	m.iterCmp = newIterCompare(cmp)
+func New() *MemDB {
+	var cfg Config
+	cfg.SetKeyComparator(defaultKeyCmp)
+	cfg.SetFileType(RawdbFile)
+	return NewWithConfig(cfg)
 }
 
 func (m *MemDB) getCurrSn() uint32 {
