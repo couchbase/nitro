@@ -22,6 +22,7 @@ var (
 )
 
 type KeyCompare func([]byte, []byte) int
+type ItemCallback func(*Item)
 
 type Item struct {
 	bornSn, deadSn uint32
@@ -395,7 +396,7 @@ func (m *MemDB) GetSnapshots() []*Snapshot {
 	return snaps
 }
 
-func (m *MemDB) StoreToDisk(dir string, snap *Snapshot) error {
+func (m *MemDB) StoreToDisk(dir string, snap *Snapshot, callb ItemCallback) error {
 	os.MkdirAll(dir, 0755)
 	file, err := os.OpenFile(path.Join(dir, "records.data"), os.O_WRONLY|os.O_CREATE, 0755)
 	if err != nil {
@@ -422,6 +423,9 @@ func (m *MemDB) StoreToDisk(dir string, snap *Snapshot) error {
 		if err := itm.Encode(buf, w); err != nil {
 			return err
 		}
+		if callb != nil {
+			callb(itm)
+		}
 	}
 
 	endItem := &Item{
@@ -437,7 +441,7 @@ func (m *MemDB) StoreToDisk(dir string, snap *Snapshot) error {
 	return nil
 }
 
-func (m *MemDB) LoadFromDisk(dir string) (*Snapshot, error) {
+func (m *MemDB) LoadFromDisk(dir string, callb ItemCallback) (*Snapshot, error) {
 	var wg sync.WaitGroup
 	file, err := os.OpenFile(path.Join(dir, "records.data"), os.O_RDONLY, 0755)
 	if err != nil {
@@ -461,6 +465,9 @@ func (m *MemDB) LoadFromDisk(dir string) (*Snapshot, error) {
 			w := m.NewWriter()
 			for itm := range ch {
 				w.Put(itm)
+				if callb != nil {
+					callb(itm)
+				}
 			}
 		}(&wg)
 	}
