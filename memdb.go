@@ -1,7 +1,6 @@
 package memdb
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/binary"
 	"errors"
@@ -15,16 +14,15 @@ import (
 	"sync/atomic"
 )
 
-const DiskBlockSize = 512 * 1024
-
-var (
-	ErrNotEnoughSpace = errors.New("Not enough space in the buffer")
-)
-
 type KeyCompare func([]byte, []byte) int
 type ItemCallback func(*Item)
 
 type FileType int
+
+const (
+	encodeBufSize = 4
+	readerBufSize = 10000
+)
 
 const (
 	ForestdbFile FileType = iota
@@ -430,66 +428,44 @@ func (m *MemDB) GetSnapshots() []*Snapshot {
 
 func (m *MemDB) StoreToDisk(dir string, snap *Snapshot, callb ItemCallback) error {
 	os.MkdirAll(dir, 0755)
-	file, err := os.OpenFile(path.Join(dir, "records.data"), os.O_WRONLY|os.O_CREATE, 0755)
-	if err != nil {
+	datafile := path.Join(dir, "records.data")
+	w := newFileWriter(m.fileType)
+	if err := w.Open(datafile); err != nil {
 		return err
 	}
-	defer file.Close()
+	defer w.Close()
 
-	w := bufio.NewWriterSize(file, DiskBlockSize)
-	defer w.Flush()
-
-	buf := make([]byte, 4)
 	itr := m.NewIterator(snap)
 	if itr == nil {
 		return errors.New("Invalid snapshot")
 	}
 	defer itr.Close()
 
-	if err := snap.Encode(buf, w); err != nil {
-		return err
-	}
-
 	for itr.SeekFirst(); itr.Valid(); itr.Next() {
 		itm := itr.Get()
-		if err := itm.Encode(buf, w); err != nil {
+		if err := w.WriteItem(itm); err != nil {
 			return err
 		}
+
 		if callb != nil {
 			callb(itm)
 		}
 	}
-
-	endItem := &Item{
-		data: []byte(nil),
-	}
-
-	if err := endItem.Encode(buf, w); err != nil {
-		return err
-	}
-
-	w.Flush()
 
 	return nil
 }
 
 func (m *MemDB) LoadFromDisk(dir string, callb ItemCallback) (*Snapshot, error) {
 	var wg sync.WaitGroup
-	file, err := os.OpenFile(path.Join(dir, "records.data"), os.O_RDONLY, 0755)
-	if err != nil {
+	datafile := path.Join(dir, "records.data")
+	r := newFileReader(m.fileType)
+	if err := r.Open(datafile); err != nil {
 		return nil, err
 	}
-	defer file.Close()
 
-	buf := make([]byte, 4)
-	r := bufio.NewReaderSize(file, DiskBlockSize)
-	snap := &Snapshot{db: m, refCount: 1}
-	if err := snap.Decode(buf, r); err != nil {
-		return nil, err
-	}
-	m.currSn = snap.sn
+	defer r.Close()
 
-	ch := make(chan *Item, 100000)
+	ch := make(chan *Item, readerBufSize)
 	for i := 0; i < runtime.NumCPU(); i++ {
 		wg.Add(1)
 		go func(wg *sync.WaitGroup) {
@@ -506,23 +482,21 @@ func (m *MemDB) LoadFromDisk(dir string, callb ItemCallback) (*Snapshot, error) 
 
 loop:
 	for {
-		itm := &Item{}
-		itm.Decode(buf, r)
-		if len(itm.data) == 0 {
-			break loop
+		itm, err := r.ReadItem()
+		if err != nil {
+			return nil, err
 		}
 
+		if itm == nil {
+			break loop
+		}
 		ch <- itm
 	}
 
 	close(ch)
 	wg.Wait()
 
-	snbuf := m.snapshots.MakeBuf()
-	defer m.snapshots.FreeBuf(snbuf)
-	m.snapshots.Insert(snap, CompareSnapshot, snbuf)
-	m.currSn++
-
+	snap := m.NewSnapshot()
 	return snap, nil
 }
 
