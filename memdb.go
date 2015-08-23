@@ -229,6 +229,12 @@ func New() *MemDB {
 	return NewWithConfig(cfg)
 }
 
+func (m *MemDB) Reset() {
+	m.store = skiplist.New()
+	m.snapshots = skiplist.New()
+	m.currSn = 1
+}
+
 func (m *MemDB) getCurrSn() uint32 {
 	return atomic.LoadUint32(&m.currSn)
 }
