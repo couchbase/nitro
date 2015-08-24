@@ -120,7 +120,12 @@ func (s *Skiplist) randomLevel(randFn func() float32) int {
 }
 
 func (s *Skiplist) helpDelete(level int, prev, curr, next *Node) bool {
-	return prev.dcasNext(level, curr, next, false, false)
+	success := prev.dcasNext(level, curr, next, false, false)
+	if success && level == curr.getLevel() {
+		atomic.AddInt64(&s.stats.softDeletes, -1)
+		atomic.AddInt64(&s.stats.levelNodesCount[level], -1)
+	}
+	return success
 }
 
 func (s *Skiplist) findPath(itm Item, cmp CompareFn,
@@ -207,6 +212,10 @@ func (s *Skiplist) softDelete(delNode *Node) bool {
 		}
 	}
 
+	if deleteMarked {
+		atomic.AddInt64(&s.stats.softDeletes, 1)
+	}
+
 	return deleteMarked
 }
 
@@ -219,7 +228,6 @@ func (s *Skiplist) Delete(itm Item, cmp CompareFn, buf *ActionBuffer) bool {
 	delNode := buf.succs[0]
 	if s.softDelete(delNode) {
 		s.findPath(itm, cmp, buf)
-		atomic.AddInt64(&s.stats.levelNodesCount[delNode.getLevel()], -1)
 		return true
 	}
 

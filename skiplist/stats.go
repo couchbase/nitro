@@ -8,22 +8,25 @@ type StatsReport struct {
 	NextPointersPerNode float64
 	NodeDistribution    [MaxLevel + 1]int64
 	NodeCount           int
+	SoftDeletes         int64
 }
 
 type stats struct {
 	insertConflicts uint64
 	readConflicts   uint64
 	levelNodesCount [MaxLevel + 1]int64
+	softDeletes     int64
 }
 
 func (s StatsReport) String() string {
 	str := "\nskiplist stats\n==============\n"
 	str += fmt.Sprintf(
 		"node_count             = %d\n"+
+			"soft_deletes           = %d\n"+
 			"read_conflicts         = %d\n"+
 			"insert_conflicts       = %d\n"+
 			"next_pointers_per_node = %.4f\n\n",
-		s.NodeCount, s.ReadConflicts, s.InsertConflicts,
+		s.NodeCount, s.SoftDeletes, s.ReadConflicts, s.InsertConflicts,
 		s.NextPointersPerNode)
 
 	str += "level_node_distribution:\n"
@@ -47,6 +50,7 @@ func (s *Skiplist) GetStats() StatsReport {
 		totalNextPtrs += (i + 1) * int(c)
 	}
 
+	report.SoftDeletes = s.stats.softDeletes
 	report.NodeCount = totalNodes
 	report.NodeDistribution = s.stats.levelNodesCount
 	report.NextPointersPerNode = float64(totalNextPtrs) / float64(totalNodes)
