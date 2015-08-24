@@ -10,7 +10,15 @@ const DiskBlockSize = 512 * 1024
 
 var (
 	ErrNotEnoughSpace = errors.New("Not enough space in the buffer")
+	forestdbConfig    *forestdb.Config
 )
+
+func init() {
+	forestdbConfig = forestdb.DefaultConfig()
+	forestdbConfig.SetSeqTreeOpt(forestdb.SEQTREE_NOT_USE)
+	forestdbConfig.SetBufferCacheSize(1024 * 1024)
+
+}
 
 type FileWriter interface {
 	Open(path string) error
@@ -118,8 +126,7 @@ type forestdbFileWriter struct {
 
 func (f *forestdbFileWriter) Open(path string) error {
 	var err error
-	cfg := forestdb.DefaultConfig()
-	f.file, err = forestdb.Open(path, cfg)
+	f.file, err = forestdb.Open(path, forestdbConfig)
 	if err == nil {
 		f.buf = make([]byte, encodeBufSize)
 		f.store, err = f.file.OpenKVStoreDefault(nil)
@@ -159,12 +166,8 @@ type forestdbFileReader struct {
 
 func (f *forestdbFileReader) Open(path string) error {
 	var err error
-	cfg := forestdb.DefaultConfig()
-	cfg.SetSeqTreeOpt(forestdb.SEQTREE_NOT_USE)
-	cfg.SetBufferCacheSize(1024 * 1024 * 256)
-	cfg.SetWalThreshold(1000000)
 
-	f.file, err = forestdb.Open(path, cfg)
+	f.file, err = forestdb.Open(path, forestdbConfig)
 	if err == nil {
 		f.buf = make([]byte, encodeBufSize)
 		f.store, err = f.file.OpenKVStoreDefault(nil)
