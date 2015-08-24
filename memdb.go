@@ -29,6 +29,13 @@ const (
 	RawdbFile
 )
 
+func DefaultConfig() Config {
+	var cfg Config
+	cfg.SetKeyComparator(defaultKeyCmp)
+	cfg.SetFileType(ForestdbFile)
+	return cfg
+}
+
 type Item struct {
 	bornSn, deadSn uint32
 	data           []byte
@@ -223,10 +230,7 @@ func NewWithConfig(cfg Config) *MemDB {
 }
 
 func New() *MemDB {
-	var cfg Config
-	cfg.SetKeyComparator(defaultKeyCmp)
-	cfg.SetFileType(RawdbFile)
-	return NewWithConfig(cfg)
+	return NewWithConfig(DefaultConfig())
 }
 
 func (m *MemDB) Reset() {

@@ -134,12 +134,13 @@ func CountItems(db *MemDB, snap *Snapshot) int {
 func TestLoadStoreDisk(t *testing.T) {
 	os.RemoveAll("db.dump")
 	var wg sync.WaitGroup
-	db := New()
+	cfg := DefaultConfig()
+	db := NewWithConfig(cfg)
 	n := 1000000
 	t0 := time.Now()
 	for i := 0; i < runtime.GOMAXPROCS(0); i++ {
 		wg.Add(1)
-		go doInsert(db, &wg, n/runtime.GOMAXPROCS(0), false, true)
+		go doInsert(db, &wg, n/runtime.GOMAXPROCS(0), true, true)
 	}
 	wg.Wait()
 	fmt.Printf("Inserting %v items took %v\n", n, time.Since(t0))
@@ -156,7 +157,7 @@ func TestLoadStoreDisk(t *testing.T) {
 	fmt.Printf("Storing to disk took %v\n", time.Since(t0))
 
 	snap.Close()
-	db = New()
+	db = NewWithConfig(cfg)
 	t0 = time.Now()
 	snap, err = db.LoadFromDisk("db.dump", nil)
 	if err != nil {
