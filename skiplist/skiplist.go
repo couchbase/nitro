@@ -195,14 +195,9 @@ retry:
 	}
 }
 
-func (s *Skiplist) Delete(itm Item, cmp CompareFn, buf *ActionBuffer) bool {
+func (s *Skiplist) softDelete(delNode *Node) bool {
 	var deleteMarked bool
-	found := s.findPath(itm, cmp, buf)
-	if !found {
-		return false
-	}
 
-	delNode := buf.succs[0]
 	targetLevel := delNode.getLevel()
 	for i := targetLevel; i >= 0; i-- {
 		next, deleted := delNode.getNext(i)
@@ -212,7 +207,17 @@ func (s *Skiplist) Delete(itm Item, cmp CompareFn, buf *ActionBuffer) bool {
 		}
 	}
 
-	if deleteMarked {
+	return deleteMarked
+}
+
+func (s *Skiplist) Delete(itm Item, cmp CompareFn, buf *ActionBuffer) bool {
+	found := s.findPath(itm, cmp, buf)
+	if !found {
+		return false
+	}
+
+	delNode := buf.succs[0]
+	if s.softDelete(delNode) {
 		s.findPath(itm, cmp, buf)
 		atomic.AddInt64(&s.stats.levelNodesCount[delNode.getLevel()], -1)
 		return true

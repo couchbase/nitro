@@ -44,6 +44,10 @@ func (it *Iterator) Get() Item {
 	return it.curr.itm
 }
 
+func (it *Iterator) MarkDeletion() {
+	it.s.softDelete(it.curr)
+}
+
 func (it *Iterator) Next() {
 retry:
 	it.valid = true
