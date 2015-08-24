@@ -207,13 +207,12 @@ func (cfg *Config) SetFileType(t FileType) error {
 }
 
 type MemDB struct {
-	store        *skiplist.Skiplist
-	currSn       uint32
-	snapshots    *skiplist.Skiplist
-	isGCRunning  int32
-	lastGCSn     uint32
-	leastUnrefSn uint32
-	count        int64
+	store       *skiplist.Skiplist
+	currSn      uint32
+	snapshots   *skiplist.Skiplist
+	isGCRunning int32
+	lastGCSn    uint32
+	count       int64
 
 	Config
 }
@@ -242,21 +241,6 @@ func (m *MemDB) Reset() {
 
 func (m *MemDB) getCurrSn() uint32 {
 	return atomic.LoadUint32(&m.currSn)
-}
-
-func (m *MemDB) setLeastUnrefSn() {
-	buf := m.snapshots.MakeBuf()
-	defer m.snapshots.FreeBuf(buf)
-	iter := m.snapshots.NewIterator(CompareSnapshot, buf)
-	iter.SeekFirst()
-	if iter.Valid() {
-		snap := iter.Get().(*Snapshot)
-		atomic.StoreUint32(&m.leastUnrefSn, snap.sn-1)
-	}
-}
-
-func (m *MemDB) getLeastUnrefSn() uint32 {
-	return atomic.LoadUint32(&m.leastUnrefSn)
 }
 
 func (m *MemDB) NewWriter() *Writer {
@@ -318,7 +302,6 @@ func (s *Snapshot) Close() {
 		buf := s.db.snapshots.MakeBuf()
 		defer s.db.snapshots.FreeBuf(buf)
 		s.db.snapshots.Delete(s, CompareSnapshot, buf)
-		s.db.setLeastUnrefSn()
 		if atomic.CompareAndSwapInt32(&s.db.isGCRunning, 0, 1) {
 			go s.db.GC()
 		}
@@ -382,10 +365,6 @@ func (it *Iterator) Get() *Item {
 	return it.iter.Get().(*Item)
 }
 
-func (it *Iterator) MarkDeletion() {
-	it.iter.MarkDeletion()
-}
-
 func (it *Iterator) Next() {
 	it.iter.Next()
 	it.skipUnwanted()
@@ -413,23 +392,17 @@ func (m *MemDB) ItemsCount() int64 {
 }
 
 func (m *MemDB) collectDead(sn uint32) {
-	// Mark and sweep GC
 	buf1 := m.snapshots.MakeBuf()
 	buf2 := m.snapshots.MakeBuf()
 	defer m.snapshots.FreeBuf(buf1)
 	defer m.snapshots.FreeBuf(buf2)
 	iter := m.store.NewIterator(m.iterCmp, buf1)
-
-	// Mark phase
-	for iter.SeekFirst(); iter.Valid(); iter.Next() {
+	iter.SeekFirst()
+	for ; iter.Valid(); iter.Next() {
 		itm := iter.Get().(*Item)
-		if itm.deadSn > 0 && itm.deadSn <= m.getLeastUnrefSn() {
-			iter.MarkDeletion()
+		if itm.deadSn > 0 && itm.deadSn <= sn {
+			m.store.Delete(itm, m.insCmp, buf2)
 		}
-	}
-
-	// Sweep phase
-	for iter.SeekFirst(); iter.Valid(); iter.Next() {
 	}
 }
 
