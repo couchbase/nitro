@@ -32,7 +32,7 @@ const (
 func DefaultConfig() Config {
 	var cfg Config
 	cfg.SetKeyComparator(defaultKeyCmp)
-	cfg.SetFileType(ForestdbFile)
+	cfg.SetFileType(RawdbFile)
 	return cfg
 }
 
