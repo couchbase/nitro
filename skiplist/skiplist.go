@@ -61,6 +61,10 @@ func (n Node) getLevel() int {
 	return int(len(n.next) - 1)
 }
 
+func (n Node) Item() Item {
+	return n.itm
+}
+
 type NodeRef struct {
 	deleted bool
 	ptr     *Node
@@ -226,7 +230,12 @@ func (s *Skiplist) Delete(itm Item, cmp CompareFn, buf *ActionBuffer) bool {
 	}
 
 	delNode := buf.succs[0]
-	if s.softDelete(delNode) {
+	return s.DeleteNode(delNode, cmp, buf)
+}
+
+func (s *Skiplist) DeleteNode(n *Node, cmp CompareFn, buf *ActionBuffer) bool {
+	itm := n.itm
+	if s.softDelete(n) {
 		s.findPath(itm, cmp, buf)
 		return true
 	}

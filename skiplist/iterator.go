@@ -45,6 +45,10 @@ func (it *Iterator) Get() Item {
 	return it.curr.itm
 }
 
+func (it *Iterator) GetNode() *Node {
+	return it.curr
+}
+
 func (it *Iterator) Delete() {
 	it.s.softDelete(it.curr)
 	// It will observe that current item is deleted
