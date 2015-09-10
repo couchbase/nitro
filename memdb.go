@@ -137,11 +137,12 @@ func (w *Writer) Delete(x *Item) (success bool) {
 		}
 	}()
 
-	gotItem := w.Get(x)
-	if gotItem != nil {
+	gotNode := w.GetNode(x)
+	if gotNode != nil {
 		sn := w.getCurrSn()
+		gotItem := gotNode.Item().(*Item)
 		if gotItem.bornSn == sn {
-			success = w.store.Delete(gotItem, w.insCmp, w.buf)
+			success = w.store.DeleteNode(gotNode, w.insCmp, w.buf)
 			return
 		}
 
@@ -153,28 +154,39 @@ func (w *Writer) Delete(x *Item) (success bool) {
 }
 
 func (w *Writer) Get(x *Item) *Item {
-	var curr *Item
+	n := w.GetNode(x)
+	if n != nil {
+		return n.Item().(*Item)
+	}
+	return nil
+}
+
+func (w *Writer) GetNode(x *Item) *skiplist.Node {
+	var curr *skiplist.Node
 	found := w.iter.Seek(x)
 	if !found {
 		return nil
 	}
 
 	// Seek until most recent item for key is found
-	curr = w.iter.Get().(*Item)
+	curr = w.iter.GetNode()
 	for {
 		w.iter.Next()
 		if !w.iter.Valid() {
 			break
 		}
-		next := w.iter.Get().(*Item)
-		if w.iterCmp(next, curr) != 0 {
+		next := w.iter.GetNode()
+		nxtItm := next.Item().(*Item)
+		currItm := curr.Item().(*Item)
+		if w.iterCmp(nxtItm, currItm) != 0 {
 			break
 		}
 
 		curr = next
 	}
 
-	if curr.deadSn != 0 {
+	currItm := curr.Item().(*Item)
+	if currItm.deadSn != 0 {
 		return nil
 	}
 
@@ -418,7 +430,7 @@ func (m *MemDB) collectDead(sn uint32) {
 	for ; iter.Valid(); iter.Next() {
 		itm := iter.Get().(*Item)
 		if itm.deadSn > 0 && itm.deadSn <= m.getLeastUnrefSn() {
-			m.store.Delete(itm, m.insCmp, buf2)
+			m.store.DeleteNode(iter.GetNode(), m.insCmp, buf2)
 		}
 	}
 }
