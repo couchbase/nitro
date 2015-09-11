@@ -208,3 +208,55 @@ func TestDelete(t *testing.T) {
 	}
 	fmt.Println(db.store.GetStats())
 }
+
+func doReplace(wg *sync.WaitGroup, t *testing.T, w *Writer, start, end int) {
+	defer wg.Done()
+
+	for ; start < end; start++ {
+		w.Delete(NewItem([]byte(fmt.Sprintf("%010d", start))))
+		w.Put(NewItem([]byte(fmt.Sprintf("%010d", start))))
+	}
+}
+
+func TestGCPerf(t *testing.T) {
+	var wg sync.WaitGroup
+	var last *Snapshot
+
+	db := New()
+	perW := 1000
+	iterations := 1000
+	nW := runtime.GOMAXPROCS(0)
+
+	var ws []*Writer
+
+	for i := 0; i < nW; i++ {
+		ws = append(ws, db.NewWriter())
+	}
+
+	nc := 0
+	for x := 0; x < iterations; x++ {
+		for i := 0; i < nW; i++ {
+			wg.Add(1)
+			go doReplace(&wg, t, ws[i], i*perW, i*perW+perW)
+		}
+		wg.Wait()
+		curr := db.NewSnapshot()
+		if last != nil {
+			last.Close()
+		}
+
+		last = curr
+		nc += db.store.GetStats().NodeCount
+	}
+
+	db.NewSnapshot()
+	last.Close()
+
+	waits := 0
+	for db.store.GetStats().NodeCount > nW*perW {
+		time.Sleep(time.Millisecond)
+		waits++
+	}
+
+	fmt.Printf("final_node_count = %v, average_live_node_count = %v, wait_time_for_collection = %vms\n", db.store.GetStats().NodeCount, nc/iterations, waits)
+}
