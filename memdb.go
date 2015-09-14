@@ -439,14 +439,10 @@ func (m *MemDB) GC() {
 	buf := m.snapshots.MakeBuf()
 	defer m.snapshots.FreeBuf(buf)
 
-	iter := m.snapshots.NewIterator(CompareSnapshot, buf)
-	iter.SeekFirst()
-	if iter.Valid() {
-		snap := iter.Get().(*Snapshot)
-		if snap.sn != m.lastGCSn && snap.sn > 1 {
-			m.lastGCSn = snap.sn - 1
-			m.collectDead(m.lastGCSn)
-		}
+	sn := m.getLeastUnrefSn()
+	if sn != m.lastGCSn && sn > 0 {
+		m.lastGCSn = sn
+		m.collectDead(m.lastGCSn)
 	}
 
 	atomic.CompareAndSwapInt32(&m.isGCRunning, 1, 0)
