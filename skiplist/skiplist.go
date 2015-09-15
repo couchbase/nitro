@@ -53,8 +53,9 @@ func (s *Skiplist) FreeBuf(b *ActionBuffer) {
 }
 
 type Node struct {
-	next []unsafe.Pointer
-	itm  Item
+	next   []unsafe.Pointer
+	itm    Item
+	GClink *Node
 }
 
 func (n Node) getLevel() int {
