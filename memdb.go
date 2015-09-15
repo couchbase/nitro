@@ -480,9 +480,14 @@ func (m *MemDB) collectDead(sn uint32) {
 			return
 		}
 
-		for n := sn.gclist; n != nil; n = n.GClink {
-			m.store.DeleteNode(n, m.insCmp, buf2)
-		}
+		go func(n *skiplist.Node) {
+			buf := m.store.MakeBuf()
+			defer m.store.FreeBuf(buf)
+
+			for ; n != nil; n = n.GClink {
+				m.store.DeleteNode(n, m.insCmp, buf)
+			}
+		}(sn.gclist)
 
 		m.gcsnapshots.DeleteNode(node, CompareSnapshot, buf2)
 	}
