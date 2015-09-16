@@ -272,6 +272,10 @@ func (m *MemDB) Reset() {
 	m.currSn = 1
 }
 
+func (m *MemDB) Close() {
+	close(m.gcchan)
+}
+
 func (m *MemDB) getCurrSn() uint32 {
 	return atomic.LoadUint32(&m.currSn)
 }
