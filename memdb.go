@@ -29,6 +29,8 @@ const (
 	RawdbFile
 )
 
+const gcchanBufSize = 256
+
 func DefaultConfig() Config {
 	var cfg Config
 	cfg.SetKeyComparator(defaultKeyCmp)
@@ -240,7 +242,8 @@ type MemDB struct {
 	leastUnrefSn uint32
 	count        int64
 
-	wlist *Writer
+	wlist  *Writer
+	gcchan chan *skiplist.Node
 
 	Config
 }
@@ -252,6 +255,7 @@ func NewWithConfig(cfg Config) *MemDB {
 		gcsnapshots: skiplist.New(),
 		currSn:      1,
 		Config:      cfg,
+		gcchan:      make(chan *skiplist.Node, gcchanBufSize),
 	}
 
 	return m
@@ -299,6 +303,8 @@ func (m *MemDB) NewWriter() *Writer {
 	}
 
 	m.wlist = w
+
+	go m.collectionWorker()
 
 	return w
 }
@@ -465,6 +471,17 @@ func (m *MemDB) ItemsCount() int64 {
 	return atomic.LoadInt64(&m.count)
 }
 
+func (m *MemDB) collectionWorker() {
+	buf := m.store.MakeBuf()
+	defer m.store.FreeBuf(buf)
+
+	for gclist := range m.gcchan {
+		for n := gclist; n != nil; n = n.GClink {
+			m.store.DeleteNode(n, m.insCmp, buf)
+		}
+	}
+}
+
 func (m *MemDB) collectDead(sn uint32) {
 	buf1 := m.snapshots.MakeBuf()
 	buf2 := m.snapshots.MakeBuf()
@@ -480,15 +497,7 @@ func (m *MemDB) collectDead(sn uint32) {
 			return
 		}
 
-		go func(n *skiplist.Node) {
-			buf := m.store.MakeBuf()
-			defer m.store.FreeBuf(buf)
-
-			for ; n != nil; n = n.GClink {
-				m.store.DeleteNode(n, m.insCmp, buf)
-			}
-		}(sn.gclist)
-
+		m.gcchan <- sn.gclist
 		m.gcsnapshots.DeleteNode(node, CompareSnapshot, buf2)
 	}
 }
