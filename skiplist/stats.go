@@ -1,6 +1,9 @@
 package skiplist
 
 import "fmt"
+import "sync/atomic"
+
+var usedBytes int64
 
 type StatsReport struct {
 	ReadConflicts       uint64
@@ -55,4 +58,8 @@ func (s *Skiplist) GetStats() StatsReport {
 	report.NodeDistribution = s.stats.levelNodesCount
 	report.NextPointersPerNode = float64(totalNextPtrs) / float64(totalNodes)
 	return report
+}
+
+func MemoryInUse() int64 {
+	return atomic.LoadInt64(&usedBytes)
 }

@@ -9,7 +9,9 @@ import (
 const MaxLevel = 32
 const p = 0.25
 
-type Item interface{}
+type Item interface {
+	Size() int
+}
 
 type CompareFn func(Item, Item) int
 
@@ -58,7 +60,7 @@ type Node struct {
 	GClink *Node
 }
 
-func (n Node) getLevel() int {
+func (n Node) Level() int {
 	return int(len(n.next) - 1)
 }
 
@@ -105,6 +107,18 @@ func (n *Node) dcasNext(level int, prevPtr, newPtr *Node, prevIsdeleted, newIsde
 	return swapped
 }
 
+func (n Node) Size() int {
+	var ref NodeRef
+	var next *Node
+
+	return int(
+		unsafe.Sizeof(n.next) +
+			unsafe.Sizeof(n.itm) +
+			uintptr(n.itm.Size()) +
+			unsafe.Sizeof(n.GClink) +
+			(unsafe.Sizeof(next)+unsafe.Sizeof(ref))*uintptr(n.Level()+1))
+}
+
 func (s *Skiplist) randomLevel(randFn func() float32) int {
 	var nextLevel int
 
@@ -126,9 +140,10 @@ func (s *Skiplist) randomLevel(randFn func() float32) int {
 
 func (s *Skiplist) helpDelete(level int, prev, curr, next *Node) bool {
 	success := prev.dcasNext(level, curr, next, false, false)
-	if success && level == curr.getLevel() {
+	if success && level == curr.Level() {
 		atomic.AddInt64(&s.stats.softDeletes, -1)
 		atomic.AddInt64(&s.stats.levelNodesCount[level], -1)
+		atomic.AddInt64(&usedBytes, -int64(curr.Size()))
 	}
 	return success
 }
@@ -184,6 +199,7 @@ func (s *Skiplist) Insert2(itm Item, cmp CompareFn,
 	itemLevel := s.randomLevel(randFn)
 	x := newNode(itm, itemLevel)
 	atomic.AddInt64(&s.stats.levelNodesCount[itemLevel], 1)
+	atomic.AddInt64(&usedBytes, int64(x.Size()))
 retry:
 	s.findPath(itm, cmp, buf)
 
@@ -208,7 +224,7 @@ retry:
 func (s *Skiplist) softDelete(delNode *Node) bool {
 	var deleteMarked bool
 
-	targetLevel := delNode.getLevel()
+	targetLevel := delNode.Level()
 	for i := targetLevel; i >= 0; i-- {
 		next, deleted := delNode.getNext(i)
 		for !deleted {

@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"sync"
 	"sync/atomic"
+	"unsafe"
 )
 
 type KeyCompare func([]byte, []byte) int
@@ -73,6 +74,11 @@ func (itm *Item) Decode(buf []byte, r io.Reader) error {
 
 func (itm *Item) Bytes() []byte {
 	return itm.data
+}
+
+func (itm Item) Size() int {
+	return int(unsafe.Sizeof(itm.bornSn)+unsafe.Sizeof(itm.deadSn)+
+		unsafe.Sizeof(itm.data)) + len(itm.data)
 }
 
 func NewItem(data []byte) *Item {
@@ -320,6 +326,11 @@ type Snapshot struct {
 	count    int64
 
 	gclist *skiplist.Node
+}
+
+func (s Snapshot) Size() int {
+	return int(unsafe.Sizeof(s.sn) + unsafe.Sizeof(s.refCount) + unsafe.Sizeof(s.db) +
+		unsafe.Sizeof(s.count) + unsafe.Sizeof(s.gclist))
 }
 
 func (s Snapshot) Count() int64 {
@@ -608,4 +619,8 @@ loop:
 
 func (m *MemDB) DumpStats() string {
 	return m.store.GetStats().String()
+}
+
+func MemoryInUse() int64 {
+	return skiplist.MemoryInUse()
 }
