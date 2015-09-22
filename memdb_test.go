@@ -8,6 +8,7 @@ import "math/rand"
 import "sync"
 import "runtime"
 import "encoding/binary"
+import "github.com/t3rm1n4l/memdb/skiplist"
 
 func TestInsert(t *testing.T) {
 	db := New()
@@ -259,4 +260,30 @@ func TestGCPerf(t *testing.T) {
 	}
 
 	fmt.Printf("final_node_count = %v, average_live_node_count = %v, wait_time_for_collection = %vms\n", db.store.GetStats().NodeCount, nc/iterations, waits)
+}
+
+func TestMemoryInUse(t *testing.T) {
+	db := New()
+
+	dumpStats := func() {
+		fmt.Printf("ItemsCount: %v, MemoryInUse: %v, NodesCount: %v\n", db.ItemsCount(), skiplist.MemoryInUse(), db.store.GetStats().NodeCount)
+	}
+	w := db.NewWriter()
+	for i := 0; i < 5000; i++ {
+		w.Put(NewItem([]byte(fmt.Sprintf("%010d", i))))
+	}
+	snap1 := w.NewSnapshot()
+
+	dumpStats()
+
+	for i := 0; i < 5000; i++ {
+		w.Delete(NewItem([]byte(fmt.Sprintf("%010d", i))))
+	}
+
+	snap1.Close()
+	snap2 := w.NewSnapshot()
+	w.NewSnapshot()
+	snap2.Close()
+	time.Sleep(time.Second)
+	dumpStats()
 }
