@@ -16,10 +16,11 @@ type Item interface {
 type CompareFn func(Item, Item) int
 
 type Skiplist struct {
-	head  *Node
-	tail  *Node
-	level int32
-	stats stats
+	head      *Node
+	tail      *Node
+	level     int32
+	stats     stats
+	usedBytes int64
 }
 
 func New() *Skiplist {
@@ -143,7 +144,7 @@ func (s *Skiplist) helpDelete(level int, prev, curr, next *Node) bool {
 	if success && level == curr.Level() {
 		atomic.AddInt64(&s.stats.softDeletes, -1)
 		atomic.AddInt64(&s.stats.levelNodesCount[level], -1)
-		atomic.AddInt64(&usedBytes, -int64(curr.Size()))
+		atomic.AddInt64(&s.usedBytes, -int64(curr.Size()))
 	}
 	return success
 }
@@ -199,7 +200,7 @@ func (s *Skiplist) Insert2(itm Item, cmp CompareFn,
 	itemLevel := s.randomLevel(randFn)
 	x := newNode(itm, itemLevel)
 	atomic.AddInt64(&s.stats.levelNodesCount[itemLevel], 1)
-	atomic.AddInt64(&usedBytes, int64(x.Size()))
+	atomic.AddInt64(&s.usedBytes, int64(x.Size()))
 retry:
 	s.findPath(itm, cmp, buf)
 

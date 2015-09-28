@@ -8,7 +8,6 @@ import "math/rand"
 import "sync"
 import "runtime"
 import "encoding/binary"
-import "github.com/t3rm1n4l/memdb/skiplist"
 
 func TestInsert(t *testing.T) {
 	db := New()
@@ -147,7 +146,7 @@ func TestLoadStoreDisk(t *testing.T) {
 	fmt.Printf("Inserting %v items took %v\n", n, time.Since(t0))
 	snap := db.NewSnapshot()
 	snap = db.NewSnapshot()
-	fmt.Println(db.store.GetStats())
+	fmt.Println(db.DumpStats())
 
 	t0 = time.Now()
 	err := db.StoreToDisk("db.dump", snap, nil)
@@ -170,7 +169,7 @@ func TestLoadStoreDisk(t *testing.T) {
 	if count != n {
 		t.Errorf("Expected %v, got %v", n, count)
 	}
-	fmt.Println(db.store.GetStats())
+	fmt.Println(db.DumpStats())
 }
 
 func TestDelete(t *testing.T) {
@@ -186,7 +185,7 @@ func TestDelete(t *testing.T) {
 	if got != expected {
 		t.Errorf("Expected 2000, got %d", got)
 	}
-	fmt.Println(db.store.GetStats())
+	fmt.Println(db.DumpStats())
 
 	for i := 0; i < expected; i++ {
 		w.Delete(NewItem([]byte(fmt.Sprintf("%010d", i))))
@@ -207,7 +206,7 @@ func TestDelete(t *testing.T) {
 	if got != expected {
 		t.Errorf("Expected %d, got %d", expected, got)
 	}
-	fmt.Println(db.store.GetStats())
+	fmt.Println(db.DumpStats())
 }
 
 func doReplace(wg *sync.WaitGroup, t *testing.T, w *Writer, start, end int) {
@@ -266,7 +265,7 @@ func TestMemoryInUse(t *testing.T) {
 	db := New()
 
 	dumpStats := func() {
-		fmt.Printf("ItemsCount: %v, MemoryInUse: %v, NodesCount: %v\n", db.ItemsCount(), skiplist.MemoryInUse(), db.store.GetStats().NodeCount)
+		fmt.Printf("ItemsCount: %v, MemoryInUse: %v, NodesCount: %v\n", db.ItemsCount(), MemoryInUse(), db.store.GetStats().NodeCount)
 	}
 	w := db.NewWriter()
 	for i := 0; i < 5000; i++ {

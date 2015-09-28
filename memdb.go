@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"github.com/t3rm1n4l/memdb/skiplist"
 	"io"
 	"math/rand"
@@ -31,6 +32,22 @@ const (
 )
 
 const gcchanBufSize = 256
+
+var (
+	dbInstances      *skiplist.Skiplist
+	dbInstancesCount int64
+)
+
+func init() {
+	dbInstances = skiplist.New()
+}
+
+func CompareMemDB(this skiplist.Item, that skiplist.Item) int {
+	thisItem := this.(*MemDB)
+	thatItem := that.(*MemDB)
+
+	return int(thisItem.id - thatItem.id)
+}
 
 func DefaultConfig() Config {
 	var cfg Config
@@ -239,6 +256,7 @@ func (cfg *Config) SetFileType(t FileType) error {
 }
 
 type MemDB struct {
+	id           int
 	store        *skiplist.Skiplist
 	currSn       uint32
 	snapshots    *skiplist.Skiplist
@@ -262,7 +280,12 @@ func NewWithConfig(cfg Config) *MemDB {
 		currSn:      1,
 		Config:      cfg,
 		gcchan:      make(chan *skiplist.Node, gcchanBufSize),
+		id:          int(atomic.AddInt64(&dbInstancesCount, 1)),
 	}
+
+	buf := dbInstances.MakeBuf()
+	defer dbInstances.FreeBuf(buf)
+	dbInstances.Insert(m, CompareMemDB, buf)
 
 	return m
 
@@ -272,14 +295,33 @@ func New() *MemDB {
 	return NewWithConfig(DefaultConfig())
 }
 
+// Make item interface happy
+func (m *MemDB) Size() int {
+	return 0
+}
+
+func (m *MemDB) MemoryInUse() int64 {
+	return m.store.MemoryInUse() + m.snapshots.MemoryInUse() + m.gcsnapshots.MemoryInUse()
+}
+
 func (m *MemDB) Reset() {
+	m.Close()
 	m.store = skiplist.New()
 	m.snapshots = skiplist.New()
+	m.gcsnapshots = skiplist.New()
+	m.gcchan = make(chan *skiplist.Node, gcchanBufSize)
 	m.currSn = 1
+
+	buf := dbInstances.MakeBuf()
+	defer dbInstances.FreeBuf(buf)
+	dbInstances.Insert(m, CompareMemDB, buf)
 }
 
 func (m *MemDB) Close() {
 	close(m.gcchan)
+	buf := dbInstances.MakeBuf()
+	defer dbInstances.FreeBuf(buf)
+	dbInstances.Delete(m, CompareMemDB, buf)
 }
 
 func (m *MemDB) getCurrSn() uint32 {
@@ -618,9 +660,17 @@ loop:
 }
 
 func (m *MemDB) DumpStats() string {
-	return m.store.GetStats().String()
+	return fmt.Sprintf("==== MemDB instance-%d ====\n%s", m.id, m.store.GetStats().String())
 }
 
-func MemoryInUse() int64 {
-	return skiplist.MemoryInUse()
+func MemoryInUse() (sz int64) {
+	buf := dbInstances.MakeBuf()
+	defer dbInstances.FreeBuf(buf)
+	iter := dbInstances.NewIterator(CompareMemDB, buf)
+	for iter.SeekFirst(); iter.Valid(); iter.Next() {
+		db := iter.Get().(*MemDB)
+		sz += db.MemoryInUse()
+	}
+
+	return
 }

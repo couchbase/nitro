@@ -3,8 +3,6 @@ package skiplist
 import "fmt"
 import "sync/atomic"
 
-var usedBytes int64
-
 type StatsReport struct {
 	ReadConflicts       uint64
 	InsertConflicts     uint64
@@ -22,7 +20,7 @@ type stats struct {
 }
 
 func (s StatsReport) String() string {
-	str := "\nskiplist stats\n==============\n"
+	str := "skiplist stats\n==============\n"
 	str += fmt.Sprintf(
 		"node_count             = %d\n"+
 			"soft_deletes           = %d\n"+
@@ -60,6 +58,6 @@ func (s *Skiplist) GetStats() StatsReport {
 	return report
 }
 
-func MemoryInUse() int64 {
-	return atomic.LoadInt64(&usedBytes)
+func (s *Skiplist) MemoryInUse() int64 {
+	return atomic.LoadInt64(&s.usedBytes)
 }
