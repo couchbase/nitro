@@ -11,6 +11,7 @@ import "encoding/binary"
 
 func TestInsert(t *testing.T) {
 	db := New()
+	defer db.Close()
 	w := db.NewWriter()
 	for i := 0; i < 2000; i++ {
 		w.Put(NewItem([]byte(fmt.Sprintf("%010d", i))))
@@ -70,6 +71,7 @@ func doInsert(db *MemDB, wg *sync.WaitGroup, n int, isRand bool, shouldSnap bool
 func TestInsertPerf(t *testing.T) {
 	var wg sync.WaitGroup
 	db := New()
+	defer db.Close()
 	n := 1000000
 	t0 := time.Now()
 	total := n * runtime.GOMAXPROCS(0)
@@ -104,6 +106,7 @@ func doGet(t *testing.T, db *MemDB, snap *Snapshot, wg *sync.WaitGroup, n int) {
 func TestGetPerf(t *testing.T) {
 	var wg sync.WaitGroup
 	db := New()
+	defer db.Close()
 	n := 1000000
 	wg.Add(1)
 	go doInsert(db, &wg, n, false, true)
@@ -136,6 +139,7 @@ func TestLoadStoreDisk(t *testing.T) {
 	var wg sync.WaitGroup
 	cfg := DefaultConfig()
 	db := NewWithConfig(cfg)
+	defer db.Close()
 	n := 1000000
 	t0 := time.Now()
 	for i := 0; i < runtime.GOMAXPROCS(0); i++ {
@@ -158,6 +162,7 @@ func TestLoadStoreDisk(t *testing.T) {
 
 	snap.Close()
 	db = NewWithConfig(cfg)
+	defer db.Close()
 	t0 = time.Now()
 	snap, err = db.LoadFromDisk("db.dump", nil)
 	if err != nil {
@@ -175,6 +180,7 @@ func TestLoadStoreDisk(t *testing.T) {
 func TestDelete(t *testing.T) {
 	expected := 10
 	db := New()
+	defer db.Close()
 	w := db.NewWriter()
 	for i := 0; i < expected; i++ {
 		w.Put(NewItem([]byte(fmt.Sprintf("%010d", i))))
@@ -223,6 +229,7 @@ func TestGCPerf(t *testing.T) {
 	var last *Snapshot
 
 	db := New()
+	defer db.Close()
 	perW := 1000
 	iterations := 1000
 	nW := runtime.GOMAXPROCS(0)
@@ -263,6 +270,7 @@ func TestGCPerf(t *testing.T) {
 
 func TestMemoryInUse(t *testing.T) {
 	db := New()
+	defer db.Close()
 
 	dumpStats := func() {
 		fmt.Printf("ItemsCount: %v, MemoryInUse: %v, NodesCount: %v\n", db.ItemsCount(), MemoryInUse(), db.store.GetStats().NodeCount)
