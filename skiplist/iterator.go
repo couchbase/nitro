@@ -42,7 +42,7 @@ func (it *Iterator) Valid() bool {
 }
 
 func (it *Iterator) Get() Item {
-	return it.curr.itm
+	return it.curr.Item()
 }
 
 func (it *Iterator) GetNode() *Node {
@@ -68,7 +68,7 @@ retry:
 	next, deleted := it.curr.getNext(0)
 	for deleted {
 		if !it.s.helpDelete(0, it.prev, it.curr, next) {
-			found := it.s.findPath(it.curr.itm, it.cmp, it.buf)
+			found := it.s.findPath(it.curr.Item(), it.cmp, it.buf)
 			last := it.curr
 			it.prev = it.buf.preds[0]
 			it.curr = it.buf.succs[0]

@@ -57,7 +57,7 @@ func (s *Skiplist) FreeBuf(b *ActionBuffer) {
 
 type Node struct {
 	next   []unsafe.Pointer
-	itm    Item
+	itm    atomic.Value
 	GClink *Node
 }
 
@@ -65,8 +65,19 @@ func (n Node) Level() int {
 	return int(len(n.next) - 1)
 }
 
-func (n Node) Item() Item {
-	return n.itm
+func (n *Node) ResetItem(itm Item) (deltaSz int) {
+	deltaSz = itm.Size() - n.Item().Size()
+	n.itm.Store(itm)
+
+	return
+}
+
+func (n *Node) Item() Item {
+	itm := n.itm.Load()
+	if itm != nil {
+		return itm.(Item)
+	}
+	return nil
 }
 
 type NodeRef struct {
@@ -75,10 +86,15 @@ type NodeRef struct {
 }
 
 func newNode(itm Item, level int) *Node {
-	return &Node{
+	n := &Node{
 		next: make([]unsafe.Pointer, level+1),
-		itm:  itm,
 	}
+
+	if itm != nil {
+		n.itm.Store(itm)
+	}
+
+	return n
 }
 
 func (n *Node) setNext(level int, ptr *Node, deleted bool) {
@@ -115,9 +131,17 @@ func (n Node) Size() int {
 	return int(
 		unsafe.Sizeof(n.next) +
 			unsafe.Sizeof(n.itm) +
-			uintptr(n.itm.Size()) +
+			uintptr(n.Item().Size()) +
 			unsafe.Sizeof(n.GClink) +
 			(unsafe.Sizeof(next)+unsafe.Sizeof(ref))*uintptr(n.Level()+1))
+}
+
+func (s *Skiplist) NewLevel(randFn func() float32) int {
+	return s.randomLevel(randFn)
+}
+
+func (s *Skiplist) AdjustUsedBytes(adj int) {
+	atomic.AddInt64(&s.usedBytes, -int64(adj))
 }
 
 func (s *Skiplist) randomLevel(randFn func() float32) int {
@@ -171,7 +195,7 @@ retry:
 				next, deleted = curr.getNext(i)
 			}
 
-			cmpVal = compare(cmp, curr.itm, itm)
+			cmpVal = compare(cmp, curr.Item(), itm)
 			if cmpVal < 0 {
 				prev = curr
 				curr, _ = prev.getNext(i)
@@ -195,14 +219,24 @@ func (s *Skiplist) Insert(itm Item, cmp CompareFn, buf *ActionBuffer) {
 }
 
 func (s *Skiplist) Insert2(itm Item, cmp CompareFn,
-	buf *ActionBuffer, randFn func() float32) {
-
+	buf *ActionBuffer, randFn func() float32) *Node {
 	itemLevel := s.randomLevel(randFn)
+	return s.Insert3(itm, cmp, buf, itemLevel, false)
+}
+
+func (s *Skiplist) Insert3(itm Item, cmp CompareFn,
+	buf *ActionBuffer, itemLevel int, skipFindPath bool) *Node {
+
 	x := newNode(itm, itemLevel)
 	atomic.AddInt64(&s.stats.levelNodesCount[itemLevel], 1)
 	atomic.AddInt64(&s.usedBytes, int64(x.Size()))
+
 retry:
-	s.findPath(itm, cmp, buf)
+	if skipFindPath {
+		skipFindPath = false
+	} else {
+		s.findPath(itm, cmp, buf)
+	}
 
 	x.setNext(0, buf.succs[0], false)
 	if !buf.preds[0].dcasNext(0, buf.succs[0], x, false, false) {
@@ -220,6 +254,8 @@ retry:
 			s.findPath(itm, cmp, buf)
 		}
 	}
+
+	return x
 }
 
 func (s *Skiplist) softDelete(delNode *Node) bool {
@@ -252,7 +288,7 @@ func (s *Skiplist) Delete(itm Item, cmp CompareFn, buf *ActionBuffer) bool {
 }
 
 func (s *Skiplist) DeleteNode(n *Node, cmp CompareFn, buf *ActionBuffer) bool {
-	itm := n.itm
+	itm := n.Item()
 	if s.softDelete(n) {
 		s.findPath(itm, cmp, buf)
 		return true

@@ -53,6 +53,7 @@ func DefaultConfig() Config {
 	var cfg Config
 	cfg.SetKeyComparator(defaultKeyCmp)
 	cfg.SetFileType(RawdbFile)
+	cfg.snapshotsEnabled = true
 	return cfg
 }
 
@@ -152,41 +153,77 @@ type Writer struct {
 }
 
 func (w *Writer) Put(x *Item) {
+	w.Put2(x)
+}
+
+func (w *Writer) Put2(x *Item) (n *skiplist.Node) {
 	x.bornSn = w.getCurrSn()
-	w.store.Insert2(x, w.insCmp, w.buf, w.rand.Float32)
+	n = w.store.Insert2(x, w.insCmp, w.buf, w.rand.Float32)
 	atomic.AddInt64(&w.count, 1)
+	return
+}
+
+// This is an operation only available for memdb instance with snapshots disabled
+func (w *Writer) Upsert2(x *Item) (n *skiplist.Node, updated bool) {
+	if w.snapshotsEnabled {
+		panic("unsupported")
+	}
+
+	itemLevel := w.store.NewLevel(w.rand.Float32)
+	found := w.iter.Seek(x)
+	if found {
+		n = w.iter.GetNode()
+		deltaSz := n.ResetItem(x)
+		w.store.AdjustUsedBytes(deltaSz)
+		updated = true
+	} else {
+		x.bornSn = w.getCurrSn()
+		n = w.store.Insert3(x, w.iterCmp, w.buf, itemLevel, true)
+		atomic.AddInt64(&w.count, 1)
+	}
+
+	return
 }
 
 // Find first item, seek until dead=0, mark dead=sn
 func (w *Writer) Delete(x *Item) (success bool) {
+	_, success = w.Delete2(x)
+	return
+}
+
+func (w *Writer) Delete2(x *Item) (n *skiplist.Node, success bool) {
+	n = w.GetNode(x)
+	if n != nil {
+		success = w.DeleteNode(n)
+	}
+
+	return
+}
+
+func (w *Writer) DeleteNode(x *skiplist.Node) (success bool) {
 	defer func() {
 		if success {
 			atomic.AddInt64(&w.count, -1)
 		}
 	}()
 
-	gotNode := w.GetNode(x)
-	if gotNode != nil {
-		sn := w.getCurrSn()
-		gotItem := gotNode.Item().(*Item)
-		if gotItem.bornSn == sn {
-			success = w.store.DeleteNode(gotNode, w.insCmp, w.buf)
-			return
-		}
-
-		success = atomic.CompareAndSwapUint32(&gotItem.deadSn, 0, sn)
-		if success {
-			if w.gctail == nil {
-				w.gctail = gotNode
-				w.gchead = w.gctail
-			} else {
-				w.gctail.GClink = gotNode
-				w.gctail = gotNode
-			}
-		}
+	sn := w.getCurrSn()
+	gotItem := x.Item().(*Item)
+	if gotItem.bornSn == sn {
+		success = w.store.DeleteNode(x, w.insCmp, w.buf)
 		return
 	}
 
+	success = atomic.CompareAndSwapUint32(&gotItem.deadSn, 0, sn)
+	if success {
+		if w.gctail == nil {
+			w.gctail = x
+			w.gchead = w.gctail
+		} else {
+			w.gctail.GClink = x
+			w.gctail = x
+		}
+	}
 	return
 }
 
@@ -235,6 +272,8 @@ type Config struct {
 	insCmp  skiplist.CompareFn
 	iterCmp skiplist.CompareFn
 
+	snapshotsEnabled bool
+
 	fileType FileType
 }
 
@@ -253,6 +292,11 @@ func (cfg *Config) SetFileType(t FileType) error {
 
 	cfg.fileType = t
 	return nil
+}
+
+func (cfg *Config) DisableSnapshots() {
+	cfg.snapshotsEnabled = false
+	cfg.insCmp = cfg.iterCmp
 }
 
 type MemDB struct {
@@ -356,7 +400,9 @@ func (m *MemDB) NewWriter() *Writer {
 
 	m.wlist = w
 
-	go m.collectionWorker()
+	if m.snapshotsEnabled {
+		go m.collectionWorker()
+	}
 
 	return w
 }
@@ -438,6 +484,10 @@ func CompareSnapshot(this skiplist.Item, that skiplist.Item) int {
 }
 
 func (m *MemDB) NewSnapshot() *Snapshot {
+	if !m.snapshotsEnabled {
+		panic("unsupported")
+	}
+
 	buf := m.snapshots.MakeBuf()
 	defer m.snapshots.FreeBuf(buf)
 
