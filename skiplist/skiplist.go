@@ -80,6 +80,14 @@ func (n *Node) Item() Item {
 	return nil
 }
 
+func (n *Node) SetLink(l *Node) {
+	n.GClink = l
+}
+
+func (n *Node) GetLink() *Node {
+	return n.GClink
+}
+
 type NodeRef struct {
 	deleted bool
 	ptr     *Node

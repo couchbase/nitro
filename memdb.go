@@ -17,7 +17,21 @@ import (
 )
 
 type KeyCompare func([]byte, []byte) int
-type ItemCallback func(*Item)
+
+type ItemEntry struct {
+	itm *Item
+	n   *skiplist.Node
+}
+
+func (e *ItemEntry) Item() *Item {
+	return e.itm
+}
+
+func (e *ItemEntry) Node() *skiplist.Node {
+	return e.n
+}
+
+type ItemCallback func(*ItemEntry)
 
 type FileType int
 
@@ -552,6 +566,10 @@ func (it *Iterator) Get() *Item {
 	return it.iter.Get().(*Item)
 }
 
+func (it *Iterator) GetNode() *skiplist.Node {
+	return it.iter.GetNode()
+}
+
 func (it *Iterator) Next() {
 	it.iter.Next()
 	it.skipUnwanted()
@@ -651,13 +669,15 @@ func (m *MemDB) StoreToDisk(dir string, snap *Snapshot, callb ItemCallback) erro
 	defer itr.Close()
 
 	for itr.SeekFirst(); itr.Valid(); itr.Next() {
+		n := itr.GetNode()
 		itm := itr.Get()
+
 		if err := w.WriteItem(itm); err != nil {
 			return err
 		}
 
 		if callb != nil {
-			callb(itm)
+			callb(&ItemEntry{itm: itm, n: n})
 		}
 	}
 
@@ -681,9 +701,9 @@ func (m *MemDB) LoadFromDisk(dir string, callb ItemCallback) (*Snapshot, error) 
 			defer wg.Done()
 			w := m.NewWriter()
 			for itm := range ch {
-				w.Put(itm)
+				n := w.Put2(itm)
 				if callb != nil {
-					callb(itm)
+					callb(&ItemEntry{itm: itm, n: n})
 				}
 			}
 		}(&wg)
