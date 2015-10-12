@@ -164,8 +164,11 @@ func (s *Skiplist) randomLevel(randFn func() float32) int {
 
 	level := int(atomic.LoadInt32(&s.level))
 	if nextLevel > level {
-		atomic.CompareAndSwapInt32(&s.level, int32(level), int32(level+1))
-		nextLevel = level + 1
+		if atomic.CompareAndSwapInt32(&s.level, int32(level), int32(level+1)) {
+			nextLevel = level + 1
+		} else {
+			nextLevel = level
+		}
 	}
 
 	return nextLevel
