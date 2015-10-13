@@ -171,9 +171,12 @@ func (w *Writer) Put(x *Item) {
 }
 
 func (w *Writer) Put2(x *Item) (n *skiplist.Node) {
+	var success bool
 	x.bornSn = w.getCurrSn()
-	n = w.store.Insert2(x, w.insCmp, w.buf, w.rand.Float32)
-	atomic.AddInt64(&w.count, 1)
+	n, success = w.store.Insert2(x, w.insCmp, w.buf, w.rand.Float32)
+	if success {
+		atomic.AddInt64(&w.count, 1)
+	}
 	return
 }
 
@@ -192,7 +195,7 @@ func (w *Writer) Upsert2(x *Item) (n *skiplist.Node, updated bool) {
 		updated = true
 	} else {
 		x.bornSn = w.getCurrSn()
-		n = w.store.Insert3(x, w.iterCmp, w.buf, itemLevel, true)
+		n, _ = w.store.Insert3(x, w.iterCmp, w.buf, itemLevel, true)
 		atomic.AddInt64(&w.count, 1)
 	}
 
