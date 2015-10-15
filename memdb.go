@@ -190,7 +190,7 @@ func (w *Writer) Upsert2(x *Item) (n *skiplist.Node, updated bool) {
 	found := w.iter.Seek(x)
 	if found {
 		n = w.iter.GetNode()
-		deltaSz := n.ResetItem(x)
+		deltaSz := w.store.ResetItem(n, x)
 		w.store.AdjustUsedBytes(deltaSz)
 		updated = true
 	} else {
@@ -290,6 +290,7 @@ type Config struct {
 	iterCmp skiplist.CompareFn
 
 	snapshotsEnabled bool
+	ignoreItemSize   bool
 
 	fileType FileType
 }
@@ -314,6 +315,10 @@ func (cfg *Config) SetFileType(t FileType) error {
 func (cfg *Config) DisableSnapshots() {
 	cfg.snapshotsEnabled = false
 	cfg.insCmp = cfg.iterCmp
+}
+
+func (cfg *Config) IgnoreItemSize() {
+	cfg.ignoreItemSize = true
 }
 
 type MemDB struct {
@@ -348,6 +353,10 @@ func NewWithConfig(cfg Config) *MemDB {
 	defer dbInstances.FreeBuf(buf)
 	dbInstances.Insert(m, CompareMemDB, buf)
 
+	if cfg.ignoreItemSize {
+		m.store.IgnoreItemSize()
+	}
+
 	return m
 
 }
@@ -376,6 +385,10 @@ func (m *MemDB) Reset() {
 	buf := dbInstances.MakeBuf()
 	defer dbInstances.FreeBuf(buf)
 	dbInstances.Insert(m, CompareMemDB, buf)
+
+	if m.ignoreItemSize {
+		m.store.IgnoreItemSize()
+	}
 }
 
 func (m *MemDB) Close() {

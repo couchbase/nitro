@@ -21,6 +21,9 @@ type Skiplist struct {
 	level     int32
 	stats     stats
 	usedBytes int64
+
+	// Do not use item size for usedBytes computation
+	ignoreItemSize bool
 }
 
 func New() *Skiplist {
@@ -37,6 +40,10 @@ func New() *Skiplist {
 	}
 
 	return s
+}
+
+func (s *Skiplist) IgnoreItemSize() {
+	s.ignoreItemSize = true
 }
 
 type ActionBuffer struct {
@@ -65,8 +72,10 @@ func (n Node) Level() int {
 	return int(len(n.next) - 1)
 }
 
-func (n *Node) ResetItem(itm Item) (deltaSz int) {
-	deltaSz = itm.Size() - n.Item().Size()
+func (s *Skiplist) ResetItem(n *Node, itm Item) (deltaSz int) {
+	if !s.ignoreItemSize {
+		deltaSz = itm.Size() - n.Item().Size()
+	}
 	n.itm.Store(itm)
 
 	return
@@ -132,14 +141,20 @@ func (n *Node) dcasNext(level int, prevPtr, newPtr *Node, prevIsdeleted, newIsde
 	return swapped
 }
 
-func (n Node) Size() int {
+func (s *Skiplist) Size(n *Node) int {
 	var ref NodeRef
 	var next *Node
+
+	itmSz := uintptr(0)
+
+	if !s.ignoreItemSize {
+		itmSz = uintptr(n.Item().Size())
+	}
 
 	return int(
 		unsafe.Sizeof(n.next) +
 			unsafe.Sizeof(n.itm) +
-			uintptr(n.Item().Size()) +
+			itmSz +
 			unsafe.Sizeof(n.GClink) +
 			(unsafe.Sizeof(next)+unsafe.Sizeof(ref))*uintptr(n.Level()+1))
 }
@@ -179,7 +194,7 @@ func (s *Skiplist) helpDelete(level int, prev, curr, next *Node) bool {
 	if success && level == curr.Level() {
 		atomic.AddInt64(&s.stats.softDeletes, -1)
 		atomic.AddInt64(&s.stats.levelNodesCount[level], -1)
-		atomic.AddInt64(&s.usedBytes, -int64(curr.Size()))
+		atomic.AddInt64(&s.usedBytes, -int64(s.Size(curr)))
 	}
 	return success
 }
@@ -241,7 +256,7 @@ func (s *Skiplist) Insert3(itm Item, cmp CompareFn,
 
 	x := newNode(itm, itemLevel)
 	atomic.AddInt64(&s.stats.levelNodesCount[itemLevel], 1)
-	atomic.AddInt64(&s.usedBytes, int64(x.Size()))
+	atomic.AddInt64(&s.usedBytes, int64(s.Size(x)))
 
 retry:
 	if skipFindPath {
