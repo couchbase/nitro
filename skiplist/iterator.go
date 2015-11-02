@@ -27,7 +27,7 @@ func (it *Iterator) SeekFirst() {
 
 func (it *Iterator) Seek(itm Item) bool {
 	it.valid = true
-	found := it.s.findPath(itm, it.cmp, it.buf)
+	found := it.s.FindPath(itm, it.cmp, it.buf) != nil
 	it.prev = it.buf.preds[0]
 	it.curr = it.buf.succs[0]
 	return found
@@ -68,7 +68,7 @@ retry:
 	next, deleted := it.curr.getNext(0)
 	for deleted {
 		if !it.s.helpDelete(0, it.prev, it.curr, next) {
-			found := it.s.findPath(it.curr.Item(), it.cmp, it.buf)
+			found := it.s.FindPath(it.curr.Item(), it.cmp, it.buf) != nil
 			last := it.curr
 			it.prev = it.buf.preds[0]
 			it.curr = it.buf.succs[0]

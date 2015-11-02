@@ -187,9 +187,8 @@ func (w *Writer) Upsert2(x *Item) (n *skiplist.Node, updated bool) {
 	}
 
 	itemLevel := w.store.NewLevel(w.rand.Float32)
-	found := w.iter.Seek(x)
-	if found {
-		n = w.iter.GetNode()
+	n = w.store.FindPath(x, w.iterCmp, w.buf)
+	if n != nil {
 		deltaSz := w.store.ResetItem(n, x)
 		w.store.AdjustUsedBytes(deltaSz)
 		updated = true

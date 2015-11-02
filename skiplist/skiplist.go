@@ -159,15 +159,11 @@ func (s *Skiplist) Size(n *Node) int {
 			(unsafe.Sizeof(next)+unsafe.Sizeof(ref))*uintptr(n.Level()+1))
 }
 
-func (s *Skiplist) NewLevel(randFn func() float32) int {
-	return s.randomLevel(randFn)
-}
-
 func (s *Skiplist) AdjustUsedBytes(adj int) {
 	atomic.AddInt64(&s.usedBytes, -int64(adj))
 }
 
-func (s *Skiplist) randomLevel(randFn func() float32) int {
+func (s *Skiplist) NewLevel(randFn func() float32) int {
 	var nextLevel int
 
 	for ; randFn() < p; nextLevel++ {
@@ -199,8 +195,8 @@ func (s *Skiplist) helpDelete(level int, prev, curr, next *Node) bool {
 	return success
 }
 
-func (s *Skiplist) findPath(itm Item, cmp CompareFn,
-	buf *ActionBuffer) (found bool) {
+func (s *Skiplist) FindPath(itm Item, cmp CompareFn,
+	buf *ActionBuffer) (foundNode *Node) {
 	var cmpVal int = 1
 
 retry:
@@ -235,7 +231,7 @@ retry:
 	}
 
 	if cmpVal == 0 {
-		found = true
+		foundNode = buf.succs[0]
 	}
 	return
 }
@@ -247,7 +243,7 @@ func (s *Skiplist) Insert(itm Item, cmp CompareFn, buf *ActionBuffer) (success b
 
 func (s *Skiplist) Insert2(itm Item, cmp CompareFn,
 	buf *ActionBuffer, randFn func() float32) (*Node, bool) {
-	itemLevel := s.randomLevel(randFn)
+	itemLevel := s.NewLevel(randFn)
 	return s.Insert3(itm, cmp, buf, itemLevel, false)
 }
 
@@ -262,7 +258,7 @@ retry:
 	if skipFindPath {
 		skipFindPath = false
 	} else {
-		if s.findPath(itm, cmp, buf) {
+		if s.FindPath(itm, cmp, buf) != nil {
 			return nil, false
 		}
 	}
@@ -280,7 +276,7 @@ retry:
 			if buf.preds[i].dcasNext(i, buf.succs[i], x, false, false) {
 				break fixThisLevel
 			}
-			s.findPath(itm, cmp, buf)
+			s.FindPath(itm, cmp, buf)
 		}
 	}
 
@@ -307,7 +303,7 @@ func (s *Skiplist) softDelete(delNode *Node) bool {
 }
 
 func (s *Skiplist) Delete(itm Item, cmp CompareFn, buf *ActionBuffer) bool {
-	found := s.findPath(itm, cmp, buf)
+	found := s.FindPath(itm, cmp, buf) != nil
 	if !found {
 		return false
 	}
@@ -319,7 +315,7 @@ func (s *Skiplist) Delete(itm Item, cmp CompareFn, buf *ActionBuffer) bool {
 func (s *Skiplist) DeleteNode(n *Node, cmp CompareFn, buf *ActionBuffer) bool {
 	itm := n.Item()
 	if s.softDelete(n) {
-		s.findPath(itm, cmp, buf)
+		s.FindPath(itm, cmp, buf)
 		return true
 	}
 
