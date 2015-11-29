@@ -1,5 +1,7 @@
 package skiplist
 
+import "sync/atomic"
+
 type Iterator struct {
 	cmp        CompareFn
 	s          *Skiplist
@@ -68,6 +70,7 @@ retry:
 	next, deleted := it.curr.getNext(0)
 	for deleted {
 		if !it.s.helpDelete(0, it.prev, it.curr, next) {
+			atomic.AddUint64(&it.s.stats.readConflicts, 1)
 			found := it.s.FindPath(it.curr.Item(), it.cmp, it.buf) != nil
 			last := it.curr
 			it.prev = it.buf.preds[0]
