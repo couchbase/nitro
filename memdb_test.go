@@ -294,3 +294,24 @@ func TestMemoryInUse(t *testing.T) {
 	time.Sleep(time.Second)
 	dumpStats()
 }
+
+func TestFullScan(t *testing.T) {
+	var wg sync.WaitGroup
+	cfg := DefaultConfig()
+	db := NewWithConfig(cfg)
+	defer db.Close()
+	n := 10000000
+	t0 := time.Now()
+	for i := 0; i < runtime.GOMAXPROCS(0); i++ {
+		wg.Add(1)
+		go doInsert(db, &wg, n/runtime.GOMAXPROCS(0), true, true)
+	}
+	wg.Wait()
+	fmt.Printf("Inserting %v items took %v\n", n, time.Since(t0))
+	snap := db.NewSnapshot()
+	fmt.Println(db.DumpStats())
+
+	t0 = time.Now()
+	c := CountItems(db, snap)
+	fmt.Printf("Full iteration of %d items took %v\n", c, time.Since(t0))
+}
