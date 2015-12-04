@@ -68,8 +68,13 @@ func (it *Iterator) Next() {
 retry:
 	it.valid = true
 	next, deleted := it.curr.getNext(0)
-	for deleted {
-		if !it.s.helpDelete(0, it.prev, it.curr, next) {
+	if deleted {
+		// Current node is deleted. Unlink current node from the level
+		// and make next node as current node.
+		// If it fails, refresh the path buffer and obtain new current node.
+		if it.s.helpDelete(0, it.prev, it.curr, next) {
+			it.curr = next
+		} else {
 			atomic.AddUint64(&it.s.stats.readConflicts, 1)
 			found := it.s.FindPath(it.curr.Item(), it.cmp, it.buf) != nil
 			last := it.curr
@@ -77,14 +82,10 @@ retry:
 			it.curr = it.buf.succs[0]
 			if found && last == it.curr {
 				goto retry
-			} else {
-				return
 			}
 		}
-		it.curr, _ = it.prev.getNext(0)
-		next, deleted = it.curr.getNext(0)
+	} else {
+		it.prev = it.curr
+		it.curr = next
 	}
-
-	it.prev = it.curr
-	it.curr = next
 }
