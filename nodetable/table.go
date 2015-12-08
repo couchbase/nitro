@@ -13,13 +13,19 @@ package nodetable
 // by the same crc32 key.
 
 import "unsafe"
+import "fmt"
+
+var emptyResult ntResult
 
 type EqualKeyFn func(unsafe.Pointer, []byte) bool
 type HashFn func([]byte) uint32
 
 type NodeTable struct {
-	fastHT map[uint32]uint64
-	slowHT map[uint32][]uint64
+	fastHT      map[uint32]uint64
+	slowHT      map[uint32][]uint64
+	fastHTCount uint64
+	slowHTCount uint64
+	conflicts   uint64
 
 	hash     HashFn
 	keyEqual EqualKeyFn
@@ -51,6 +57,11 @@ func New(hfn HashFn, kfn EqualKeyFn) *NodeTable {
 		hash:     hfn,
 		keyEqual: kfn,
 	}
+}
+
+func (nt *NodeTable) Stats() string {
+	return fmt.Sprintf("\nFastHTCount = %d\nSlowHTCount = %d\nConflicts = %d\n",
+		nt.fastHTCount, nt.slowHTCount, nt.conflicts)
 }
 
 func (nt *NodeTable) Get(key []byte) unsafe.Pointer {
@@ -91,10 +102,13 @@ func (nt *NodeTable) Update(key []byte, nptr unsafe.Pointer) (updated bool, oldP
 			// We have inserted first entry into the slowHT. Now mark conflict bit.
 			if newSlowValue {
 				nt.fastHT[res.hash] = encodePointer(decodePointer(nt.fastHT[res.hash]), true)
+				nt.conflicts++
 			}
+			nt.slowHTCount++
 		} else {
 			// Insert new item into fastHT
 			nt.fastHT[res.hash] = encodePointer(nptr, false)
+			nt.fastHTCount++
 		}
 	}
 
@@ -112,9 +126,12 @@ func (nt *NodeTable) Remove(key []byte) (success bool) {
 				slowHTValues := nt.slowHT[res.hash]
 				v := slowHTValues[0] // New fastHT candidate
 				slowHTValues = append([]uint64(nil), slowHTValues[1:]...)
+				nt.slowHTCount--
+
 				var conflict bool
 				if len(slowHTValues) == 0 {
 					delete(nt.slowHT, res.hash)
+					nt.conflicts--
 				} else {
 					conflict = true
 					nt.slowHT[res.hash] = slowHTValues
@@ -123,6 +140,7 @@ func (nt *NodeTable) Remove(key []byte) (success bool) {
 				nt.fastHT[res.hash] = encodePointer(decodePointer(v), conflict)
 			} else {
 				delete(nt.fastHT, res.hash)
+				nt.fastHTCount--
 			}
 		} else {
 			// Remove key from slowHT
@@ -130,10 +148,12 @@ func (nt *NodeTable) Remove(key []byte) (success bool) {
 			if res.slowHTPos+1 != len(res.slowHTValues) {
 				newSlowValue = append(newSlowValue, res.slowHTValues[:res.slowHTPos+1]...)
 			}
+			nt.slowHTCount--
 
 			if len(newSlowValue) == 0 {
 				delete(nt.slowHT, res.hash)
 				nt.fastHT[res.hash] = encodePointer(decodePointer(nt.fastHT[res.hash]), false)
+				nt.conflicts--
 			}
 		}
 	}
@@ -168,6 +188,7 @@ func (nt *NodeTable) isEqual(key []byte, v uint64) bool {
 }
 
 func (nt *NodeTable) find(key []byte) (res *ntResult) {
+	nt.res = emptyResult
 	res = &nt.res
 	res.status = ntNotFound
 	h := nt.hash(key)
