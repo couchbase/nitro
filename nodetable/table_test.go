@@ -6,6 +6,8 @@ import "hash/crc32"
 import "unsafe"
 import "fmt"
 import "time"
+import "syscall"
+import "runtime/debug"
 
 type object struct {
 	key   []byte
@@ -290,6 +292,28 @@ func TestLargeConflicts(t *testing.T) {
 		}
 	}
 
+}
+
+func TestMemoryOverhead(t *testing.T) {
+	n := 100000
+	table := New(crc32.ChecksumIEEE, equalObject)
+	objects := make([]*object, n)
+	for i := 0; i < n; i++ {
+		objects[i] = mkObject(fmt.Sprintf("key-%d", i), i)
+	}
+
+	var rusage1, rusage2 syscall.Rusage
+	debug.FreeOSMemory()
+	syscall.Getrusage(syscall.RUSAGE_SELF, &rusage1)
+	for i := 0; i < n; i++ {
+		table.Update(objects[i].key, unsafe.Pointer(objects[i]))
+	}
+	debug.FreeOSMemory()
+	syscall.Getrusage(syscall.RUSAGE_SELF, &rusage2)
+
+	rss := (rusage2.Maxrss - rusage1.Maxrss)
+	fmt.Println("Memory used for hashtable:", rss)
+	fmt.Println("Overhead per item:", float32(rss)/float32(n))
 }
 
 func TestPerf(t *testing.T) {
