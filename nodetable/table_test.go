@@ -178,6 +178,40 @@ func TestDeleteSlowHT1(t *testing.T) {
 	}
 }
 
+func TestDeleteFastHT3(t *testing.T) {
+	table := New(mkHashFun(100), equalObject)
+	o1 := mkObject("key1", 1000)
+	o2 := mkObject("key2", 2000)
+	table.Update(o1.key, unsafe.Pointer(o1))
+	table.Update(o2.key, unsafe.Pointer(o2))
+
+	res := table.find(o1.key)
+	if !table.hasConflict(res.fastHTValue) {
+		t.Errorf("Expected conflict")
+	}
+
+	if table.Remove(o2.key) != true {
+		t.Errorf("Expected successful remove")
+	}
+
+	ro1 := (*object)(table.Get(o1.key))
+	ro2 := (*object)(table.Get(o2.key))
+
+	if ro2 != nil {
+		t.Errorf("Expected not found")
+	}
+
+	if ro1 != o1 {
+		t.Errorf("Expected found")
+	}
+
+	res = table.find(o1.key)
+	if table.hasConflict(res.fastHTValue) {
+		t.Errorf("Expected no conflict")
+	}
+
+}
+
 func TestSimple(t *testing.T) {
 	table := New(crc32.ChecksumIEEE, equalObject)
 	o1 := mkObject("key1", 100)
