@@ -4,6 +4,8 @@ import "testing"
 import "bytes"
 import "hash/crc32"
 import "unsafe"
+import "fmt"
+import "time"
 
 type object struct {
 	key   []byte
@@ -19,6 +21,26 @@ func mkHashFun(h uint32) HashFn {
 	return func([]byte) uint32 {
 		return h
 	}
+}
+
+func dumpTable(tab *NodeTable) {
+	fmt.Println("==NodeTable==")
+	count := 0
+	for k, v := range tab.fastHT {
+		o := (*object)(decodePointer(v))
+		fmt.Printf("hash:%d, keys:%s,", k, string(o.key))
+		count++
+		if vs, ok := tab.slowHT[k]; ok {
+			for _, v := range vs {
+				o := (*object)(decodePointer(v))
+				fmt.Printf("%s,", string(o.key))
+				count++
+			}
+		}
+		fmt.Println("")
+	}
+
+	fmt.Println("Total:", count)
 }
 
 func mkObject(key string, v int) *object {
@@ -234,4 +256,85 @@ func TestSimple(t *testing.T) {
 			t.Errorf("Expected value = 200")
 		}
 	}
+}
+
+func TestLargeConflicts(t *testing.T) {
+	n := 100000
+	hfn := func(k []byte) uint32 {
+		return crc32.ChecksumIEEE(k) % 1000
+	}
+	table := New(hfn, equalObject)
+	objects := make([]*object, n)
+	for i := 0; i < n; i++ {
+		objects[i] = mkObject(fmt.Sprintf("key-%d", i), i)
+		updated, _ := table.Update(objects[i].key, unsafe.Pointer(objects[i]))
+		if updated {
+			t.Errorf("Expected insert")
+		}
+		ptr := table.Get(objects[i].key)
+		if (*object)(ptr) != objects[i] {
+			t.Errorf("%s Expected object %p, not %p", objects[i].key, objects[i], ptr)
+			dumpTable(table)
+		}
+	}
+
+	for i := 0; i < n; i++ {
+		ptr := table.Get(objects[i].key)
+		if (*object)(ptr) != objects[i] {
+			t.Errorf("Expected to find the object %s %v", string(objects[i].key), ptr)
+			res := table.find(objects[i].key)
+			fmt.Println(res)
+			fmt.Println(table.Stats())
+			dumpTable(table)
+			t.Fatalf("failed")
+		}
+	}
+
+}
+
+func TestPerf(t *testing.T) {
+	n := 10000000
+	table := New(crc32.ChecksumIEEE, equalObject)
+	objects := make([]*object, n)
+	newobjects := make([]*object, n)
+	for i := 0; i < n; i++ {
+		objects[i] = mkObject(fmt.Sprintf("key-%d", i), i)
+		newobjects[i] = mkObject(fmt.Sprintf("key-%d", i), i+100)
+	}
+
+	t0 := time.Now()
+	for i := 0; i < n; i++ {
+		updated, last := table.Update(objects[i].key, unsafe.Pointer(objects[i]))
+		if updated == true || last != nil {
+			t.Errorf("Expected updated=false")
+		}
+	}
+	dur := time.Since(t0)
+	fmt.Printf("Insert took %v for %v items, %v/s\n", dur, n, float32(n)/float32(dur.Seconds()))
+
+	t0 = time.Now()
+	for i := 0; i < n; i++ {
+		ptr := table.Get(objects[i].key)
+		if ptr == nil {
+			t.Fatalf("Expected to find the object")
+		}
+
+		o := (*object)(ptr)
+		if o != objects[i] {
+			t.Errorf("Received unexpected object")
+		}
+	}
+	dur = time.Since(t0)
+	fmt.Printf("Get took %v for %v items, %v/s\n", dur, n, float32(n)/float32(dur.Seconds()))
+
+	t0 = time.Now()
+	for i := 0; i < n; i++ {
+		updated, last := table.Update(objects[i].key, unsafe.Pointer(objects[i]))
+		if updated == false || (*object)(last) != objects[i] {
+			t.Errorf("Expected updated=true")
+		}
+	}
+	dur = time.Since(t0)
+	fmt.Printf("Update took %v for %v items, %v/s\n", dur, n, float32(n)/float32(dur.Seconds()))
+	fmt.Println("Table stats:", table.Stats())
 }
