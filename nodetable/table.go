@@ -115,11 +115,12 @@ func (nt *NodeTable) Update(key []byte, nptr unsafe.Pointer) (updated bool, oldP
 	return
 }
 
-func (nt *NodeTable) Remove(key []byte) (success bool) {
+func (nt *NodeTable) Remove(key []byte) (success bool, nptr unsafe.Pointer) {
 	res := nt.find(key)
 	if res.status&ntFoundMask == ntFoundMask {
 		success = true
 		if res.status == ntFoundInFast {
+			nptr = decodePointer(res.fastHTValue)
 			// Key needs to be removed from fastHT. For that we need to move
 			// an item present in slowHT and overwrite fastHT entry.
 			if res.hasConflict {
@@ -143,6 +144,7 @@ func (nt *NodeTable) Remove(key []byte) (success bool) {
 				nt.fastHTCount--
 			}
 		} else {
+			nptr = decodePointer(res.slowHTValues[res.slowHTPos])
 			// Remove key from slowHT
 			newSlowValue := append([]uint64(nil), res.slowHTValues[:res.slowHTPos]...)
 			if res.slowHTPos+1 != len(res.slowHTValues) {
@@ -219,4 +221,12 @@ func (nt *NodeTable) find(key []byte) (res *ntResult) {
 	}
 
 	return
+}
+
+func (nt *NodeTable) Reset() {
+	nt.fastHTCount = 0
+	nt.slowHTCount = 0
+	nt.conflicts = 0
+	nt.fastHT = make(map[uint32]uint64)
+	nt.slowHT = make(map[uint32][]uint64)
 }

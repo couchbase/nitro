@@ -136,7 +136,7 @@ func TestDeleteFastHT1(t *testing.T) {
 		t.Errorf("Expected same object")
 	}
 
-	if table.Remove(o1.key) != true {
+	if success, _ := table.Remove(o1.key); success != true {
 		t.Errorf("Expected successful remove")
 	}
 
@@ -145,7 +145,7 @@ func TestDeleteFastHT1(t *testing.T) {
 		t.Errorf("Expected not-found")
 	}
 
-	if table.Remove(o1.key) == true {
+	if success, _ := table.Remove(o1.key); success == true {
 		t.Errorf("Expected remove fail")
 	}
 }
@@ -159,7 +159,7 @@ func TestDeleteFastHT2(t *testing.T) {
 	table.Update(o2.key, unsafe.Pointer(o2))
 	table.Update(o3.key, unsafe.Pointer(o3))
 
-	if table.Remove(o1.key) != true {
+	if success, _ := table.Remove(o1.key); success != true {
 		t.Errorf("Expected successful remove")
 	}
 
@@ -185,7 +185,7 @@ func TestDeleteSlowHT1(t *testing.T) {
 	table.Update(o2.key, unsafe.Pointer(o2))
 	table.Update(o3.key, unsafe.Pointer(o3))
 
-	if table.Remove(o2.key) != true {
+	if success, _ := table.Remove(o2.key); success != true {
 		t.Errorf("Expected successful remove")
 	}
 
@@ -214,7 +214,7 @@ func TestDeleteFastHT3(t *testing.T) {
 		t.Errorf("Expected conflict")
 	}
 
-	if table.Remove(o2.key) != true {
+	if success, _ := table.Remove(o2.key); success != true {
 		t.Errorf("Expected successful remove")
 	}
 
