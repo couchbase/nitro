@@ -300,7 +300,7 @@ func TestFullScan(t *testing.T) {
 	cfg := DefaultConfig()
 	db := NewWithConfig(cfg)
 	defer db.Close()
-	n := 10000000
+	n := 1000000
 	t0 := time.Now()
 	for i := 0; i < runtime.GOMAXPROCS(0); i++ {
 		wg.Add(1)
