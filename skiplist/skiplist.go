@@ -321,3 +321,35 @@ func (s *Skiplist) DeleteNode(n *Node, cmp CompareFn, buf *ActionBuffer) bool {
 
 	return false
 }
+
+func (s *Skiplist) GetRangeSplitItems(nways int) []Item {
+	var deleted bool
+repeat:
+	var itms []Item
+	var finished bool
+
+	l := int(atomic.LoadInt32(&s.level))
+	for ; l >= 0; l-- {
+		c := int(atomic.LoadInt64(&s.stats.levelNodesCount[l]) + 1)
+		if c >= nways {
+			perSplit := c / nways
+			node := s.head
+			for j := 0; node != s.tail && !finished; j++ {
+				if j == perSplit {
+					j = -1
+					itms = append(itms, node.Item())
+					finished = len(itms) == nways-1
+				}
+
+				node, deleted = node.getNext(l)
+				if deleted {
+					goto repeat
+				}
+			}
+
+			break
+		}
+	}
+
+	return itms
+}

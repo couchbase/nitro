@@ -111,3 +111,29 @@ func TestGetPerf(t *testing.T) {
 	fmt.Printf("%d items took %v -> %v items/s\n", total, dur, float64(total)/float64(dur.Seconds()))
 
 }
+
+func TestGetRangeSplitItems(t *testing.T) {
+	var wg sync.WaitGroup
+	sl := New()
+	n := 1000000
+	wg.Add(1)
+	go doInsert(sl, &wg, n, false)
+	wg.Wait()
+
+	fmt.Println(sl.GetStats())
+
+	var keys []int
+	var diff []int
+	var curr int
+	for i, itm := range sl.GetRangeSplitItems(8) {
+		k := int(*(itm.(*intKeyItem)))
+		keys = append(keys, k)
+		diff = append(diff, keys[i]-curr)
+		curr = keys[i]
+	}
+
+	diff = append(diff, n-keys[len(keys)-1])
+
+	fmt.Println("Split range keys", keys)
+	fmt.Println("No of items in each range", diff)
+}
