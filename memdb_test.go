@@ -373,3 +373,28 @@ func TestVisitor(t *testing.T) {
 		t.Errorf("Expected sum %d, received %d", expectedSum, sum)
 	}
 }
+
+func TestVisitorError(t *testing.T) {
+	const n = 100000
+	var wg sync.WaitGroup
+	cfg := DefaultConfig()
+	db := NewWithConfig(cfg)
+	defer db.Close()
+
+	wg.Add(1)
+	doInsert(db, &wg, n, false, false)
+	snap := db.NewSnapshot()
+
+	errVisitor := fmt.Errorf("visitor failed")
+	callb := func(itm *Item, shard int) error {
+		v := binary.BigEndian.Uint64(itm.Bytes())
+		if v == 90000 {
+			return errVisitor
+		}
+		return nil
+	}
+
+	if db.Visitor(snap, callb, 4, 4) != errVisitor {
+		t.Errorf("Expected error")
+	}
+}

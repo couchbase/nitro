@@ -675,7 +675,6 @@ func (m *MemDB) Visitor(snap *Snapshot, callb VisitorCallback, shards int, concu
 
 	var iters []*Iterator
 	var lastNodes []*skiplist.Node
-	var errors []error
 
 	wch := make(chan int)
 
@@ -695,6 +694,7 @@ func (m *MemDB) Visitor(snap *Snapshot, callb VisitorCallback, shards int, concu
 	}
 
 	lastNodes = append(lastNodes, nil)
+	errors := make([]error, len(iters))
 
 	// Run workers
 	for i := 0; i < concurrency; i++ {
