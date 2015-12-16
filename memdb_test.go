@@ -318,26 +318,28 @@ func TestFullScan(t *testing.T) {
 }
 
 func TestVisitor(t *testing.T) {
-	var wg sync.WaitGroup
 	const shards = 32
+	const concurrency = 8
+	const n = 1000000
+
+	var wg sync.WaitGroup
 	cfg := DefaultConfig()
 	db := NewWithConfig(cfg)
 	defer db.Close()
-	n := 500000
-	sum := int64((n - 1) * (n / 2))
+	expectedSum := int64((n - 1) * (n / 2))
 
 	wg.Add(1)
-	doInsert(db, &wg, n, false, true)
+	doInsert(db, &wg, n, false, false)
 	snap := db.NewSnapshot()
 	fmt.Println(db.DumpStats())
 
 	var counts [shards]int64
 	var startEndRange [shards][2]uint64
-	var expectedSum int64
+	var sum int64
 
-	callb := func(itm *Item, shard int) {
+	callb := func(itm *Item, shard int) error {
 		v := binary.BigEndian.Uint64(itm.Bytes())
-		expectedSum += int64(v)
+		atomic.AddInt64(&sum, int64(v))
 		atomic.AddInt64(&counts[shard], 1)
 
 		if shard > 0 && startEndRange[shard][0] == 0 {
@@ -348,10 +350,16 @@ func TestVisitor(t *testing.T) {
 			}
 			startEndRange[shard][1] = v
 		}
+
+		return nil
 	}
 
 	total := 0
-	db.Visitor(snap, callb, shards)
+	t0 := time.Now()
+	db.Visitor(snap, callb, shards, concurrency)
+	dur := time.Since(t0)
+	fmt.Printf("Took %v to iterate %v items, %v items/s\n", dur, n, float32(n)/float32(dur.Seconds()))
+
 	for i, v := range counts {
 		fmt.Printf("shard - %d count = %d, range: %d-%d\n", i, v, startEndRange[i][0], startEndRange[i][1])
 		total += int(v)
@@ -362,6 +370,6 @@ func TestVisitor(t *testing.T) {
 	}
 
 	if expectedSum != sum {
-		t.Errorf("Expected sum %d, received %d", sum, expectedSum)
+		t.Errorf("Expected sum %d, received %d", expectedSum, sum)
 	}
 }

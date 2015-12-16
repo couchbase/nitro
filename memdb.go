@@ -18,7 +18,7 @@ import (
 
 type KeyCompare func([]byte, []byte) int
 
-type VisitorCallback func(*Item, int)
+type VisitorCallback func(*Item, int) error
 
 type ItemEntry struct {
 	itm *Item
@@ -670,11 +670,14 @@ func (m *MemDB) GetSnapshots() []*Snapshot {
 	return snaps
 }
 
-func (m *MemDB) Visitor(snap *Snapshot, callb VisitorCallback, shards int) error {
+func (m *MemDB) Visitor(snap *Snapshot, callb VisitorCallback, shards int, concurrency int) error {
 	var wg sync.WaitGroup
 
 	var iters []*Iterator
 	var lastNodes []*skiplist.Node
+	var errors []error
+
+	wch := make(chan int)
 
 	iters = append(iters, m.NewIterator(snap))
 	iters[0].SeekFirst()
@@ -693,24 +696,43 @@ func (m *MemDB) Visitor(snap *Snapshot, callb VisitorCallback, shards int) error
 
 	lastNodes = append(lastNodes, nil)
 
-	for i, itr := range iters {
+	// Run workers
+	for i := 0; i < concurrency; i++ {
 		wg.Add(1)
-		go func(wg *sync.WaitGroup, itr *Iterator, shard int, endNode *skiplist.Node) {
+		go func(wg *sync.WaitGroup) {
 			defer wg.Done()
 
-			for ; itr.Valid(); itr.Next() {
-				if itr.GetNode() == endNode {
-					break
+			for shard := range wch {
+			loop:
+				for itr := iters[shard]; itr.Valid(); itr.Next() {
+					if itr.GetNode() == lastNodes[shard] {
+						break loop
+					}
+					if err := callb(itr.Get(), shard); err != nil {
+						errors[shard] = err
+						return
+					}
 				}
-				callb(itr.Get(), shard)
 			}
-
-		}(&wg, itr, i, lastNodes[i])
+		}(&wg)
 	}
 
+	// Provide work and wait
+	for shard := 0; shard < len(iters); shard++ {
+		wch <- shard
+	}
+	close(wch)
+
 	wg.Wait()
+
 	for _, itr := range iters {
 		itr.Close()
+	}
+
+	for _, err := range errors {
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
