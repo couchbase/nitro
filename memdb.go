@@ -18,6 +18,8 @@ import (
 
 type KeyCompare func([]byte, []byte) int
 
+type VisitorCallback func(*Item, int)
+
 type ItemEntry struct {
 	itm *Item
 	n   *skiplist.Node
@@ -668,16 +670,66 @@ func (m *MemDB) GetSnapshots() []*Snapshot {
 	return snaps
 }
 
+func (m *MemDB) Visitor(snap *Snapshot, callb VisitorCallback, shards int) error {
+	var wg sync.WaitGroup
+
+	var iters []*Iterator
+	var lastNodes []*skiplist.Node
+
+	iters = append(iters, m.NewIterator(snap))
+	iters[0].SeekFirst()
+	pivots := m.store.GetRangeSplitItems(shards)
+	for _, p := range pivots {
+		iter := m.NewIterator(snap)
+		iter.Seek(p.(*Item))
+
+		if iter.Valid() && (len(lastNodes) == 0 || iter.GetNode() != lastNodes[len(lastNodes)-1]) {
+			iters = append(iters, iter)
+			lastNodes = append(lastNodes, iter.GetNode())
+		} else {
+			iter.Close()
+		}
+	}
+
+	lastNodes = append(lastNodes, nil)
+
+	for i, itr := range iters {
+		wg.Add(1)
+		go func(wg *sync.WaitGroup, itr *Iterator, shard int, endNode *skiplist.Node) {
+			defer wg.Done()
+
+			for ; itr.Valid(); itr.Next() {
+				if itr.GetNode() == endNode {
+					break
+				}
+				callb(itr.Get(), shard)
+			}
+
+		}(&wg, itr, i, lastNodes[i])
+	}
+
+	wg.Wait()
+	for _, itr := range iters {
+		itr.Close()
+	}
+
+	return nil
+}
+
 func (m *MemDB) StoreToDisk(dir string, snap *Snapshot, callb ItemCallback) error {
 	os.MkdirAll(dir, 0755)
 	datafile := path.Join(dir, "records.data")
+	itr := m.NewIterator(snap)
+	return m.StoreToFile(datafile, itr, callb)
+}
+
+func (m *MemDB) StoreToFile(datafile string, itr *Iterator, callb ItemCallback) error {
 	w := newFileWriter(m.fileType)
 	if err := w.Open(datafile); err != nil {
 		return err
 	}
 	defer w.Close()
 
-	itr := m.NewIterator(snap)
 	if itr == nil {
 		return errors.New("Invalid snapshot")
 	}

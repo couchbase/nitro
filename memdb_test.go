@@ -1,6 +1,7 @@
 package memdb
 
 import "fmt"
+import "sync/atomic"
 import "os"
 import "testing"
 import "time"
@@ -314,4 +315,53 @@ func TestFullScan(t *testing.T) {
 	t0 = time.Now()
 	c := CountItems(db, snap)
 	fmt.Printf("Full iteration of %d items took %v\n", c, time.Since(t0))
+}
+
+func TestVisitor(t *testing.T) {
+	var wg sync.WaitGroup
+	const shards = 32
+	cfg := DefaultConfig()
+	db := NewWithConfig(cfg)
+	defer db.Close()
+	n := 500000
+	sum := int64((n - 1) * (n / 2))
+
+	wg.Add(1)
+	doInsert(db, &wg, n, false, true)
+	snap := db.NewSnapshot()
+	fmt.Println(db.DumpStats())
+
+	var counts [shards]int64
+	var startEndRange [shards][2]uint64
+	var expectedSum int64
+
+	callb := func(itm *Item, shard int) {
+		v := binary.BigEndian.Uint64(itm.Bytes())
+		expectedSum += int64(v)
+		atomic.AddInt64(&counts[shard], 1)
+
+		if shard > 0 && startEndRange[shard][0] == 0 {
+			startEndRange[shard][0] = v
+		} else {
+			if startEndRange[shard][1] > v {
+				t.Errorf("shard-%d validation of sort order %d > %d", shard, startEndRange[shard][1], v)
+			}
+			startEndRange[shard][1] = v
+		}
+	}
+
+	total := 0
+	db.Visitor(snap, callb, shards)
+	for i, v := range counts {
+		fmt.Printf("shard - %d count = %d, range: %d-%d\n", i, v, startEndRange[i][0], startEndRange[i][1])
+		total += int(v)
+	}
+
+	if total != n {
+		t.Errorf("Expected count %d, received %d", n, total)
+	}
+
+	if expectedSum != sum {
+		t.Errorf("Expected sum %d, received %d", sum, expectedSum)
+	}
 }
