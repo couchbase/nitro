@@ -137,3 +137,52 @@ func TestGetRangeSplitItems(t *testing.T) {
 	fmt.Println("Split range keys", keys)
 	fmt.Println("No of items in each range", diff)
 }
+
+func TestBuilder(t *testing.T) {
+	var wg sync.WaitGroup
+
+	n := 50000000
+	nsplit := 8
+	segs := make([]*Segment, nsplit)
+	t0 := time.Now()
+	b := NewBuilder()
+	for i := 0; i < nsplit; i++ {
+		segs[i] = b.NewSegment()
+	}
+
+	perSplit := n / nsplit
+	for i := 0; i < nsplit; i++ {
+		wg.Add(1)
+		go func(wg *sync.WaitGroup, shard int) {
+			defer wg.Done()
+			for x := 0; x < perSplit; x++ {
+				segs[shard].Add(intKeyItem(perSplit*shard + x))
+			}
+		}(&wg, i)
+	}
+
+	wg.Wait()
+
+	sl := b.Assemble(segs...)
+	fmt.Println(sl.GetStats())
+	dur := time.Since(t0)
+	fmt.Printf("Took %v to build %d items, %v items/sec\n", dur, n, float32(n)/float32(dur.Seconds()))
+	buf := sl.MakeBuf()
+	defer sl.FreeBuf(buf)
+	count := 0
+
+	t0 = time.Now()
+	itr := sl.NewIterator(CompareInt, buf)
+	for itr.SeekFirst(); itr.Valid(); itr.Next() {
+		if int((itr.Get()).(intKeyItem)) != count {
+			t.Errorf("Expected %d, got %d", count, itr.Get())
+		}
+		count++
+	}
+	fmt.Printf("Took %v to iterate %d items\n", time.Since(t0), n)
+
+	if count != n {
+		t.Errorf("Expected %d, got %d", n, count)
+	}
+
+}
