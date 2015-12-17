@@ -82,6 +82,7 @@ func TestInsertPerf(t *testing.T) {
 	}
 	wg.Wait()
 
+	VerifyCount(db.NewSnapshot(), n*runtime.GOMAXPROCS(0), t)
 	dur := time.Since(t0)
 	fmt.Printf("%d items took %v -> %v items/s snapshots_created %v live_snapshots %v\n",
 		total, dur, float64(total)/float64(dur.Seconds()), db.getCurrSn(), len(db.GetSnapshots()))
@@ -113,6 +114,7 @@ func TestGetPerf(t *testing.T) {
 	go doInsert(db, &wg, n, false, true)
 	wg.Wait()
 	snap := db.NewSnapshot()
+	VerifyCount(snap, n*runtime.GOMAXPROCS(0), t)
 
 	t0 := time.Now()
 	total := n * runtime.GOMAXPROCS(0)
@@ -125,9 +127,16 @@ func TestGetPerf(t *testing.T) {
 	fmt.Printf("%d items took %v -> %v items/s\n", total, dur, float64(total)/float64(dur.Seconds()))
 }
 
-func CountItems(db *MemDB, snap *Snapshot) int {
+func VerifyCount(snap *Snapshot, n int, t *testing.T) {
+
+	if c := CountItems(snap); c != n {
+		t.Errorf("Expected count %d, got %d", n, c)
+	}
+}
+
+func CountItems(snap *Snapshot) int {
 	var count int
-	itr := db.NewIterator(snap)
+	itr := snap.NewIterator()
 	for itr.SeekFirst(); itr.Valid(); itr.Next() {
 		count++
 	}
@@ -171,7 +180,7 @@ func TestLoadStoreDisk(t *testing.T) {
 	}
 	fmt.Printf("Loading from disk took %v\n", time.Since(t0))
 
-	count := CountItems(db, snap)
+	count := CountItems(snap)
 	if count != n {
 		t.Errorf("Expected %v, got %v", n, count)
 	}
@@ -188,7 +197,7 @@ func TestDelete(t *testing.T) {
 	}
 
 	snap1 := w.NewSnapshot()
-	got := CountItems(db, snap1)
+	got := CountItems(snap1)
 	if got != expected {
 		t.Errorf("Expected 2000, got %d", got)
 	}
@@ -207,7 +216,7 @@ func TestDelete(t *testing.T) {
 	snap2.Close()
 	time.Sleep(time.Second)
 
-	got = CountItems(db, snap3)
+	got = CountItems(snap3)
 	snap3.Close()
 
 	if got != expected {
@@ -310,10 +319,11 @@ func TestFullScan(t *testing.T) {
 	wg.Wait()
 	fmt.Printf("Inserting %v items took %v\n", n, time.Since(t0))
 	snap := db.NewSnapshot()
+	VerifyCount(snap, n, t)
 	fmt.Println(db.DumpStats())
 
 	t0 = time.Now()
-	c := CountItems(db, snap)
+	c := CountItems(snap)
 	fmt.Printf("Full iteration of %d items took %v\n", c, time.Since(t0))
 }
 
