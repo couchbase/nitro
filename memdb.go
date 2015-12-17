@@ -3,10 +3,12 @@ package memdb
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/t3rm1n4l/memdb/skiplist"
 	"io"
+	"io/ioutil"
 	"math/rand"
 	"os"
 	"path"
@@ -738,50 +740,65 @@ func (m *MemDB) Visitor(snap *Snapshot, callb VisitorCallback, shards int, concu
 	return nil
 }
 
-func (m *MemDB) StoreToDisk(dir string, snap *Snapshot, callb ItemCallback) error {
-	os.MkdirAll(dir, 0755)
-	datafile := path.Join(dir, "records.data")
-	itr := m.NewIterator(snap)
-	return m.StoreToFile(datafile, itr, callb)
-}
+func (m *MemDB) StoreToDisk(dir string, snap *Snapshot, concurr int, itmCallback ItemCallback) error {
+	var err error
+	datadir := path.Join(dir, "data")
+	os.MkdirAll(datadir, 0755)
+	shards := runtime.NumCPU()
 
-func (m *MemDB) StoreToFile(datafile string, itr *Iterator, callb ItemCallback) error {
-	w := newFileWriter(m.fileType)
-	if err := w.Open(datafile); err != nil {
-		return err
+	writers := make([]FileWriter, shards)
+	files := make([]string, shards)
+	defer func() {
+		for _, w := range writers {
+			if w != nil {
+				w.Close()
+			}
+		}
+	}()
+
+	for shard := 0; shard < shards; shard++ {
+		w := newFileWriter(m.fileType)
+		file := fmt.Sprintf("shard-%d", shard)
+		datafile := path.Join(datadir, file)
+		if err := w.Open(datafile); err != nil {
+			return err
+		}
+
+		writers[shard] = w
+		files[shard] = file
 	}
-	defer w.Close()
 
-	if itr == nil {
-		return errors.New("Invalid snapshot")
-	}
-	defer itr.Close()
-
-	for itr.SeekFirst(); itr.Valid(); itr.Next() {
-		n := itr.GetNode()
-		itm := itr.Get()
-
+	visitorCallback := func(itm *Item, shard int) error {
+		w := writers[shard]
 		if err := w.WriteItem(itm); err != nil {
 			return err
 		}
 
-		if callb != nil {
-			callb(&ItemEntry{itm: itm, n: n})
+		if itmCallback != nil {
+			itmCallback(&ItemEntry{itm: itm, n: nil})
 		}
+
+		return nil
 	}
 
-	return nil
+	if err = m.Visitor(snap, visitorCallback, shards, concurr); err == nil {
+		bs, _ := json.Marshal(files)
+		ioutil.WriteFile(path.Join(datadir, "files.json"), bs, 0660)
+	}
+
+	return err
 }
 
 func (m *MemDB) LoadFromDisk(dir string, callb ItemCallback) (*Snapshot, error) {
 	var wg sync.WaitGroup
-	datafile := path.Join(dir, "records.data")
-	r := newFileReader(m.fileType)
-	if err := r.Open(datafile); err != nil {
-		return nil, err
-	}
+	datadir := path.Join(dir, "data")
+	var files []string
 
-	defer r.Close()
+	if bs, err := ioutil.ReadFile(path.Join(datadir, "files.json")); err != nil {
+		return nil, err
+	} else {
+		json.Unmarshal(bs, &files)
+	}
 
 	ch := make(chan *Item, readerBufSize)
 	for i := 0; i < runtime.NumCPU(); i++ {
@@ -798,17 +815,26 @@ func (m *MemDB) LoadFromDisk(dir string, callb ItemCallback) (*Snapshot, error) 
 		}(&wg)
 	}
 
-loop:
-	for {
-		itm, err := r.ReadItem()
-		if err != nil {
+	for _, file := range files {
+		r := newFileReader(m.fileType)
+		datafile := path.Join(datadir, file)
+		if err := r.Open(datafile); err != nil {
 			return nil, err
 		}
 
-		if itm == nil {
-			break loop
+		defer r.Close()
+	loop:
+		for {
+			itm, err := r.ReadItem()
+			if err != nil {
+				return nil, err
+			}
+
+			if itm == nil {
+				break loop
+			}
+			ch <- itm
 		}
-		ch <- itm
 	}
 
 	close(ch)
