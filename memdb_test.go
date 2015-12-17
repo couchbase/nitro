@@ -174,7 +174,7 @@ func TestLoadStoreDisk(t *testing.T) {
 	db = NewWithConfig(cfg)
 	defer db.Close()
 	t0 = time.Now()
-	snap, err = db.LoadFromDisk("db.dump", nil)
+	snap, err = db.LoadFromDisk("db.dump", 8, nil)
 	if err != nil {
 		t.Errorf("Expected no error. got=%v", err)
 	}

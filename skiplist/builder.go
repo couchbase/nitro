@@ -3,11 +3,18 @@ package skiplist
 import "sync/atomic"
 import "math/rand"
 
+type NodeCallback func(*Node)
+
 type Segment struct {
 	builder *Builder
 	tail    []*Node
 	head    []*Node
 	rand    *rand.Rand
+	callb   NodeCallback
+}
+
+func (s *Segment) SetNodeCallback(fn NodeCallback) {
+	s.callb = fn
 }
 
 func (s *Segment) Add(itm Item) {
@@ -23,6 +30,10 @@ func (s *Segment) Add(itm Item) {
 			s.head[l] = x
 		}
 		s.tail[l] = x
+	}
+
+	if s.callb != nil {
+		s.callb(x)
 	}
 }
 

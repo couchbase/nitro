@@ -789,7 +789,7 @@ func (m *MemDB) StoreToDisk(dir string, snap *Snapshot, concurr int, itmCallback
 	return err
 }
 
-func (m *MemDB) LoadFromDisk(dir string, callb ItemCallback) (*Snapshot, error) {
+func (m *MemDB) LoadFromDisk(dir string, concurr int, callb ItemCallback) (*Snapshot, error) {
 	var wg sync.WaitGroup
 	datadir := path.Join(dir, "data")
 	var files []string
@@ -800,46 +800,76 @@ func (m *MemDB) LoadFromDisk(dir string, callb ItemCallback) (*Snapshot, error) 
 		json.Unmarshal(bs, &files)
 	}
 
-	ch := make(chan *Item, readerBufSize)
-	for i := 0; i < runtime.NumCPU(); i++ {
-		wg.Add(1)
-		go func(wg *sync.WaitGroup) {
-			defer wg.Done()
-			w := m.NewWriter()
-			for itm := range ch {
-				n := w.Put2(itm)
-				if callb != nil {
-					callb(&ItemEntry{itm: itm, n: n})
-				}
-			}
-		}(&wg)
+	var nodeCallb skiplist.NodeCallback
+	wchan := make(chan int)
+	b := skiplist.NewBuilder()
+	segments := make([]*skiplist.Segment, len(files))
+	readers := make([]FileReader, len(files))
+	errors := make([]error, len(files))
+
+	if callb != nil {
+		nodeCallb = func(n *skiplist.Node) {
+			callb(&ItemEntry{itm: n.Item().(*Item), n: n})
+		}
 	}
 
-	for _, file := range files {
+	defer func() {
+		for _, r := range readers {
+			if r != nil {
+				r.Close()
+			}
+		}
+	}()
+
+	for i, file := range files {
+		segments[i] = b.NewSegment()
+		segments[i].SetNodeCallback(nodeCallb)
 		r := newFileReader(m.fileType)
 		datafile := path.Join(datadir, file)
 		if err := r.Open(datafile); err != nil {
 			return nil, err
 		}
 
-		defer r.Close()
-	loop:
-		for {
-			itm, err := r.ReadItem()
-			if err != nil {
-				return nil, err
-			}
+		readers[i] = r
+	}
 
-			if itm == nil {
-				break loop
+	for i := 0; i < concurr; i++ {
+		wg.Add(1)
+		go func(wg *sync.WaitGroup) {
+			defer wg.Done()
+
+			for shard := range wchan {
+				r := readers[shard]
+			loop:
+				for {
+					itm, err := r.ReadItem()
+					if err != nil {
+						errors[shard] = err
+						return
+					}
+
+					if itm == nil {
+						break loop
+					}
+					segments[shard].Add(itm)
+				}
 			}
-			ch <- itm
+		}(&wg)
+	}
+
+	for i, _ := range files {
+		wchan <- i
+	}
+	close(wchan)
+	wg.Wait()
+
+	for _, err := range errors {
+		if err != nil {
+			return nil, err
 		}
 	}
 
-	close(ch)
-	wg.Wait()
-
+	m.store = b.Assemble(segments...)
 	snap := m.NewSnapshot()
 	return snap, nil
 }
