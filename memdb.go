@@ -875,7 +875,7 @@ func (m *MemDB) LoadFromDisk(dir string, concurr int, callb ItemCallback) (*Snap
 }
 
 func (m *MemDB) DumpStats() string {
-	return fmt.Sprintf("==== MemDB instance-%d ====\n%s", m.id, m.store.GetStats().String())
+	return m.store.GetStats().String()
 }
 
 func MemoryInUse() (sz int64) {
