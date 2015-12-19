@@ -114,7 +114,7 @@ func TestGetPerf(t *testing.T) {
 	go doInsert(db, &wg, n, false, true)
 	wg.Wait()
 	snap := db.NewSnapshot()
-	VerifyCount(snap, n*runtime.GOMAXPROCS(0), t)
+	VerifyCount(snap, n, t)
 
 	t0 := time.Now()
 	total := n * runtime.GOMAXPROCS(0)
