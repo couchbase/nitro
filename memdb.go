@@ -72,7 +72,6 @@ func DefaultConfig() Config {
 	var cfg Config
 	cfg.SetKeyComparator(defaultKeyCmp)
 	cfg.SetFileType(RawdbFile)
-	cfg.snapshotsEnabled = true
 	return cfg
 }
 
@@ -196,27 +195,6 @@ func (w *Writer) Put2(x *Item) (n *skiplist.Node) {
 	return
 }
 
-// This is an operation only available for memdb instance with snapshots disabled
-func (w *Writer) Upsert2(x *Item) (n *skiplist.Node, updated bool) {
-	if w.snapshotsEnabled {
-		panic("unsupported")
-	}
-
-	itemLevel := w.store.NewLevel(w.rand.Float32)
-	n = w.store.FindPath(x, w.iterCmp, w.buf)
-	if n != nil {
-		deltaSz := w.store.ResetItem(n, x)
-		w.store.AdjustUsedBytes(deltaSz)
-		updated = true
-	} else {
-		x.bornSn = w.getCurrSn()
-		n, _ = w.store.Insert3(x, w.iterCmp, w.buf, itemLevel, true)
-		atomic.AddInt64(&w.count, 1)
-	}
-
-	return
-}
-
 // Find first item, seek until dead=0, mark dead=sn
 func (w *Writer) Delete(x *Item) (success bool) {
 	_, success = w.Delete2(x)
@@ -304,8 +282,7 @@ type Config struct {
 	insCmp  skiplist.CompareFn
 	iterCmp skiplist.CompareFn
 
-	snapshotsEnabled bool
-	ignoreItemSize   bool
+	ignoreItemSize bool
 
 	fileType FileType
 }
@@ -325,11 +302,6 @@ func (cfg *Config) SetFileType(t FileType) error {
 
 	cfg.fileType = t
 	return nil
-}
-
-func (cfg *Config) DisableSnapshots() {
-	cfg.snapshotsEnabled = false
-	cfg.insCmp = cfg.iterCmp
 }
 
 func (cfg *Config) IgnoreItemSize() {
@@ -445,9 +417,7 @@ func (m *MemDB) NewWriter() *Writer {
 
 	m.wlist = w
 
-	if m.snapshotsEnabled {
-		go m.collectionWorker()
-	}
+	go m.collectionWorker()
 
 	return w
 }
@@ -529,10 +499,6 @@ func CompareSnapshot(this skiplist.Item, that skiplist.Item) int {
 }
 
 func (m *MemDB) NewSnapshot() *Snapshot {
-	if !m.snapshotsEnabled {
-		panic("unsupported")
-	}
-
 	buf := m.snapshots.MakeBuf()
 	defer m.snapshots.FreeBuf(buf)
 

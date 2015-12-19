@@ -64,7 +64,7 @@ func (s *Skiplist) FreeBuf(b *ActionBuffer) {
 
 type Node struct {
 	next   []unsafe.Pointer
-	itm    atomic.Value
+	itm    interface{}
 	GClink *Node
 }
 
@@ -72,17 +72,8 @@ func (n Node) Level() int {
 	return int(len(n.next) - 1)
 }
 
-func (s *Skiplist) ResetItem(n *Node, itm Item) (deltaSz int) {
-	if !s.ignoreItemSize {
-		deltaSz = itm.Size() - n.Item().Size()
-	}
-	n.itm.Store(itm)
-
-	return
-}
-
 func (n *Node) Item() Item {
-	itm := n.itm.Load()
+	itm := n.itm
 	if itm != nil {
 		return itm.(Item)
 	}
@@ -107,10 +98,7 @@ func newNode(itm Item, level int) *Node {
 		next: make([]unsafe.Pointer, level+1),
 	}
 
-	if itm != nil {
-		n.itm.Store(itm)
-	}
-
+	n.itm = itm
 	return n
 }
 
@@ -157,10 +145,6 @@ func (s *Skiplist) Size(n *Node) int {
 			itmSz +
 			unsafe.Sizeof(n.GClink) +
 			(unsafe.Sizeof(next)+unsafe.Sizeof(ref))*uintptr(n.Level()+1))
-}
-
-func (s *Skiplist) AdjustUsedBytes(adj int) {
-	atomic.AddInt64(&s.usedBytes, -int64(adj))
 }
 
 func (s *Skiplist) NewLevel(randFn func() float32) int {
