@@ -39,7 +39,7 @@ func TestMerger(t *testing.T) {
 			continue
 		}
 		expected := fmt.Sprintf("%010d", i)
-		got := string(*(mit.Get().(*byteKeyItem)))
+		got := string(*((*byteKeyItem)(mit.Get())))
 		if got != expected {
 			t.Errorf("Expected %s, got %v", expected, got)
 		}

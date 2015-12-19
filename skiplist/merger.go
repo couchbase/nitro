@@ -1,6 +1,7 @@
 package skiplist
 
 import "container/heap"
+import "unsafe"
 
 type mIterator struct {
 	iters []*Iterator
@@ -70,7 +71,7 @@ func (mit *mIterator) Next() {
 	}
 }
 
-func (mit *mIterator) Seek(itm Item) bool {
+func (mit *mIterator) Seek(itm unsafe.Pointer) bool {
 	var found bool
 	for _, it := range mit.iters {
 		if it.Seek(itm) {
@@ -88,7 +89,7 @@ func (mit *mIterator) Seek(itm Item) bool {
 	return found
 }
 
-func (mit *mIterator) Get() Item {
+func (mit *mIterator) Get() unsafe.Pointer {
 	return mit.curr.Item()
 }
 

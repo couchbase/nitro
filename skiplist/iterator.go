@@ -1,6 +1,7 @@
 package skiplist
 
 import "sync/atomic"
+import "unsafe"
 
 type Iterator struct {
 	cmp        CompareFn
@@ -27,7 +28,7 @@ func (it *Iterator) SeekFirst() {
 	it.valid = true
 }
 
-func (it *Iterator) Seek(itm Item) bool {
+func (it *Iterator) Seek(itm unsafe.Pointer) bool {
 	it.valid = true
 	found := it.s.FindPath(itm, it.cmp, it.buf) != nil
 	it.prev = it.buf.preds[0]
@@ -43,7 +44,7 @@ func (it *Iterator) Valid() bool {
 	return it.valid
 }
 
-func (it *Iterator) Get() Item {
+func (it *Iterator) Get() unsafe.Pointer {
 	return it.curr.Item()
 }
 

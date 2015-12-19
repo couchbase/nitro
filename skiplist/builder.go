@@ -2,6 +2,7 @@ package skiplist
 
 import "sync/atomic"
 import "math/rand"
+import "unsafe"
 
 type NodeCallback func(*Node)
 
@@ -17,7 +18,7 @@ func (s *Segment) SetNodeCallback(fn NodeCallback) {
 	s.callb = fn
 }
 
-func (s *Segment) Add(itm Item) {
+func (s *Segment) Add(itm unsafe.Pointer) {
 	itemLevel := s.builder.store.NewLevel(s.rand.Float32)
 	x := newNode(itm, itemLevel)
 	atomic.AddInt64(&s.builder.store.stats.levelNodesCount[itemLevel], 1)

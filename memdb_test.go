@@ -13,6 +13,7 @@ import "encoding/binary"
 func TestInsert(t *testing.T) {
 	db := New()
 	defer db.Close()
+
 	w := db.NewWriter()
 	for i := 0; i < 2000; i++ {
 		w.Put(NewItem([]byte(fmt.Sprintf("%010d", i))))
@@ -29,8 +30,8 @@ func TestInsert(t *testing.T) {
 
 	_ = w.NewSnapshot()
 
-	itr := w.NewIterator(snap)
 	count := 0
+	itr := db.NewIterator(snap)
 	itr.SeekFirst()
 	itr.Seek(NewItem([]byte(fmt.Sprintf("%010d", 1500))))
 	for ; itr.Valid(); itr.Next() {

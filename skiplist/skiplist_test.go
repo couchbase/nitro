@@ -6,6 +6,7 @@ import "math/rand"
 import "runtime"
 import "sync"
 import "time"
+import "unsafe"
 
 func TestInsert(t *testing.T) {
 	s := New()
@@ -27,7 +28,7 @@ func TestInsert(t *testing.T) {
 	itr.Seek(NewByteKeyItem([]byte(fmt.Sprintf("%010d", 1500))))
 	for ; itr.Valid(); itr.Next() {
 		expected := fmt.Sprintf("%010d", count+1500)
-		got := string(*(itr.Get().(*byteKeyItem)))
+		got := string(*(*byteKeyItem)(itr.Get()))
 		count++
 		if got != expected {
 			t.Errorf("Expected %s, got %v", expected, got)
@@ -55,7 +56,7 @@ func doInsert(sl *Skiplist, wg *sync.WaitGroup, n int, isRand bool) {
 		}
 
 		itm := intKeyItem(val)
-		sl.Insert2(&itm, cmp, buf, rnd.Float32)
+		sl.Insert2(unsafe.Pointer(&itm), cmp, buf, rnd.Float32)
 	}
 }
 
@@ -70,7 +71,7 @@ func doGet(sl *Skiplist, wg *sync.WaitGroup, n int) {
 	for i := 0; i < n; i++ {
 		val := rnd.Int() % n
 		itm := intKeyItem(val)
-		itr.Seek(&itm)
+		itr.Seek(unsafe.Pointer(&itm))
 	}
 
 }
@@ -126,7 +127,7 @@ func TestGetRangeSplitItems(t *testing.T) {
 	var diff []int
 	var curr int
 	for i, itm := range sl.GetRangeSplitItems(8) {
-		k := int(*(itm.(*intKeyItem)))
+		k := int(*(*intKeyItem)(itm))
 		keys = append(keys, k)
 		diff = append(diff, keys[i]-curr)
 		curr = keys[i]
@@ -156,7 +157,8 @@ func TestBuilder(t *testing.T) {
 		go func(wg *sync.WaitGroup, shard int) {
 			defer wg.Done()
 			for x := 0; x < perSplit; x++ {
-				segs[shard].Add(intKeyItem(perSplit*shard + x))
+				itm := intKeyItem(perSplit*shard + x)
+				segs[shard].Add(unsafe.Pointer(&itm))
 			}
 		}(&wg, i)
 	}
@@ -174,7 +176,7 @@ func TestBuilder(t *testing.T) {
 	t0 = time.Now()
 	itr := sl.NewIterator(CompareInt, buf)
 	for itr.SeekFirst(); itr.Valid(); itr.Next() {
-		if int((itr.Get()).(intKeyItem)) != count {
+		if int(*(*intKeyItem)(itr.Get())) != count {
 			t.Errorf("Expected %d, got %d", count, itr.Get())
 		}
 		count++

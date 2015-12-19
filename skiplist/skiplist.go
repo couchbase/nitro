@@ -9,11 +9,12 @@ import (
 const MaxLevel = 32
 const p = 0.25
 
-type Item interface {
-	Size() int
-}
+type CompareFn func(unsafe.Pointer, unsafe.Pointer) int
+type ItemSizeFn func(unsafe.Pointer) int
 
-type CompareFn func(Item, Item) int
+func defaultItemSize(unsafe.Pointer) int {
+	return 0
+}
 
 type Skiplist struct {
 	head      *Node
@@ -22,8 +23,7 @@ type Skiplist struct {
 	stats     stats
 	usedBytes int64
 
-	// Do not use item size for usedBytes computation
-	ignoreItemSize bool
+	itemSize ItemSizeFn
 }
 
 func New() *Skiplist {
@@ -35,20 +35,21 @@ func New() *Skiplist {
 	}
 
 	s := &Skiplist{
-		head: head,
-		tail: tail,
+		head:     head,
+		tail:     tail,
+		itemSize: defaultItemSize,
 	}
 
 	return s
 }
 
-func (s *Skiplist) IgnoreItemSize() {
-	s.ignoreItemSize = true
-}
-
 type ActionBuffer struct {
 	preds []*Node
 	succs []*Node
+}
+
+func (s *Skiplist) SetItemSizeFunc(fn ItemSizeFn) {
+	s.itemSize = fn
 }
 
 func (s *Skiplist) MakeBuf() *ActionBuffer {
@@ -64,7 +65,7 @@ func (s *Skiplist) FreeBuf(b *ActionBuffer) {
 
 type Node struct {
 	next   []unsafe.Pointer
-	itm    interface{}
+	itm    unsafe.Pointer
 	GClink *Node
 }
 
@@ -72,12 +73,8 @@ func (n Node) Level() int {
 	return int(len(n.next) - 1)
 }
 
-func (n *Node) Item() Item {
-	itm := n.itm
-	if itm != nil {
-		return itm.(Item)
-	}
-	return nil
+func (n *Node) Item() unsafe.Pointer {
+	return n.itm
 }
 
 func (n *Node) SetLink(l *Node) {
@@ -93,7 +90,7 @@ type NodeRef struct {
 	ptr     *Node
 }
 
-func newNode(itm Item, level int) *Node {
+func newNode(itm unsafe.Pointer, level int) *Node {
 	n := &Node{
 		next: make([]unsafe.Pointer, level+1),
 	}
@@ -133,11 +130,7 @@ func (s *Skiplist) Size(n *Node) int {
 	var ref NodeRef
 	var next *Node
 
-	itmSz := uintptr(0)
-
-	if !s.ignoreItemSize {
-		itmSz = uintptr(n.Item().Size())
-	}
+	itmSz := uintptr(s.itemSize(n.Item()))
 
 	return int(
 		unsafe.Sizeof(n.next) +
@@ -179,7 +172,7 @@ func (s *Skiplist) helpDelete(level int, prev, curr, next *Node) bool {
 	return success
 }
 
-func (s *Skiplist) FindPath(itm Item, cmp CompareFn,
+func (s *Skiplist) FindPath(itm unsafe.Pointer, cmp CompareFn,
 	buf *ActionBuffer) (foundNode *Node) {
 	var cmpVal int = 1
 
@@ -220,18 +213,18 @@ retry:
 	return
 }
 
-func (s *Skiplist) Insert(itm Item, cmp CompareFn, buf *ActionBuffer) (success bool) {
+func (s *Skiplist) Insert(itm unsafe.Pointer, cmp CompareFn, buf *ActionBuffer) (success bool) {
 	_, success = s.Insert2(itm, cmp, buf, rand.Float32)
 	return
 }
 
-func (s *Skiplist) Insert2(itm Item, cmp CompareFn,
+func (s *Skiplist) Insert2(itm unsafe.Pointer, cmp CompareFn,
 	buf *ActionBuffer, randFn func() float32) (*Node, bool) {
 	itemLevel := s.NewLevel(randFn)
 	return s.Insert3(itm, cmp, buf, itemLevel, false)
 }
 
-func (s *Skiplist) Insert3(itm Item, cmp CompareFn,
+func (s *Skiplist) Insert3(itm unsafe.Pointer, cmp CompareFn,
 	buf *ActionBuffer, itemLevel int, skipFindPath bool) (*Node, bool) {
 
 	x := newNode(itm, itemLevel)
@@ -286,7 +279,7 @@ func (s *Skiplist) softDelete(delNode *Node) bool {
 	return deleteMarked
 }
 
-func (s *Skiplist) Delete(itm Item, cmp CompareFn, buf *ActionBuffer) bool {
+func (s *Skiplist) Delete(itm unsafe.Pointer, cmp CompareFn, buf *ActionBuffer) bool {
 	found := s.FindPath(itm, cmp, buf) != nil
 	if !found {
 		return false
@@ -306,10 +299,10 @@ func (s *Skiplist) DeleteNode(n *Node, cmp CompareFn, buf *ActionBuffer) bool {
 	return false
 }
 
-func (s *Skiplist) GetRangeSplitItems(nways int) []Item {
+func (s *Skiplist) GetRangeSplitItems(nways int) []unsafe.Pointer {
 	var deleted bool
 repeat:
-	var itms []Item
+	var itms []unsafe.Pointer
 	var finished bool
 
 	l := int(atomic.LoadInt32(&s.level))
