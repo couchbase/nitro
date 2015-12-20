@@ -35,7 +35,7 @@ func TestInsert(t *testing.T) {
 	itr.Seek(NewItem([]byte(fmt.Sprintf("%010d", 1500))))
 	for ; itr.Valid(); itr.Next() {
 		expected := fmt.Sprintf("%010d", count+1500)
-		got := string(itr.Get().data)
+		got := string(itr.Get().Bytes())
 		count++
 		if got != expected {
 			t.Errorf("Expected %s, got %v", expected, got)

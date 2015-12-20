@@ -74,9 +74,7 @@ func (f *rawFileWriter) WriteItem(itm *Item) error {
 }
 
 func (f *rawFileWriter) Close() error {
-	terminator := &Item{
-		data: []byte(nil),
-	}
+	terminator := &Item{}
 
 	if err := f.WriteItem(terminator); err != nil {
 		return err
@@ -106,7 +104,7 @@ func (f *rawFileReader) Open(path string) error {
 func (f *rawFileReader) ReadItem() (*Item, error) {
 	itm := &Item{}
 	err := itm.Decode(f.buf, f.r)
-	if len(itm.data) == 0 {
+	if itm.dataLen == 0 {
 		itm = nil
 	}
 

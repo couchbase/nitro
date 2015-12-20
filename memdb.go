@@ -12,6 +12,7 @@ import (
 	"math/rand"
 	"os"
 	"path"
+	"reflect"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -77,7 +78,8 @@ func DefaultConfig() Config {
 
 type Item struct {
 	bornSn, deadSn uint32
-	data           []byte
+	dataPtr        unsafe.Pointer
+	dataLen        int
 }
 
 func (itm *Item) Encode(buf []byte, w io.Writer) error {
@@ -86,11 +88,11 @@ func (itm *Item) Encode(buf []byte, w io.Writer) error {
 		return ErrNotEnoughSpace
 	}
 
-	binary.BigEndian.PutUint16(buf[0:2], uint16(len(itm.data)))
+	binary.BigEndian.PutUint16(buf[0:2], uint16(itm.dataLen))
 	if _, err := w.Write(buf[0:2]); err != nil {
 		return err
 	}
-	if _, err := w.Write(itm.data); err != nil {
+	if _, err := w.Write(itm.Bytes()); err != nil {
 		return err
 	}
 
@@ -102,24 +104,34 @@ func (itm *Item) Decode(buf []byte, r io.Reader) error {
 		return err
 	}
 	l := binary.BigEndian.Uint16(buf[0:2])
-	itm.data = make([]byte, int(l))
-	_, err := io.ReadFull(r, itm.data)
+	if l > 0 {
+		data := make([]byte, int(l))
+		_, err := io.ReadFull(r, data)
+		itm.dataLen = int(l)
+		itm.dataPtr = unsafe.Pointer(&data[0])
+		return err
+	}
 
-	return err
+	return nil
 }
 
-func (itm *Item) Bytes() []byte {
-	return itm.data
+func (itm *Item) Bytes() (bs []byte) {
+	hdr := (*reflect.SliceHeader)(unsafe.Pointer(&bs))
+	hdr.Data = uintptr(itm.dataPtr)
+	hdr.Len = itm.dataLen
+	hdr.Cap = hdr.Len
+	return
 }
 
 func (itm Item) Size() int {
 	return int(unsafe.Sizeof(itm.bornSn)+unsafe.Sizeof(itm.deadSn)+
-		unsafe.Sizeof(itm.data)) + len(itm.data)
+		unsafe.Sizeof(itm.dataPtr)+unsafe.Sizeof(itm.dataLen)) + itm.dataLen
 }
 
 func NewItem(data []byte) *Item {
 	return &Item{
-		data: data,
+		dataPtr: unsafe.Pointer(&data[0]),
+		dataLen: len(data),
 	}
 }
 
@@ -128,7 +140,7 @@ func newInsertCompare(keyCmp KeyCompare) skiplist.CompareFn {
 		var v int
 		thisItem := this.(*Item)
 		thatItem := that.(*Item)
-		if v = keyCmp(thisItem.data, thatItem.data); v == 0 {
+		if v = keyCmp(thisItem.Bytes(), thatItem.Bytes()); v == 0 {
 			v = int(thisItem.bornSn) - int(thatItem.bornSn)
 		}
 
@@ -140,7 +152,7 @@ func newIterCompare(keyCmp KeyCompare) skiplist.CompareFn {
 	return func(this skiplist.Item, that skiplist.Item) int {
 		thisItem := this.(*Item)
 		thatItem := that.(*Item)
-		return keyCmp(thisItem.data, thatItem.data)
+		return keyCmp(thisItem.Bytes(), thatItem.Bytes())
 	}
 }
 
