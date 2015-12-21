@@ -2,6 +2,7 @@ package skiplist
 
 import (
 	"math/rand"
+	"reflect"
 	"sync/atomic"
 	"unsafe"
 )
@@ -64,13 +65,22 @@ func (s *Skiplist) FreeBuf(b *ActionBuffer) {
 }
 
 type Node struct {
-	next   []unsafe.Pointer
+	level  int
+	next   unsafe.Pointer // Points to [level+1]unsafe.Pointer
 	itm    unsafe.Pointer
 	GClink *Node
 }
 
+func (n *Node) nextArray() (s []unsafe.Pointer) {
+	hdr := (*reflect.SliceHeader)(unsafe.Pointer(&s))
+	hdr.Data = uintptr(n.next)
+	hdr.Len = n.Level() + 1
+	hdr.Cap = hdr.Len
+	return
+}
+
 func (n Node) Level() int {
-	return int(len(n.next) - 1)
+	return int(n.level)
 }
 
 func (n *Node) Item() unsafe.Pointer {
@@ -91,8 +101,10 @@ type NodeRef struct {
 }
 
 func newNode(itm unsafe.Pointer, level int) *Node {
+	next := make([]unsafe.Pointer, level+1)
 	n := &Node{
-		next: make([]unsafe.Pointer, level+1),
+		level: level,
+		next:  unsafe.Pointer(&next[0]),
 	}
 
 	n.itm = itm
@@ -100,11 +112,13 @@ func newNode(itm unsafe.Pointer, level int) *Node {
 }
 
 func (n *Node) setNext(level int, ptr *Node, deleted bool) {
-	n.next[level] = unsafe.Pointer(&NodeRef{ptr: ptr, deleted: deleted})
+	next := n.nextArray()
+	next[level] = unsafe.Pointer(&NodeRef{ptr: ptr, deleted: deleted})
 }
 
 func (n *Node) getNext(level int) (*Node, bool) {
-	ref := (*NodeRef)(atomic.LoadPointer(&n.next[level]))
+	next := n.nextArray()
+	ref := (*NodeRef)(atomic.LoadPointer(&next[level]))
 	if ref != nil {
 		return ref.ptr, ref.deleted
 	}
@@ -114,7 +128,9 @@ func (n *Node) getNext(level int) (*Node, bool) {
 
 func (n *Node) dcasNext(level int, prevPtr, newPtr *Node, prevIsdeleted, newIsdeleted bool) bool {
 	var swapped bool
-	addr := &n.next[level]
+
+	next := n.nextArray()
+	addr := &next[level]
 	ref := (*NodeRef)(atomic.LoadPointer(addr))
 	if ref != nil {
 		if ref.ptr == prevPtr && ref.deleted == prevIsdeleted {
