@@ -21,6 +21,8 @@ var nodeHdrSize = unsafe.Sizeof(struct {
 
 var nodeRefSize = unsafe.Sizeof(NodeRef{})
 
+var nodeRefFlagSize = unsafe.Sizeof(NodeRef{}.flag)
+
 const deletedFlag = 0xff
 
 type Node struct {
@@ -94,5 +96,14 @@ func (n *Node) dcasNext(level int, prevPtr, newPtr *Node, prevIsdeleted, newIsde
 		newVal |= deletedFlag
 	}
 
-	return atomic.CompareAndSwapUint64(wordAddr, prevVal, newVal)
+	swapped := atomic.CompareAndSwapUint64(wordAddr, prevVal, newVal)
+
+	// This is required to make go1.5+ concurrent garbage collector happy
+	// It makes writebarrier to mark newPtr as reachable
+	if swapped {
+		atomic.CompareAndSwapPointer((*unsafe.Pointer)(unsafe.Pointer(nodeRefAddr+nodeRefFlagSize)),
+			unsafe.Pointer(newPtr), unsafe.Pointer(newPtr))
+	}
+
+	return swapped
 }
