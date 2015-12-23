@@ -223,7 +223,7 @@ func (nt *NodeTable) find(key []byte) (res *ntResult) {
 	return
 }
 
-func (nt *NodeTable) Reset() {
+func (nt *NodeTable) Close() {
 	nt.fastHTCount = 0
 	nt.slowHTCount = 0
 	nt.conflicts = 0
