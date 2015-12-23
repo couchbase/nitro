@@ -185,6 +185,11 @@ func TestLoadStoreDisk(t *testing.T) {
 	if count != n {
 		t.Errorf("Expected %v, got %v", n, count)
 	}
+
+	count = int(snap.Count())
+	if count != n {
+		t.Errorf("Count mismatch on snapshot. Expected %d, got %d", n, count)
+	}
 	fmt.Println(db.DumpStats())
 }
 

@@ -822,6 +822,8 @@ func (m *MemDB) LoadFromDisk(dir string, concurr int, callb ItemCallback) (*Snap
 	}
 
 	m.store = b.Assemble(segments...)
+	stats := m.store.GetStats()
+	m.count = int64(stats.NodeCount)
 	snap := m.NewSnapshot()
 	return snap, nil
 }

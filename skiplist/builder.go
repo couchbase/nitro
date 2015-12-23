@@ -12,6 +12,7 @@ type Segment struct {
 	head    []*Node
 	rand    *rand.Rand
 	callb   NodeCallback
+	count   uint64
 }
 
 func (s *Segment) SetNodeCallback(fn NodeCallback) {
