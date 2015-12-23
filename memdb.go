@@ -172,6 +172,11 @@ type Writer struct {
 	*MemDB
 }
 
+func (w *Writer) Reset() {
+	w.buf = w.store.MakeBuf()
+	w.iter = w.store.NewIterator(w.iterCmp, w.buf)
+}
+
 func (w *Writer) Put(x *Item) {
 	w.Put2(x)
 }
@@ -354,16 +359,30 @@ func (m *MemDB) MemoryInUse() int64 {
 
 func (m *MemDB) Reset() {
 	m.Close()
+
+	// Make sure GC process has exited
+	for atomic.CompareAndSwapInt32(&m.isGCRunning, 0, 1) == false {
+	}
+
 	m.store = skiplist.New()
 	m.snapshots = skiplist.New()
 	m.gcsnapshots = skiplist.New()
 	m.gcchan = make(chan *skiplist.Node, gcchanBufSize)
 	m.currSn = 1
+	m.lastGCSn = 0
+	m.leastUnrefSn = 0
+	m.count = 0
+	m.isGCRunning = 0
 
 	m.initSizeFuns()
 	buf := dbInstances.MakeBuf()
 	defer dbInstances.FreeBuf(buf)
 	dbInstances.Insert(unsafe.Pointer(m), CompareMemDB, buf)
+
+	for w := m.wlist; w != nil; w = w.next {
+		w.Reset()
+		go m.collectionWorker()
+	}
 }
 
 func (m *MemDB) Close() {
