@@ -10,6 +10,8 @@ type Iterator struct {
 	valid      bool
 	buf        *ActionBuffer
 	deleted    bool
+
+	bs *BarrierSession
 }
 
 func (s *Skiplist) NewIterator(cmp CompareFn,
@@ -19,6 +21,7 @@ func (s *Skiplist) NewIterator(cmp CompareFn,
 		cmp: cmp,
 		s:   s,
 		buf: buf,
+		bs:  s.barrier.Acquire(),
 	}
 }
 
@@ -30,7 +33,7 @@ func (it *Iterator) SeekFirst() {
 
 func (it *Iterator) Seek(itm unsafe.Pointer) bool {
 	it.valid = true
-	found := it.s.FindPath(itm, it.cmp, it.buf) != nil
+	found := it.s.findPath(itm, it.cmp, it.buf) != nil
 	it.prev = it.buf.preds[0]
 	it.curr = it.buf.succs[0]
 	return found
@@ -77,7 +80,7 @@ retry:
 			it.curr = next
 		} else {
 			atomic.AddUint64(&it.s.stats.readConflicts, 1)
-			found := it.s.FindPath(it.curr.Item(), it.cmp, it.buf) != nil
+			found := it.s.findPath(it.curr.Item(), it.cmp, it.buf) != nil
 			last := it.curr
 			it.prev = it.buf.preds[0]
 			it.curr = it.buf.succs[0]
@@ -89,4 +92,8 @@ retry:
 		it.prev = it.curr
 		it.curr = next
 	}
+}
+
+func (it *Iterator) Close() {
+	it.s.barrier.Release(it.bs)
 }

@@ -1,5 +1,8 @@
 package skiplist
 
+//#include <stdlib.h>
+import "C"
+
 import (
 	"reflect"
 	"unsafe"
@@ -237,6 +240,25 @@ var node32 struct {
 	buf [33]NodeRef
 }
 
-func allocNode(l int) unsafe.Pointer {
-	return unsafe.Pointer(reflect.New(nodeTypes[l]).Pointer())
+func allocNode(itm unsafe.Pointer, level int) *Node {
+	block := unsafe.Pointer(reflect.New(nodeTypes[level]).Pointer())
+	n := (*Node)(block)
+	n.level = uint16(level)
+	n.itm = itm
+	n.GClink = nil
+	return n
+}
+
+func AllocNodeMM(itm unsafe.Pointer, level int) *Node {
+	block := C.malloc(C.size_t(nodeTypes[level].Size()))
+	n := (*Node)(block)
+	n.level = uint16(level)
+	n.itm = itm
+	n.GClink = nil
+	return n
+}
+
+func FreeNodeMM(n *Node) {
+	p := unsafe.Pointer(n)
+	C.free(p)
 }

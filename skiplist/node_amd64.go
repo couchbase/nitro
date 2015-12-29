@@ -56,16 +56,15 @@ type NodeRef struct {
 	ptr  *Node
 }
 
-func newNode(itm unsafe.Pointer, level int) *Node {
-	n := (*Node)(allocNode(level))
-	n.level = uint16(level)
-	n.itm = itm
-	return n
-}
-
 func (n *Node) setNext(level int, ptr *Node, deleted bool) {
+	nlevel := n.level
 	ref := (*NodeRef)(unsafe.Pointer(uintptr(unsafe.Pointer(n)) + nodeHdrSize + nodeRefSize*uintptr(level)))
 	ref.ptr = ptr
+	ref.flag = 0
+	// Setting flag for level 0 will require reseting of level
+	if level == 0 {
+		n.level = nlevel
+	}
 }
 
 func (n *Node) getNext(level int) (*Node, bool) {

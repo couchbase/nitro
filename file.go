@@ -32,27 +32,28 @@ type FileReader interface {
 	Close() error
 }
 
-func newFileWriter(t FileType) FileWriter {
+func (m *MemDB) newFileWriter(t FileType) FileWriter {
 	var w FileWriter
 	if t == RawdbFile {
-		w = &rawFileWriter{}
+		w = &rawFileWriter{db: m}
 	} else if t == ForestdbFile {
-		w = &forestdbFileWriter{}
+		w = &forestdbFileWriter{db: m}
 	}
 	return w
 }
 
-func newFileReader(t FileType) FileReader {
+func (m *MemDB) newFileReader(t FileType) FileReader {
 	var r FileReader
 	if t == RawdbFile {
-		r = &rawFileReader{}
+		r = &rawFileReader{db: m}
 	} else if t == ForestdbFile {
-		r = &forestdbFileReader{}
+		r = &forestdbFileReader{db: m}
 	}
 	return r
 }
 
 type rawFileWriter struct {
+	db   *MemDB
 	fd   *os.File
 	w    *bufio.Writer
 	buf  []byte
@@ -70,7 +71,7 @@ func (f *rawFileWriter) Open(path string) error {
 }
 
 func (f *rawFileWriter) WriteItem(itm *Item) error {
-	return itm.Encode(f.buf, f.w)
+	return f.db.EncodeItem(itm, f.buf, f.w)
 }
 
 func (f *rawFileWriter) Close() error {
@@ -85,6 +86,7 @@ func (f *rawFileWriter) Close() error {
 }
 
 type rawFileReader struct {
+	db   *MemDB
 	fd   *os.File
 	r    *bufio.Reader
 	buf  []byte
@@ -102,13 +104,7 @@ func (f *rawFileReader) Open(path string) error {
 }
 
 func (f *rawFileReader) ReadItem() (*Item, error) {
-	itm := &Item{}
-	itm, err := itm.Decode(f.buf, f.r)
-	if itm.dataLen == 0 {
-		itm = nil
-	}
-
-	return itm, err
+	return f.db.DecodeItem(f.buf, f.r)
 }
 
 func (f *rawFileReader) Close() error {
@@ -116,6 +112,7 @@ func (f *rawFileReader) Close() error {
 }
 
 type forestdbFileWriter struct {
+	db    *MemDB
 	file  *forestdb.File
 	store *forestdb.KVStore
 	buf   []byte
@@ -135,7 +132,7 @@ func (f *forestdbFileWriter) Open(path string) error {
 
 func (f *forestdbFileWriter) WriteItem(itm *Item) error {
 	f.wbuf.Reset()
-	err := itm.Encode(f.buf, &f.wbuf)
+	err := f.db.EncodeItem(itm, f.buf, &f.wbuf)
 	if err == nil {
 		err = f.store.SetKV(f.wbuf.Bytes(), nil)
 	}
@@ -156,6 +153,7 @@ func (f *forestdbFileWriter) Close() error {
 }
 
 type forestdbFileReader struct {
+	db    *MemDB
 	file  *forestdb.File
 	store *forestdb.KVStore
 	iter  *forestdb.Iterator
@@ -187,7 +185,7 @@ func (f *forestdbFileReader) ReadItem() (*Item, error) {
 	f.iter.Next()
 	if err == nil {
 		rbuf := bytes.NewBuffer(doc.Key())
-		itm, err = itm.Decode(f.buf, rbuf)
+		itm, err = f.db.DecodeItem(f.buf, rbuf)
 	}
 
 	return itm, err

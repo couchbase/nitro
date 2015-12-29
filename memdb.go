@@ -167,6 +167,9 @@ func (w *Writer) DeleteNode(x *skiplist.Node) (success bool) {
 	gotItem := (*Item)(x.Item())
 	if gotItem.bornSn == sn {
 		success = w.store.DeleteNode(x, w.insCmp, w.buf)
+
+		barrier := w.store.GetAccesBarrier()
+		barrier.FlushSession(unsafe.Pointer(x))
 		return
 	}
 
@@ -233,6 +236,8 @@ type Config struct {
 	ignoreItemSize bool
 
 	fileType FileType
+
+	useMemoryMgmt bool
 }
 
 func (cfg *Config) SetKeyComparator(cmp KeyCompare) {
@@ -257,6 +262,10 @@ func (cfg *Config) IgnoreItemSize() {
 	cfg.ignoreItemSize = true
 }
 
+func (cfg *Config) UseMemoryMgmt() {
+	cfg.useMemoryMgmt = true
+}
+
 type MemDB struct {
 	id           int
 	store        *skiplist.Skiplist
@@ -268,21 +277,32 @@ type MemDB struct {
 	leastUnrefSn uint32
 	count        int64
 
-	wlist  *Writer
-	gcchan chan *skiplist.Node
+	wlist    *Writer
+	gcchan   chan *skiplist.Node
+	freechan chan *skiplist.Node
 
 	Config
 }
 
 func NewWithConfig(cfg Config) *MemDB {
 	m := &MemDB{
-		store:       skiplist.New(),
 		snapshots:   skiplist.New(),
 		gcsnapshots: skiplist.New(),
 		currSn:      1,
 		Config:      cfg,
 		gcchan:      make(chan *skiplist.Node, gcchanBufSize),
 		id:          int(atomic.AddInt64(&dbInstancesCount, 1)),
+	}
+
+	if m.useMemoryMgmt {
+		m.store = skiplist.NewWithMM(
+			skiplist.AllocNodeMM,
+			skiplist.FreeNodeMM,
+			m.newBSDestructor())
+
+		m.freechan = make(chan *skiplist.Node, gcchanBufSize)
+	} else {
+		m.store = skiplist.New()
 	}
 
 	m.initSizeFuns()
@@ -292,6 +312,13 @@ func NewWithConfig(cfg Config) *MemDB {
 
 	return m
 
+}
+
+func (m *MemDB) newBSDestructor() skiplist.BarrierSessionDestructor {
+	return func(ref unsafe.Pointer) {
+		freelist := (*skiplist.Node)(ref)
+		m.freechan <- freelist
+	}
 }
 
 func (m *MemDB) initSizeFuns() {
@@ -312,6 +339,9 @@ func (m *MemDB) MemoryInUse() int64 {
 
 func (m *MemDB) Close() {
 	close(m.gcchan)
+	if m.useMemoryMgmt {
+		close(m.freechan)
+	}
 	buf := dbInstances.MakeBuf()
 	defer dbInstances.FreeBuf(buf)
 	dbInstances.Delete(unsafe.Pointer(m), CompareMemDB, buf)
@@ -350,6 +380,9 @@ func (m *MemDB) NewWriter() *Writer {
 	m.wlist = w
 
 	go m.collectionWorker()
+	if m.useMemoryMgmt {
+		go m.freeWorker()
+	}
 
 	return w
 }
@@ -511,6 +544,7 @@ func (it *Iterator) Next() {
 func (it *Iterator) Close() {
 	it.snap.Close()
 	it.snap.db.store.FreeBuf(it.buf)
+	it.iter.Close()
 }
 
 func (m *MemDB) NewIterator(snap *Snapshot) *Iterator {
@@ -536,6 +570,17 @@ func (m *MemDB) collectionWorker() {
 	for gclist := range m.gcchan {
 		for n := gclist; n != nil; n = n.GClink {
 			m.store.DeleteNode(n, m.insCmp, buf)
+		}
+
+		barrier := m.store.GetAccesBarrier()
+		barrier.FlushSession(unsafe.Pointer(gclist))
+	}
+}
+
+func (m *MemDB) freeWorker() {
+	for freelist := range m.freechan {
+		for n := freelist; n != nil; n = n.GClink {
+			m.store.Free(n)
 		}
 	}
 }
@@ -595,18 +640,25 @@ func (m *MemDB) Visitor(snap *Snapshot, callb VisitorCallback, shards int, concu
 
 	iters = append(iters, m.NewIterator(snap))
 	iters[0].SeekFirst()
-	pivots := m.store.GetRangeSplitItems(shards)
-	for _, p := range pivots {
-		iter := m.NewIterator(snap)
-		iter.Seek((*Item)(p))
 
-		if iter.Valid() && (len(lastNodes) == 0 || iter.GetNode() != lastNodes[len(lastNodes)-1]) {
-			iters = append(iters, iter)
-			lastNodes = append(lastNodes, iter.GetNode())
-		} else {
-			iter.Close()
+	func() {
+		barrier := m.store.GetAccesBarrier()
+		token := barrier.Acquire()
+		defer barrier.Release(token)
+
+		pivots := m.store.GetRangeSplitItems(shards)
+		for _, p := range pivots {
+			iter := m.NewIterator(snap)
+			iter.Seek((*Item)(p))
+
+			if iter.Valid() && (len(lastNodes) == 0 || iter.GetNode() != lastNodes[len(lastNodes)-1]) {
+				iters = append(iters, iter)
+				lastNodes = append(lastNodes, iter.GetNode())
+			} else {
+				iter.Close()
+			}
 		}
-	}
+	}()
 
 	lastNodes = append(lastNodes, nil)
 	errors := make([]error, len(iters))
@@ -670,7 +722,7 @@ func (m *MemDB) StoreToDisk(dir string, snap *Snapshot, concurr int, itmCallback
 	}()
 
 	for shard := 0; shard < shards; shard++ {
-		w := newFileWriter(m.fileType)
+		w := m.newFileWriter(m.fileType)
 		file := fmt.Sprintf("shard-%d", shard)
 		datafile := path.Join(datadir, file)
 		if err := w.Open(datafile); err != nil {
@@ -738,7 +790,7 @@ func (m *MemDB) LoadFromDisk(dir string, concurr int, callb ItemCallback) (*Snap
 	for i, file := range files {
 		segments[i] = b.NewSegment()
 		segments[i].SetNodeCallback(nodeCallb)
-		r := newFileReader(m.fileType)
+		r := m.newFileReader(m.fileType)
 		datafile := path.Join(datadir, file)
 		if err := r.Open(datafile); err != nil {
 			return nil, err

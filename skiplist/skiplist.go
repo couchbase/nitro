@@ -16,31 +16,57 @@ func defaultItemSize(unsafe.Pointer) int {
 	return 0
 }
 
+type CreateNodeFn func(itm unsafe.Pointer, level int) *Node
+type DestroyNodeFn func(*Node)
+
 type Skiplist struct {
 	head      *Node
 	tail      *Node
 	level     int32
 	stats     stats
 	usedBytes int64
+	barrier   *AccessBarrier
 
 	itemSize ItemSizeFn
+
+	newNode  CreateNodeFn
+	freeNode DestroyNodeFn
 }
 
 func New() *Skiplist {
-	head := newNode(nil, MaxLevel)
-	tail := newNode(nil, MaxLevel)
+	return NewWithMM(allocNode, nil, nil)
+}
+
+func NewWithMM(createNode CreateNodeFn,
+	destroyNode DestroyNodeFn,
+	callb BarrierSessionDestructor) *Skiplist {
+
+	s := &Skiplist{
+		itemSize: defaultItemSize,
+		barrier:  newAccessBarrier(callb != nil, callb),
+		newNode:  createNode,
+		freeNode: destroyNode,
+	}
+
+	head := s.newNode(nil, MaxLevel)
+	tail := s.newNode(nil, MaxLevel)
 
 	for i := 0; i <= MaxLevel; i++ {
 		head.setNext(i, tail, false)
 	}
 
-	s := &Skiplist{
-		head:     head,
-		tail:     tail,
-		itemSize: defaultItemSize,
-	}
+	s.head = head
+	s.tail = tail
 
 	return s
+}
+
+func (s *Skiplist) GetAccesBarrier() *AccessBarrier {
+	return s.barrier
+}
+
+func (s *Skiplist) Free(n *Node) {
+	s.freeNode(n)
 }
 
 func (s *Skiplist) SetItemSizeFunc(fn ItemSizeFn) {
@@ -98,7 +124,7 @@ func (s *Skiplist) helpDelete(level int, prev, curr, next *Node) bool {
 	return success
 }
 
-func (s *Skiplist) FindPath(itm unsafe.Pointer, cmp CompareFn,
+func (s *Skiplist) findPath(itm unsafe.Pointer, cmp CompareFn,
 	buf *ActionBuffer) (foundNode *Node) {
 	var cmpVal int = 1
 
@@ -153,7 +179,10 @@ func (s *Skiplist) Insert2(itm unsafe.Pointer, inscmp CompareFn, eqCmp CompareFn
 func (s *Skiplist) Insert3(itm unsafe.Pointer, insCmp CompareFn, eqCmp CompareFn,
 	buf *ActionBuffer, itemLevel int, skipFindPath bool) (*Node, bool) {
 
-	x := newNode(itm, itemLevel)
+	token := s.barrier.Acquire()
+	defer s.barrier.Release(token)
+
+	x := s.newNode(itm, itemLevel)
 	atomic.AddInt64(&s.stats.levelNodesCount[itemLevel], 1)
 	atomic.AddInt64(&s.usedBytes, int64(s.Size(x)))
 
@@ -161,7 +190,7 @@ retry:
 	if skipFindPath {
 		skipFindPath = false
 	} else {
-		if s.FindPath(itm, insCmp, buf) != nil {
+		if s.findPath(itm, insCmp, buf) != nil {
 			return nil, false
 		}
 
@@ -183,7 +212,7 @@ retry:
 			if buf.preds[i].dcasNext(i, buf.succs[i], x, false, false) {
 				break fixThisLevel
 			}
-			s.FindPath(itm, insCmp, buf)
+			s.findPath(itm, insCmp, buf)
 		}
 	}
 
@@ -210,25 +239,37 @@ func (s *Skiplist) softDelete(delNode *Node) bool {
 }
 
 func (s *Skiplist) Delete(itm unsafe.Pointer, cmp CompareFn, buf *ActionBuffer) bool {
-	found := s.FindPath(itm, cmp, buf) != nil
+	token := s.barrier.Acquire()
+	defer s.barrier.Release(token)
+
+	found := s.findPath(itm, cmp, buf) != nil
 	if !found {
 		return false
 	}
 
 	delNode := buf.succs[0]
-	return s.DeleteNode(delNode, cmp, buf)
+	return s.deleteNode(delNode, cmp, buf)
 }
 
 func (s *Skiplist) DeleteNode(n *Node, cmp CompareFn, buf *ActionBuffer) bool {
+	token := s.barrier.Acquire()
+	defer s.barrier.Release(token)
+
+	return s.deleteNode(n, cmp, buf)
+}
+
+func (s *Skiplist) deleteNode(n *Node, cmp CompareFn, buf *ActionBuffer) bool {
 	itm := n.Item()
 	if s.softDelete(n) {
-		s.FindPath(itm, cmp, buf)
+		s.findPath(itm, cmp, buf)
 		return true
 	}
 
 	return false
 }
 
+// Explicit barrier and release should be used by the caller before
+// and after this function call
 func (s *Skiplist) GetRangeSplitItems(nways int) []unsafe.Pointer {
 	var deleted bool
 repeat:
