@@ -9,6 +9,8 @@ import (
 func compare(cmp CompareFn, this, that unsafe.Pointer) int {
 	if this == nil {
 		return 1
+	} else if that == nil {
+		return -1
 	}
 
 	return cmp(this, that)

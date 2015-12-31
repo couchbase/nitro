@@ -56,7 +56,7 @@ func doInsert(sl *Skiplist, wg *sync.WaitGroup, n int, isRand bool) {
 		}
 
 		itm := intKeyItem(val)
-		sl.Insert2(unsafe.Pointer(&itm), cmp, buf, rnd.Float32)
+		sl.Insert2(unsafe.Pointer(&itm), cmp, nil, buf, rnd.Float32)
 	}
 }
 

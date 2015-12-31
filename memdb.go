@@ -95,6 +95,17 @@ func newIterCompare(keyCmp KeyCompare) skiplist.CompareFn {
 	}
 }
 
+func newExistCompare(keyCmp KeyCompare) skiplist.CompareFn {
+	return func(this, that unsafe.Pointer) int {
+		thisItem := (*Item)(this)
+		thatItem := (*Item)(that)
+		if thisItem.deadSn != 0 || thatItem.deadSn != 0 {
+			return 1
+		}
+		return keyCmp(thisItem.Bytes(), thatItem.Bytes())
+	}
+}
+
 func defaultKeyCmp(this, that []byte) int {
 	return bytes.Compare(this, that)
 }
@@ -118,7 +129,7 @@ func (w *Writer) Put(x *Item) {
 func (w *Writer) Put2(x *Item) (n *skiplist.Node) {
 	var success bool
 	x.bornSn = w.getCurrSn()
-	n, success = w.store.Insert2(unsafe.Pointer(x), w.insCmp, w.buf, w.rand.Float32)
+	n, success = w.store.Insert2(unsafe.Pointer(x), w.insCmp, w.existCmp, w.buf, w.rand.Float32)
 	if success {
 		atomic.AddInt64(&w.count, 1)
 	}
@@ -208,9 +219,10 @@ func (w *Writer) GetNode(x *Item) *skiplist.Node {
 }
 
 type Config struct {
-	keyCmp  KeyCompare
-	insCmp  skiplist.CompareFn
-	iterCmp skiplist.CompareFn
+	keyCmp   KeyCompare
+	insCmp   skiplist.CompareFn
+	iterCmp  skiplist.CompareFn
+	existCmp skiplist.CompareFn
 
 	ignoreItemSize bool
 
@@ -221,6 +233,7 @@ func (cfg *Config) SetKeyComparator(cmp KeyCompare) {
 	cfg.keyCmp = cmp
 	cfg.insCmp = newInsertCompare(cmp)
 	cfg.iterCmp = newIterCompare(cmp)
+	cfg.existCmp = newExistCompare(cmp)
 }
 
 func (cfg *Config) SetFileType(t FileType) error {

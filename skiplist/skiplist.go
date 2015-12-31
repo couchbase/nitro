@@ -140,17 +140,17 @@ retry:
 }
 
 func (s *Skiplist) Insert(itm unsafe.Pointer, cmp CompareFn, buf *ActionBuffer) (success bool) {
-	_, success = s.Insert2(itm, cmp, buf, rand.Float32)
+	_, success = s.Insert2(itm, cmp, nil, buf, rand.Float32)
 	return
 }
 
-func (s *Skiplist) Insert2(itm unsafe.Pointer, cmp CompareFn,
+func (s *Skiplist) Insert2(itm unsafe.Pointer, inscmp CompareFn, eqCmp CompareFn,
 	buf *ActionBuffer, randFn func() float32) (*Node, bool) {
 	itemLevel := s.NewLevel(randFn)
-	return s.Insert3(itm, cmp, buf, itemLevel, false)
+	return s.Insert3(itm, inscmp, eqCmp, buf, itemLevel, false)
 }
 
-func (s *Skiplist) Insert3(itm unsafe.Pointer, cmp CompareFn,
+func (s *Skiplist) Insert3(itm unsafe.Pointer, insCmp CompareFn, eqCmp CompareFn,
 	buf *ActionBuffer, itemLevel int, skipFindPath bool) (*Node, bool) {
 
 	x := newNode(itm, itemLevel)
@@ -161,7 +161,11 @@ retry:
 	if skipFindPath {
 		skipFindPath = false
 	} else {
-		if s.FindPath(itm, cmp, buf) != nil {
+		if s.FindPath(itm, insCmp, buf) != nil {
+			return nil, false
+		}
+
+		if eqCmp != nil && compare(eqCmp, itm, buf.preds[0].Item()) == 0 {
 			return nil, false
 		}
 	}
@@ -179,7 +183,7 @@ retry:
 			if buf.preds[i].dcasNext(i, buf.succs[i], x, false, false) {
 				break fixThisLevel
 			}
-			s.FindPath(itm, cmp, buf)
+			s.FindPath(itm, insCmp, buf)
 		}
 	}
 
