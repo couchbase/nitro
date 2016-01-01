@@ -106,6 +106,57 @@ func doGet(t *testing.T, db *MemDB, snap *Snapshot, wg *sync.WaitGroup, n int) {
 	}
 }
 
+func TestInsertDuplicates(t *testing.T) {
+	db := New()
+	defer db.Close()
+
+	w := db.NewWriter()
+	for i := 0; i < 2000; i++ {
+		w.Put(NewItem([]byte(fmt.Sprintf("%010d", i))))
+	}
+
+	w.NewSnapshot()
+
+	// Duplicate
+	for i := 0; i < 2000; i++ {
+		key := fmt.Sprintf("%010d", i)
+		newNode := w.Put2(NewItem([]byte(key)))
+		if newNode != nil {
+			t.Errorf("Duplicate unexpected for %s", key)
+		}
+	}
+
+	for i := 1500; i < 2000; i++ {
+		w.Delete(NewItem([]byte(fmt.Sprintf("%010d", i))))
+	}
+	w.NewSnapshot()
+
+	for i := 1500; i < 5000; i++ {
+		key := fmt.Sprintf("%010d", i)
+		newNode := w.Put2(NewItem([]byte(key)))
+		if newNode == nil {
+			t.Errorf("Expected successful insert for %s", key)
+		}
+	}
+
+	snap := w.NewSnapshot()
+	count := 0
+	itr := db.NewIterator(snap)
+	itr.SeekFirst()
+	for ; itr.Valid(); itr.Next() {
+		expected := fmt.Sprintf("%010d", count)
+		got := string(itr.Get().Bytes())
+		count++
+		if got != expected {
+			t.Errorf("Expected %s, got %v", expected, got)
+		}
+	}
+
+	if count != 5000 {
+		t.Errorf("Expected count = 5000, got %v", count)
+	}
+}
+
 func TestGetPerf(t *testing.T) {
 	var wg sync.WaitGroup
 	db := New()
