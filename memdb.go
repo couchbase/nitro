@@ -9,6 +9,7 @@ import (
 	"github.com/t3rm1n4l/memdb/skiplist"
 	"io"
 	"io/ioutil"
+	"math"
 	"math/rand"
 	"os"
 	"path"
@@ -16,6 +17,10 @@ import (
 	"sync"
 	"sync/atomic"
 	"unsafe"
+)
+
+var (
+	ErrMaxSnapshotsLimitReached = fmt.Errorf("Maximum snapshots limit reached")
 )
 
 type KeyCompare func([]byte, []byte) int
@@ -425,13 +430,16 @@ func CompareSnapshot(this, that unsafe.Pointer) int {
 	return int(thisItem.sn) - int(thatItem.sn)
 }
 
-func (m *MemDB) NewSnapshot() *Snapshot {
+func (m *MemDB) NewSnapshot() (*Snapshot, error) {
 	buf := m.snapshots.MakeBuf()
 	defer m.snapshots.FreeBuf(buf)
 
 	snap := &Snapshot{db: m, sn: m.getCurrSn(), refCount: 1, count: m.ItemsCount()}
 	m.snapshots.Insert(unsafe.Pointer(snap), CompareSnapshot, buf)
-	atomic.AddUint32(&m.currSn, 1)
+	newSn := atomic.AddUint32(&m.currSn, 1)
+	if newSn == math.MaxUint32 {
+		return nil, ErrMaxSnapshotsLimitReached
+	}
 
 	// Stitch all local gclists from all writers to create snapshot gclist
 	var head, tail *skiplist.Node
@@ -451,7 +459,7 @@ func (m *MemDB) NewSnapshot() *Snapshot {
 
 	snap.gclist = head
 
-	return snap
+	return snap, nil
 }
 
 type Iterator struct {
@@ -776,7 +784,7 @@ func (m *MemDB) LoadFromDisk(dir string, concurr int, callb ItemCallback) (*Snap
 	m.store = b.Assemble(segments...)
 	stats := m.store.GetStats()
 	m.count = int64(stats.NodeCount)
-	snap := m.NewSnapshot()
+	snap, _ := m.NewSnapshot()
 	return snap, nil
 }
 
