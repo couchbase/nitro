@@ -44,6 +44,10 @@ type Builder struct {
 	store *Skiplist
 }
 
+func (b *Builder) SetItemSizeFunc(fn ItemSizeFn) {
+	b.store.itemSize = fn
+}
+
 func (b *Builder) NewSegment() *Segment {
 	return &Segment{tail: make([]*Node, MaxLevel+1),
 		head: make([]*Node, MaxLevel+1), builder: b,

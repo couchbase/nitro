@@ -715,6 +715,7 @@ func (m *MemDB) LoadFromDisk(dir string, concurr int, callb ItemCallback) (*Snap
 	var nodeCallb skiplist.NodeCallback
 	wchan := make(chan int)
 	b := skiplist.NewBuilder()
+	b.SetItemSizeFunc(ItemSize)
 	segments := make([]*skiplist.Segment, len(files))
 	readers := make([]FileReader, len(files))
 	errors := make([]error, len(files))
