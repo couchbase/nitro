@@ -14,8 +14,17 @@ package nodetable
 
 import "unsafe"
 import "fmt"
+import "github.com/t3rm1n4l/memdb/skiplist"
 
 var emptyResult ntResult
+
+const approxItemSize = 42
+
+var dbInstances *skiplist.Skiplist
+
+func init() {
+	dbInstances = skiplist.New()
+}
 
 type EqualKeyFn func(unsafe.Pointer, []byte) bool
 type HashFn func([]byte) uint32
@@ -31,6 +40,10 @@ type NodeTable struct {
 	keyEqual EqualKeyFn
 
 	res ntResult
+}
+
+func CompareNodeTable(a, b unsafe.Pointer) int {
+	return int(uintptr(a)) - int(uintptr(b))
 }
 
 const (
@@ -51,17 +64,30 @@ type ntResult struct {
 }
 
 func New(hfn HashFn, kfn EqualKeyFn) *NodeTable {
-	return &NodeTable{
+	nt := &NodeTable{
 		fastHT:   make(map[uint32]uint64),
 		slowHT:   make(map[uint32][]uint64),
 		hash:     hfn,
 		keyEqual: kfn,
 	}
+
+	buf := dbInstances.MakeBuf()
+	defer dbInstances.FreeBuf(buf)
+	dbInstances.Insert(unsafe.Pointer(nt), CompareNodeTable, buf)
+
+	return nt
 }
 
 func (nt *NodeTable) Stats() string {
-	return fmt.Sprintf("\nFastHTCount = %d\nSlowHTCount = %d\nConflicts = %d\n",
-		nt.fastHTCount, nt.slowHTCount, nt.conflicts)
+	return fmt.Sprintf("\nFastHTCount = %d\n"+
+		"SlowHTCount = %d\n"+
+		"Conflicts   = %d\n"+
+		"MemoryInUse = %d\n",
+		nt.fastHTCount, nt.slowHTCount, nt.conflicts, nt.MemoryInUse())
+}
+
+func (nt *NodeTable) MemoryInUse() int64 {
+	return int64(approxItemSize * (nt.fastHTCount + nt.slowHTCount))
 }
 
 func (nt *NodeTable) Get(key []byte) unsafe.Pointer {
@@ -229,4 +255,20 @@ func (nt *NodeTable) Close() {
 	nt.conflicts = 0
 	nt.fastHT = make(map[uint32]uint64)
 	nt.slowHT = make(map[uint32][]uint64)
+
+	buf := dbInstances.MakeBuf()
+	defer dbInstances.FreeBuf(buf)
+	dbInstances.Delete(unsafe.Pointer(nt), CompareNodeTable, buf)
+}
+
+func MemoryInUse() (sz int64) {
+	buf := dbInstances.MakeBuf()
+	defer dbInstances.FreeBuf(buf)
+	iter := dbInstances.NewIterator(CompareNodeTable, buf)
+	for iter.SeekFirst(); iter.Valid(); iter.Next() {
+		db := (*NodeTable)(iter.Get())
+		sz += db.MemoryInUse()
+	}
+
+	return
 }

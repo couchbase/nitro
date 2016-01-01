@@ -67,7 +67,7 @@ func init() {
 
 func CompareMemDB(this unsafe.Pointer, that unsafe.Pointer) int {
 	thisItem := (*MemDB)(this)
-	thatItem := (*MemDB)(this)
+	thatItem := (*MemDB)(that)
 
 	return int(thisItem.id - thatItem.id)
 }
