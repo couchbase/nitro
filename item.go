@@ -7,6 +7,8 @@ import (
 	"unsafe"
 )
 
+var itemHeaderSize = unsafe.Sizeof(Item{}.bornSn) + unsafe.Sizeof(Item{}.deadSn) + unsafe.Sizeof(Item{}.dataLen)
+
 type Item struct {
 	bornSn  uint32
 	deadSn  uint32
@@ -20,7 +22,7 @@ func NewItem(data []byte) *Item {
 }
 
 func newItem(l int) *Item {
-	blockSize := round(unsafe.Sizeof(Item{})+uintptr(l), unsafe.Sizeof(uintptr(0)))
+	blockSize := round(itemHeaderSize+uintptr(l), unsafe.Sizeof(uintptr(0)))
 	block := make([]byte, blockSize)
 	itm := (*Item)(unsafe.Pointer(&block[0]))
 	itm.dataLen = uint32(l)
@@ -73,7 +75,7 @@ func (itm *Item) Bytes() (bs []byte) {
 
 func ItemSize(p unsafe.Pointer) int {
 	itm := (*Item)(p)
-	return int(round(unsafe.Sizeof(*itm)+uintptr(itm.dataLen), unsafe.Sizeof(uintptr(0))))
+	return int(round(itemHeaderSize+uintptr(itm.dataLen), unsafe.Sizeof(uintptr(0))))
 }
 
 func round(size, tomul uintptr) uintptr {

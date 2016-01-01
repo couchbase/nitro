@@ -44,7 +44,7 @@ var nodeTypes = [33]reflect.Type{
 var node0 struct {
 	itm unsafe.Pointer
 	gc  unsafe.Pointer
-	buf [2]NodeRef
+	buf [1]NodeRef
 }
 
 var node1 struct {
