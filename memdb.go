@@ -172,6 +172,7 @@ func (w *Writer) DeleteNode(x *skiplist.Node) (success bool) {
 
 	success = atomic.CompareAndSwapUint32(&gotItem.deadSn, 0, sn)
 	if success {
+		x.GClink = nil
 		if w.gctail == nil {
 			w.gctail = x
 			w.gchead = w.gctail
