@@ -4,6 +4,8 @@ package skiplist
 
 import (
 	"reflect"
+	"sync/atomic"
+	"unsafe"
 )
 
 type Node struct {
@@ -27,7 +29,7 @@ func (n Node) Level() int {
 
 func (n Node) Size() int {
 	return int(unsafe.Sizeof(n) +
-		uintptr(n.level+1)*(unsafe.Sizeof(unsafe.Pointer(0))+
+		uintptr(n.level+1)*(unsafe.Sizeof(unsafe.Pointer(nil))+
 			unsafe.Sizeof(NodeRef{})))
 }
 
