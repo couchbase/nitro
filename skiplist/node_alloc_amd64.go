@@ -1,9 +1,7 @@
 package skiplist
 
-//#include <stdlib.h>
-import "C"
-
 import (
+	"github.com/t3rm1n4l/memdb/mm"
 	"reflect"
 	"unsafe"
 )
@@ -250,7 +248,7 @@ func allocNode(itm unsafe.Pointer, level int) *Node {
 }
 
 func AllocNodeMM(itm unsafe.Pointer, level int) *Node {
-	block := C.malloc(C.size_t(nodeTypes[level].Size()))
+	block := mm.Malloc(int(nodeTypes[level].Size()))
 	n := (*Node)(block)
 	n.level = uint16(level)
 	n.itm = itm
@@ -260,5 +258,5 @@ func AllocNodeMM(itm unsafe.Pointer, level int) *Node {
 
 func FreeNodeMM(n *Node) {
 	p := unsafe.Pointer(n)
-	C.free(p)
+	mm.Free(p)
 }

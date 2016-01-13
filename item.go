@@ -1,8 +1,8 @@
 package memdb
 
 import (
-	"C"
 	"encoding/binary"
+	"github.com/t3rm1n4l/memdb/mm"
 	"io"
 	"reflect"
 	"unsafe"
@@ -34,7 +34,7 @@ func (m *MemDB) NewTempItem(data []byte) *Item {
 func allocItem(l int, useMM bool) (itm *Item) {
 	blockSize := itemHeaderSize + uintptr(l)
 	if useMM {
-		itm = (*Item)(C.malloc(C.size_t(blockSize)))
+		itm = (*Item)(mm.Malloc(int(blockSize)))
 		itm.deadSn = 0
 		itm.bornSn = 0
 	} else {

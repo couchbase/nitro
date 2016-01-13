@@ -76,6 +76,7 @@ func DefaultConfig() Config {
 	var cfg Config
 	cfg.SetKeyComparator(defaultKeyCmp)
 	cfg.SetFileType(RawdbFile)
+	cfg.useMemoryMgmt = false
 	return cfg
 }
 
