@@ -67,6 +67,7 @@ func (s *Skiplist) GetAccesBarrier() *AccessBarrier {
 
 func (s *Skiplist) Free(n *Node) {
 	s.freeNode(n)
+	atomic.AddInt64(&s.stats.nodeFrees, 1)
 }
 
 func (s *Skiplist) SetItemSizeFunc(fn ItemSizeFn) {
@@ -183,6 +184,8 @@ func (s *Skiplist) Insert3(itm unsafe.Pointer, insCmp CompareFn, eqCmp CompareFn
 	defer s.barrier.Release(token)
 
 	x := s.newNode(itm, itemLevel)
+
+	atomic.AddInt64(&s.stats.nodeAllocs, 1)
 	atomic.AddInt64(&s.stats.levelNodesCount[itemLevel], 1)
 	atomic.AddInt64(&s.usedBytes, int64(s.Size(x)))
 
