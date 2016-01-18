@@ -116,12 +116,9 @@ func defaultKeyCmp(this, that []byte) int {
 	return bytes.Compare(this, that)
 }
 
-//
-//compare item,sn
 type Writer struct {
 	rand   *rand.Rand
 	buf    *skiplist.ActionBuffer
-	iter   *skiplist.Iterator
 	gchead *skiplist.Node
 	gctail *skiplist.Node
 	next   *Writer
@@ -149,7 +146,10 @@ func (w *Writer) Delete(x *Item) (success bool) {
 }
 
 func (w *Writer) Delete2(x *Item) (n *skiplist.Node, success bool) {
-	n = w.GetNode(x)
+	iter := w.store.NewIterator(w.iterCmp, w.buf)
+	defer iter.Close()
+
+	n = w.findLatestNode(iter, x)
 	if n != nil {
 		success = w.DeleteNode(n)
 	}
@@ -188,29 +188,24 @@ func (w *Writer) DeleteNode(x *skiplist.Node) (success bool) {
 	return
 }
 
-func (w *Writer) Get(x *Item) *Item {
-	n := w.GetNode(x)
-	if n != nil {
-		return (*Item)(n.Item())
-	}
-	return nil
-}
-
-func (w *Writer) GetNode(x *Item) *skiplist.Node {
+// FIXME: Fix the algorithm to use single skiplist.findPath to locate the latest
+// node. Already skiplist.Insert3 makes use of this technique to check if an entry
+// already exists to avoid duplicate insertion.
+func (w *Writer) findLatestNode(iter *skiplist.Iterator, x *Item) *skiplist.Node {
 	var curr *skiplist.Node
-	found := w.iter.Seek(unsafe.Pointer(x))
+	found := iter.Seek(unsafe.Pointer(x))
 	if !found {
 		return nil
 	}
 
 	// Seek until most recent item for key is found
-	curr = w.iter.GetNode()
+	curr = iter.GetNode()
 	for {
-		w.iter.Next()
-		if !w.iter.Valid() {
+		iter.Next()
+		if !iter.Valid() {
 			break
 		}
-		next := w.iter.GetNode()
+		next := iter.GetNode()
 		nxtItm := next.Item()
 		currItm := curr.Item()
 		if w.iterCmp(nxtItm, currItm) != 0 {
@@ -373,7 +368,6 @@ func (m *MemDB) NewWriter() *Writer {
 	w := &Writer{
 		rand:  rand.New(rand.NewSource(int64(rand.Int()))),
 		buf:   buf,
-		iter:  m.store.NewIterator(m.iterCmp, buf),
 		next:  m.wlist,
 		MemDB: m,
 	}
