@@ -303,18 +303,8 @@ func NewWithConfig(cfg Config) *MemDB {
 		id:          int(atomic.AddInt64(&dbInstancesCount, 1)),
 	}
 
-	slCfg := skiplist.DefaultConfig()
-
-	if m.useMemoryMgmt {
-		slCfg.UseMemoryMgmt = true
-		slCfg.Malloc = m.mallocFun
-		slCfg.Free = m.freeFun
-		slCfg.BarrierDestructor = m.newBSDestructor()
-
-		m.freechan = make(chan *skiplist.Node, gcchanBufSize)
-	}
-
-	m.store = skiplist.NewWithConfig(slCfg)
+	m.freechan = make(chan *skiplist.Node, gcchanBufSize)
+	m.store = skiplist.NewWithConfig(m.newStoreConfig())
 	m.initSizeFuns()
 
 	buf := dbInstances.MakeBuf()
@@ -323,6 +313,18 @@ func NewWithConfig(cfg Config) *MemDB {
 
 	return m
 
+}
+
+func (m *MemDB) newStoreConfig() skiplist.Config {
+	slCfg := skiplist.DefaultConfig()
+	if m.useMemoryMgmt {
+		slCfg.UseMemoryMgmt = true
+		slCfg.Malloc = m.mallocFun
+		slCfg.Free = m.freeFun
+		slCfg.BarrierDestructor = m.newBSDestructor()
+
+	}
+	return slCfg
 }
 
 func (m *MemDB) newBSDestructor() skiplist.BarrierSessionDestructor {
@@ -818,7 +820,7 @@ func (m *MemDB) LoadFromDisk(dir string, concurr int, callb ItemCallback) (*Snap
 
 	var nodeCallb skiplist.NodeCallback
 	wchan := make(chan int)
-	b := skiplist.NewBuilder()
+	b := skiplist.NewBuilderWithConfig(m.newStoreConfig())
 	b.SetItemSizeFunc(ItemSize)
 	segments := make([]*skiplist.Segment, len(files))
 	readers := make([]FileReader, len(files))

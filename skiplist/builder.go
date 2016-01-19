@@ -88,5 +88,9 @@ func (b *Builder) Assemble(segments ...*Segment) *Skiplist {
 }
 
 func NewBuilder() *Builder {
-	return &Builder{store: New()}
+	return NewBuilderWithConfig(DefaultConfig())
+}
+
+func NewBuilderWithConfig(cfg Config) *Builder {
+	return &Builder{store: NewWithConfig(cfg)}
 }
