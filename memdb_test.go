@@ -10,8 +10,17 @@ import "sync"
 import "runtime"
 import "encoding/binary"
 
+//import "github.com/t3rm1n4l/memdb/mm"
+
+var testConf Config
+
+func init() {
+	testConf = DefaultConfig()
+	//testConf.UseMemoryMgmt(mm.Malloc, mm.Free)
+}
+
 func TestInsert(t *testing.T) {
-	db := New()
+	db := NewWithConfig(testConf)
 	defer db.Close()
 
 	w := db.NewWriter()
@@ -71,9 +80,7 @@ func doInsert(db *MemDB, wg *sync.WaitGroup, n int, isRand bool, shouldSnap bool
 
 func TestInsertPerf(t *testing.T) {
 	var wg sync.WaitGroup
-	cfg := DefaultConfig()
-	cfg.UseMemoryMgmt()
-	db := NewWithConfig(cfg)
+	db := NewWithConfig(testConf)
 	defer db.Close()
 	n := 1000000
 	t0 := time.Now()
@@ -108,7 +115,7 @@ func doGet(t *testing.T, db *MemDB, snap *Snapshot, wg *sync.WaitGroup, n int) {
 }
 
 func TestInsertDuplicates(t *testing.T) {
-	db := New()
+	db := NewWithConfig(testConf)
 	defer db.Close()
 
 	w := db.NewWriter()
@@ -160,7 +167,7 @@ func TestInsertDuplicates(t *testing.T) {
 
 func TestGetPerf(t *testing.T) {
 	var wg sync.WaitGroup
-	db := New()
+	db := NewWithConfig(testConf)
 	defer db.Close()
 	n := 1000000
 	wg.Add(1)
@@ -200,8 +207,7 @@ func CountItems(snap *Snapshot) int {
 func TestLoadStoreDisk(t *testing.T) {
 	os.RemoveAll("db.dump")
 	var wg sync.WaitGroup
-	cfg := DefaultConfig()
-	db := NewWithConfig(cfg)
+	db := NewWithConfig(testConf)
 	defer db.Close()
 	n := 1000000
 	t0 := time.Now()
@@ -224,7 +230,7 @@ func TestLoadStoreDisk(t *testing.T) {
 	fmt.Printf("Storing to disk took %v\n", time.Since(t0))
 
 	snap.Close()
-	db = NewWithConfig(cfg)
+	db = NewWithConfig(testConf)
 	defer db.Close()
 	t0 = time.Now()
 	snap, err = db.LoadFromDisk("db.dump", 8, nil)
@@ -247,7 +253,7 @@ func TestLoadStoreDisk(t *testing.T) {
 
 func TestDelete(t *testing.T) {
 	expected := 10
-	db := New()
+	db := NewWithConfig(testConf)
 	defer db.Close()
 	w := db.NewWriter()
 	for i := 0; i < expected; i++ {
@@ -296,7 +302,7 @@ func TestGCPerf(t *testing.T) {
 	var wg sync.WaitGroup
 	var last *Snapshot
 
-	db := New()
+	db := NewWithConfig(testConf)
 	defer db.Close()
 	perW := 1000
 	iterations := 1000
@@ -337,7 +343,7 @@ func TestGCPerf(t *testing.T) {
 }
 
 func TestMemoryInUse(t *testing.T) {
-	db := New()
+	db := NewWithConfig(testConf)
 	defer db.Close()
 
 	dumpStats := func() {
@@ -365,8 +371,7 @@ func TestMemoryInUse(t *testing.T) {
 
 func TestFullScan(t *testing.T) {
 	var wg sync.WaitGroup
-	cfg := DefaultConfig()
-	db := NewWithConfig(cfg)
+	db := NewWithConfig(testConf)
 	defer db.Close()
 	n := 1000000
 	t0 := time.Now()
@@ -391,8 +396,7 @@ func TestVisitor(t *testing.T) {
 	const n = 1000000
 
 	var wg sync.WaitGroup
-	cfg := DefaultConfig()
-	db := NewWithConfig(cfg)
+	db := NewWithConfig(testConf)
 	defer db.Close()
 	expectedSum := int64((n - 1) * (n / 2))
 
@@ -445,8 +449,7 @@ func TestVisitor(t *testing.T) {
 func TestVisitorError(t *testing.T) {
 	const n = 100000
 	var wg sync.WaitGroup
-	cfg := DefaultConfig()
-	db := NewWithConfig(cfg)
+	db := NewWithConfig(testConf)
 	defer db.Close()
 
 	wg.Add(1)

@@ -2,7 +2,6 @@ package memdb
 
 import (
 	"encoding/binary"
-	"github.com/t3rm1n4l/memdb/mm"
 	"io"
 	"reflect"
 	"unsafe"
@@ -18,21 +17,21 @@ type Item struct {
 
 func (m *MemDB) newItem(data []byte, useMM bool) (itm *Item) {
 	l := len(data)
-	itm = allocItem(l, useMM)
+	itm = m.allocItem(l, useMM)
 	copy(itm.Bytes(), data)
 	return itm
 }
 
 func (m *MemDB) freeItem(itm *Item) {
 	if m.useMemoryMgmt {
-		mm.Free(unsafe.Pointer(itm))
+		m.freeFun(unsafe.Pointer(itm))
 	}
 }
 
-func allocItem(l int, useMM bool) (itm *Item) {
+func (m *MemDB) allocItem(l int, useMM bool) (itm *Item) {
 	blockSize := itemHeaderSize + uintptr(l)
 	if useMM {
-		itm = (*Item)(mm.Malloc(int(blockSize)))
+		itm = (*Item)(m.mallocFun(int(blockSize)))
 		itm.deadSn = 0
 		itm.bornSn = 0
 	} else {
@@ -68,7 +67,7 @@ func (m *MemDB) DecodeItem(buf []byte, r io.Reader) (*Item, error) {
 
 	l := binary.BigEndian.Uint16(buf[0:2])
 	if l > 0 {
-		itm := allocItem(int(l), m.useMemoryMgmt)
+		itm := m.allocItem(int(l), m.useMemoryMgmt)
 		data := itm.Bytes()
 		_, err := io.ReadFull(r, data)
 		return itm, err

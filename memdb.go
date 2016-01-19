@@ -238,6 +238,8 @@ type Config struct {
 	fileType FileType
 
 	useMemoryMgmt bool
+	mallocFun     skiplist.MallocFn
+	freeFun       skiplist.FreeFn
 }
 
 func (cfg *Config) SetKeyComparator(cmp KeyCompare) {
@@ -262,8 +264,10 @@ func (cfg *Config) IgnoreItemSize() {
 	cfg.ignoreItemSize = true
 }
 
-func (cfg *Config) UseMemoryMgmt() {
+func (cfg *Config) UseMemoryMgmt(malloc skiplist.MallocFn, free skiplist.FreeFn) {
 	cfg.useMemoryMgmt = true
+	cfg.mallocFun = malloc
+	cfg.freeFun = free
 }
 
 type MemDB struct {
@@ -294,18 +298,20 @@ func NewWithConfig(cfg Config) *MemDB {
 		id:          int(atomic.AddInt64(&dbInstancesCount, 1)),
 	}
 
+	slCfg := skiplist.DefaultConfig()
+
 	if m.useMemoryMgmt {
-		m.store = skiplist.NewWithMM(
-			skiplist.AllocNodeMM,
-			skiplist.FreeNodeMM,
-			m.newBSDestructor())
+		slCfg.UseMemoryMgmt = true
+		slCfg.Malloc = m.mallocFun
+		slCfg.Free = m.freeFun
+		slCfg.BarrierDestructor = m.newBSDestructor()
 
 		m.freechan = make(chan *skiplist.Node, gcchanBufSize)
-	} else {
-		m.store = skiplist.New()
 	}
 
+	m.store = skiplist.NewWithConfig(slCfg)
 	m.initSizeFuns()
+
 	buf := dbInstances.MakeBuf()
 	defer dbInstances.FreeBuf(buf)
 	dbInstances.Insert(unsafe.Pointer(m), CompareMemDB, buf)
@@ -582,7 +588,7 @@ func (m *MemDB) freeWorker() {
 		for n := freelist; n != nil; n = n.GClink {
 			itm := (*Item)(n.Item())
 			m.freeItem(itm)
-			m.store.Free(n)
+			m.store.FreeNode(n)
 		}
 	}
 }

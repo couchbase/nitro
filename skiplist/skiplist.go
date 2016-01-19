@@ -16,8 +16,28 @@ func defaultItemSize(unsafe.Pointer) int {
 	return 0
 }
 
-type CreateNodeFn func(itm unsafe.Pointer, level int) *Node
-type DestroyNodeFn func(*Node)
+type MallocFn func(int) unsafe.Pointer
+type FreeFn func(unsafe.Pointer)
+
+type Config struct {
+	ItemSize ItemSizeFn
+
+	UseMemoryMgmt     bool
+	Malloc            MallocFn
+	Free              FreeFn
+	BarrierDestructor BarrierSessionDestructor
+}
+
+func (cfg *Config) SetItemSizeFunc(fn ItemSizeFn) {
+	cfg.ItemSize = fn
+}
+
+func DefaultConfig() Config {
+	return Config{
+		ItemSize:      defaultItemSize,
+		UseMemoryMgmt: false,
+	}
+}
 
 type Skiplist struct {
 	head      *Node
@@ -27,33 +47,36 @@ type Skiplist struct {
 	usedBytes int64
 	barrier   *AccessBarrier
 
-	itemSize ItemSizeFn
+	newNode  func(itm unsafe.Pointer, level int) *Node
+	freeNode func(*Node)
 
-	newNode  CreateNodeFn
-	freeNode DestroyNodeFn
+	Config
 }
 
 func New() *Skiplist {
-	return NewWithMM(allocNode, nil, nil)
+	return NewWithConfig(DefaultConfig())
 }
 
-func NewWithMM(createNode CreateNodeFn,
-	destroyNode DestroyNodeFn,
-	callb BarrierSessionDestructor) *Skiplist {
-
-	if destroyNode == nil {
-		destroyNode = func(*Node) {}
-	}
-
+func NewWithConfig(cfg Config) *Skiplist {
 	s := &Skiplist{
-		itemSize: defaultItemSize,
-		barrier:  newAccessBarrier(callb != nil, callb),
-		newNode:  createNode,
-		freeNode: destroyNode,
+		Config:  cfg,
+		barrier: newAccessBarrier(cfg.UseMemoryMgmt, cfg.BarrierDestructor),
 	}
 
-	head := s.newNode(nil, MaxLevel)
-	tail := s.newNode(nil, MaxLevel)
+	s.newNode = func(itm unsafe.Pointer, level int) *Node {
+		return allocNode(itm, level, cfg.Malloc)
+	}
+
+	if cfg.UseMemoryMgmt {
+		s.freeNode = func(n *Node) {
+			cfg.Free(unsafe.Pointer(n))
+		}
+	} else {
+		s.freeNode = func(*Node) {}
+	}
+
+	head := allocNode(nil, MaxLevel, nil)
+	tail := allocNode(nil, MaxLevel, nil)
 
 	for i := 0; i <= MaxLevel; i++ {
 		head.setNext(i, tail, false)
@@ -69,13 +92,9 @@ func (s *Skiplist) GetAccesBarrier() *AccessBarrier {
 	return s.barrier
 }
 
-func (s *Skiplist) Free(n *Node) {
+func (s *Skiplist) FreeNode(n *Node) {
 	s.freeNode(n)
 	atomic.AddInt64(&s.stats.nodeFrees, 1)
-}
-
-func (s *Skiplist) SetItemSizeFunc(fn ItemSizeFn) {
-	s.itemSize = fn
 }
 
 type ActionBuffer struct {
@@ -94,7 +113,7 @@ func (s *Skiplist) FreeBuf(b *ActionBuffer) {
 }
 
 func (s *Skiplist) Size(n *Node) int {
-	return s.itemSize(n.Item()) + n.Size()
+	return s.ItemSize(n.Item()) + n.Size()
 }
 
 func (s *Skiplist) NewLevel(randFn func() float32) int {
