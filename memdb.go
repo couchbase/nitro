@@ -285,6 +285,9 @@ type MemDB struct {
 	gcchan   chan *skiplist.Node
 	freechan chan *skiplist.Node
 
+	shutdownWg1 sync.WaitGroup // GC workers
+	shutdownWg2 sync.WaitGroup // Free workers
+
 	Config
 }
 
@@ -345,12 +348,41 @@ func (m *MemDB) MemoryInUse() int64 {
 
 func (m *MemDB) Close() {
 	close(m.gcchan)
-	if m.useMemoryMgmt {
-		close(m.freechan)
-	}
+
 	buf := dbInstances.MakeBuf()
 	defer dbInstances.FreeBuf(buf)
 	dbInstances.Delete(unsafe.Pointer(m), CompareMemDB, buf)
+
+	if m.useMemoryMgmt {
+		buf := m.snapshots.MakeBuf()
+		defer m.snapshots.FreeBuf(buf)
+
+		m.shutdownWg1.Wait()
+		close(m.freechan)
+		m.shutdownWg2.Wait()
+
+		// Manually free up all nodes
+		iter := m.store.NewIterator(m.iterCmp, buf)
+		defer iter.Close()
+		var lastNode *skiplist.Node
+
+		iter.SeekFirst()
+		if iter.Valid() {
+			lastNode = iter.GetNode()
+			iter.Next()
+		}
+
+		for lastNode != nil {
+			m.freeItem((*Item)(lastNode.Item()))
+			m.store.FreeNode(lastNode)
+			lastNode = nil
+
+			if iter.Valid() {
+				lastNode = iter.GetNode()
+				iter.Next()
+			}
+		}
+	}
 }
 
 func (m *MemDB) getCurrSn() uint32 {
@@ -384,8 +416,10 @@ func (m *MemDB) NewWriter() *Writer {
 
 	m.wlist = w
 
+	m.shutdownWg1.Add(1)
 	go m.collectionWorker()
 	if m.useMemoryMgmt {
+		m.shutdownWg2.Add(1)
 		go m.freeWorker()
 	}
 
@@ -581,6 +615,8 @@ func (m *MemDB) collectionWorker() {
 		barrier := m.store.GetAccesBarrier()
 		barrier.FlushSession(unsafe.Pointer(gclist))
 	}
+
+	m.shutdownWg1.Done()
 }
 
 func (m *MemDB) freeWorker() {
@@ -591,6 +627,8 @@ func (m *MemDB) freeWorker() {
 			m.store.FreeNode(n)
 		}
 	}
+
+	m.shutdownWg2.Done()
 }
 
 func (m *MemDB) collectDead(sn uint32) {
