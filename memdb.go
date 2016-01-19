@@ -489,7 +489,7 @@ func (s *Snapshot) Close() {
 		s.db.gcsnapshots.Insert(unsafe.Pointer(s), CompareSnapshot, buf)
 		s.db.setLeastUnrefSn()
 		if atomic.CompareAndSwapInt32(&s.db.isGCRunning, 0, 1) {
-			go s.db.GC()
+			s.db.GC()
 		}
 	}
 }
