@@ -16,19 +16,17 @@ type Item struct {
 	dataLen uint32
 }
 
-func (m *MemDB) NewItem(data []byte) (itm *Item) {
+func (m *MemDB) newItem(data []byte, useMM bool) (itm *Item) {
 	l := len(data)
-	itm = allocItem(l, m.useMemoryMgmt)
+	itm = allocItem(l, useMM)
 	copy(itm.Bytes(), data)
 	return itm
 }
 
-// Use garbage collected item for temporary lookup keys
-func (m *MemDB) NewTempItem(data []byte) *Item {
-	l := len(data)
-	itm := allocItem(l, false)
-	copy(itm.Bytes(), data)
-	return itm
+func (m *MemDB) freeItem(itm *Item) {
+	if m.useMemoryMgmt {
+		mm.Free(unsafe.Pointer(itm))
+	}
 }
 
 func allocItem(l int, useMM bool) (itm *Item) {

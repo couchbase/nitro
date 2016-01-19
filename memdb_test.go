@@ -16,16 +16,16 @@ func TestInsert(t *testing.T) {
 
 	w := db.NewWriter()
 	for i := 0; i < 2000; i++ {
-		w.Put(w.NewItem([]byte(fmt.Sprintf("%010d", i))))
+		w.Put([]byte(fmt.Sprintf("%010d", i)))
 	}
 
 	for i := 1750; i < 2000; i++ {
-		w.Delete(w.NewItem([]byte(fmt.Sprintf("%010d", i))))
+		w.Delete([]byte(fmt.Sprintf("%010d", i)))
 	}
 	snap, _ := w.NewSnapshot()
 
 	for i := 2000; i < 5000; i++ {
-		w.Put(w.NewItem([]byte(fmt.Sprintf("%010d", i))))
+		w.Put([]byte(fmt.Sprintf("%010d", i)))
 	}
 
 	w.NewSnapshot()
@@ -33,10 +33,10 @@ func TestInsert(t *testing.T) {
 	count := 0
 	itr := db.NewIterator(snap)
 	itr.SeekFirst()
-	itr.Seek(w.NewTempItem([]byte(fmt.Sprintf("%010d", 1500))))
+	itr.Seek([]byte(fmt.Sprintf("%010d", 1500)))
 	for ; itr.Valid(); itr.Next() {
 		expected := fmt.Sprintf("%010d", count+1500)
-		got := string(itr.Get().Bytes())
+		got := string(itr.Get())
 		count++
 		if got != expected {
 			t.Errorf("Expected %s, got %v", expected, got)
@@ -65,8 +65,7 @@ func doInsert(db *MemDB, wg *sync.WaitGroup, n int, isRand bool, shouldSnap bool
 		}
 		buf := make([]byte, 8)
 		binary.BigEndian.PutUint64(buf, uint64(val))
-		// w.Put(w.NewItem([]byte(fmt.Sprintf("%025d", val))))
-		w.Put(w.NewItem(buf))
+		w.Put(buf)
 	}
 }
 
@@ -101,8 +100,7 @@ func doGet(t *testing.T, db *MemDB, snap *Snapshot, wg *sync.WaitGroup, n int) {
 	for i := 0; i < n; i++ {
 		val := rnd.Int() % n
 		binary.BigEndian.PutUint64(buf, uint64(val))
-		// itr.Seek(w.NewItem([]byte(fmt.Sprintf("%025d", val))))
-		itr.Seek(db.NewTempItem(buf))
+		itr.Seek(buf)
 		if !itr.Valid() {
 			t.Errorf("Expected to find %v", val)
 		}
@@ -115,7 +113,7 @@ func TestInsertDuplicates(t *testing.T) {
 
 	w := db.NewWriter()
 	for i := 0; i < 2000; i++ {
-		w.Put(w.NewItem([]byte(fmt.Sprintf("%010d", i))))
+		w.Put([]byte(fmt.Sprintf("%010d", i)))
 	}
 
 	w.NewSnapshot()
@@ -123,20 +121,20 @@ func TestInsertDuplicates(t *testing.T) {
 	// Duplicate
 	for i := 0; i < 2000; i++ {
 		key := fmt.Sprintf("%010d", i)
-		newNode := w.Put2(w.NewItem([]byte(key)))
+		newNode := w.Put2([]byte(key))
 		if newNode != nil {
 			t.Errorf("Duplicate unexpected for %s", key)
 		}
 	}
 
 	for i := 1500; i < 2000; i++ {
-		w.Delete(w.NewItem([]byte(fmt.Sprintf("%010d", i))))
+		w.Delete([]byte(fmt.Sprintf("%010d", i)))
 	}
 	w.NewSnapshot()
 
 	for i := 1500; i < 5000; i++ {
 		key := fmt.Sprintf("%010d", i)
-		newNode := w.Put2(w.NewItem([]byte(key)))
+		newNode := w.Put2([]byte(key))
 		if newNode == nil {
 			t.Errorf("Expected successful insert for %s", key)
 		}
@@ -148,7 +146,7 @@ func TestInsertDuplicates(t *testing.T) {
 	itr.SeekFirst()
 	for ; itr.Valid(); itr.Next() {
 		expected := fmt.Sprintf("%010d", count)
-		got := string(itr.Get().Bytes())
+		got := string(itr.Get())
 		count++
 		if got != expected {
 			t.Errorf("Expected %s, got %v", expected, got)
@@ -253,7 +251,7 @@ func TestDelete(t *testing.T) {
 	defer db.Close()
 	w := db.NewWriter()
 	for i := 0; i < expected; i++ {
-		w.Put(w.NewItem([]byte(fmt.Sprintf("%010d", i))))
+		w.Put([]byte(fmt.Sprintf("%010d", i)))
 	}
 
 	snap1, _ := w.NewSnapshot()
@@ -264,11 +262,11 @@ func TestDelete(t *testing.T) {
 	fmt.Println(db.DumpStats())
 
 	for i := 0; i < expected; i++ {
-		w.Delete(w.NewItem([]byte(fmt.Sprintf("%010d", i))))
+		w.Delete([]byte(fmt.Sprintf("%010d", i)))
 	}
 
 	for i := 0; i < expected; i++ {
-		w.Put(w.NewItem([]byte(fmt.Sprintf("%010d", i))))
+		w.Put([]byte(fmt.Sprintf("%010d", i)))
 	}
 	snap2, _ := w.NewSnapshot()
 	snap1.Close()
@@ -289,8 +287,8 @@ func doReplace(wg *sync.WaitGroup, t *testing.T, w *Writer, start, end int) {
 	defer wg.Done()
 
 	for ; start < end; start++ {
-		w.Delete(w.NewItem([]byte(fmt.Sprintf("%010d", start))))
-		w.Put(w.NewItem([]byte(fmt.Sprintf("%010d", start))))
+		w.Delete([]byte(fmt.Sprintf("%010d", start)))
+		w.Put([]byte(fmt.Sprintf("%010d", start)))
 	}
 }
 
@@ -347,14 +345,14 @@ func TestMemoryInUse(t *testing.T) {
 	}
 	w := db.NewWriter()
 	for i := 0; i < 5000; i++ {
-		w.Put(w.NewItem([]byte(fmt.Sprintf("%010d", i))))
+		w.Put([]byte(fmt.Sprintf("%010d", i)))
 	}
 	snap1, _ := w.NewSnapshot()
 
 	dumpStats()
 
 	for i := 0; i < 5000; i++ {
-		w.Delete(w.NewItem([]byte(fmt.Sprintf("%010d", i))))
+		w.Delete([]byte(fmt.Sprintf("%010d", i)))
 	}
 
 	snap1.Close()

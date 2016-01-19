@@ -125,30 +125,34 @@ type Writer struct {
 	*MemDB
 }
 
-func (w *Writer) Put(x *Item) {
-	w.Put2(x)
+func (w *Writer) Put(bs []byte) {
+	w.Put2(bs)
 }
 
-func (w *Writer) Put2(x *Item) (n *skiplist.Node) {
+func (w *Writer) Put2(bs []byte) (n *skiplist.Node) {
 	var success bool
+	x := w.newItem(bs, w.useMemoryMgmt)
 	x.bornSn = w.getCurrSn()
 	n, success = w.store.Insert2(unsafe.Pointer(x), w.insCmp, w.existCmp, w.buf, w.rand.Float32)
 	if success {
 		atomic.AddInt64(&w.count, 1)
+	} else {
+		w.freeItem(x)
 	}
 	return
 }
 
 // Find first item, seek until dead=0, mark dead=sn
-func (w *Writer) Delete(x *Item) (success bool) {
-	_, success = w.Delete2(x)
+func (w *Writer) Delete(bs []byte) (success bool) {
+	_, success = w.Delete2(bs)
 	return
 }
 
-func (w *Writer) Delete2(x *Item) (n *skiplist.Node, success bool) {
+func (w *Writer) Delete2(bs []byte) (n *skiplist.Node, success bool) {
 	iter := w.store.NewIterator(w.iterCmp, w.buf)
 	defer iter.Close()
 
+	x := w.newItem(bs, false)
 	n = w.findLatestNode(iter, x)
 	if n != nil {
 		success = w.DeleteNode(n)
@@ -514,7 +518,8 @@ func (it *Iterator) SeekFirst() {
 	it.skipUnwanted()
 }
 
-func (it *Iterator) Seek(itm *Item) {
+func (it *Iterator) Seek(bs []byte) {
+	itm := it.snap.db.newItem(bs, false)
 	it.iter.Seek(unsafe.Pointer(itm))
 	it.skipUnwanted()
 }
@@ -523,8 +528,8 @@ func (it *Iterator) Valid() bool {
 	return it.iter.Valid()
 }
 
-func (it *Iterator) Get() *Item {
-	return (*Item)(it.iter.Get())
+func (it *Iterator) Get() []byte {
+	return (*Item)(it.iter.Get()).Bytes()
 }
 
 func (it *Iterator) GetNode() *skiplist.Node {
@@ -575,6 +580,8 @@ func (m *MemDB) collectionWorker() {
 func (m *MemDB) freeWorker() {
 	for freelist := range m.freechan {
 		for n := freelist; n != nil; n = n.GClink {
+			itm := (*Item)(n.Item())
+			m.freeItem(itm)
 			m.store.Free(n)
 		}
 	}
@@ -643,8 +650,9 @@ func (m *MemDB) Visitor(snap *Snapshot, callb VisitorCallback, shards int, concu
 
 		pivots := m.store.GetRangeSplitItems(shards)
 		for _, p := range pivots {
+			itm := (*Item)(p)
 			iter := m.NewIterator(snap)
-			iter.Seek((*Item)(p))
+			iter.Seek(itm.Bytes())
 
 			if iter.Valid() && (len(lastNodes) == 0 || iter.GetNode() != lastNodes[len(lastNodes)-1]) {
 				iters = append(iters, iter)
@@ -670,7 +678,9 @@ func (m *MemDB) Visitor(snap *Snapshot, callb VisitorCallback, shards int, concu
 					if itr.GetNode() == lastNodes[shard] {
 						break loop
 					}
-					if err := callb(itr.Get(), shard); err != nil {
+
+					itm := (*Item)(itr.GetNode().Item())
+					if err := callb(itm, shard); err != nil {
 						errors[shard] = err
 						return
 					}

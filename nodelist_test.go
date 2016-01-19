@@ -13,7 +13,7 @@ func TestNodeList(t *testing.T) {
 	var list *NodeList
 	w := db.NewWriter()
 	for i := 0; i < n; i++ {
-		ptr := w.Put2(w.NewItem([]byte(fmt.Sprintf("%010d", i))))
+		ptr := w.Put2([]byte(fmt.Sprintf("%010d", i)))
 		if list == nil {
 			list = NewNodeList(ptr)
 		} else {
@@ -44,7 +44,7 @@ func TestNodeList(t *testing.T) {
 	}
 
 	for i := 10; i < 13; i++ {
-		ptr := w.Put2(w.NewItem([]byte(fmt.Sprintf("%010d", i))))
+		ptr := w.Put2([]byte(fmt.Sprintf("%010d", i)))
 		list.Add(ptr)
 	}
 
