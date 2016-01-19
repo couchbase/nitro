@@ -50,7 +50,7 @@ type NodeRef struct {
 	ptr     *Node
 }
 
-func newNode(itm unsafe.Pointer, level int) *Node {
+func allocNode(itm unsafe.Pointer, level int, fn MallocFn) *Node {
 	next := make([]unsafe.Pointer, level+1)
 	n := &Node{
 		level: level,

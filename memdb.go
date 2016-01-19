@@ -265,9 +265,11 @@ func (cfg *Config) IgnoreItemSize() {
 }
 
 func (cfg *Config) UseMemoryMgmt(malloc skiplist.MallocFn, free skiplist.FreeFn) {
-	cfg.useMemoryMgmt = true
-	cfg.mallocFun = malloc
-	cfg.freeFun = free
+	if runtime.GOARCH == "amd64" {
+		cfg.useMemoryMgmt = true
+		cfg.mallocFun = malloc
+		cfg.freeFun = free
+	}
 }
 
 type MemDB struct {

@@ -2,6 +2,7 @@ package skiplist
 
 import (
 	"math/rand"
+	"runtime"
 	"sync/atomic"
 	"unsafe"
 )
@@ -58,6 +59,10 @@ func New() *Skiplist {
 }
 
 func NewWithConfig(cfg Config) *Skiplist {
+	if runtime.GOARCH != "amd64" {
+		cfg.UseMemoryMgmt = false
+	}
+
 	s := &Skiplist{
 		Config:  cfg,
 		barrier: newAccessBarrier(cfg.UseMemoryMgmt, cfg.BarrierDestructor),
