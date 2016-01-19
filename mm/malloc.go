@@ -36,20 +36,42 @@ char * doStats()  {
 import "C"
 
 import (
+	"fmt"
+	"sync/atomic"
 	"unsafe"
 )
 
+var Debug bool = true
+
+var stats struct {
+	allocs uint64
+	frees  uint64
+}
+
 func Malloc(l int) unsafe.Pointer {
+	if Debug {
+		atomic.AddUint64(&stats.allocs, 1)
+	}
 	return C.je_malloc(C.size_t(l))
 }
 
 func Free(p unsafe.Pointer) {
+	if Debug {
+		atomic.AddUint64(&stats.frees, 1)
+	}
 	C.je_free(p)
 }
 
 func Stats() string {
 	buf := C.doStats()
-	s := C.GoString(buf)
+	s := "==== Stats ====\n"
+	if Debug {
+		s += fmt.Sprintf("Mallocs = %d\n"+
+			"Frees   = %d\n", stats.allocs, stats.frees)
+	}
+
+	s += C.GoString(buf)
 	C.free(unsafe.Pointer(buf))
+
 	return s
 }
