@@ -41,6 +41,10 @@ func NewWithMM(createNode CreateNodeFn,
 	destroyNode DestroyNodeFn,
 	callb BarrierSessionDestructor) *Skiplist {
 
+	if destroyNode == nil {
+		destroyNode = func(*Node) {}
+	}
+
 	s := &Skiplist{
 		itemSize: defaultItemSize,
 		barrier:  newAccessBarrier(callb != nil, callb),
@@ -185,19 +189,14 @@ func (s *Skiplist) Insert3(itm unsafe.Pointer, insCmp CompareFn, eqCmp CompareFn
 
 	x := s.newNode(itm, itemLevel)
 
-	atomic.AddInt64(&s.stats.nodeAllocs, 1)
-	atomic.AddInt64(&s.stats.levelNodesCount[itemLevel], 1)
-	atomic.AddInt64(&s.usedBytes, int64(s.Size(x)))
-
 retry:
 	if skipFindPath {
 		skipFindPath = false
 	} else {
-		if s.findPath(itm, insCmp, buf) != nil {
-			return nil, false
-		}
+		if s.findPath(itm, insCmp, buf) != nil ||
+			eqCmp != nil && compare(eqCmp, itm, buf.preds[0].Item()) == 0 {
 
-		if eqCmp != nil && compare(eqCmp, itm, buf.preds[0].Item()) == 0 {
+			s.freeNode(x)
 			return nil, false
 		}
 	}
@@ -219,6 +218,9 @@ retry:
 		}
 	}
 
+	atomic.AddInt64(&s.stats.nodeAllocs, 1)
+	atomic.AddInt64(&s.stats.levelNodesCount[itemLevel], 1)
+	atomic.AddInt64(&s.usedBytes, int64(s.Size(x)))
 	return x, true
 }
 
