@@ -1,6 +1,8 @@
 package mm
 
 /*
+#cgo LDFLAGS: -ljemalloc
+
 #include <stdlib.h>
 #include <jemalloc/jemalloc.h>
 
