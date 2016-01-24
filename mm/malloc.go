@@ -58,3 +58,7 @@ func Stats() string {
 
 	return s
 }
+
+func Size() int {
+	return int(C.mm_size())
+}

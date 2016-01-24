@@ -51,3 +51,14 @@ char *mm_stats() {
     return NULL;
 #endif
 }
+
+size_t mm_size() {
+    size_t resident, sz;
+    sz = sizeof(size_t);
+#ifdef JEMALLOC
+    je_mallctl("stats.resident", &resident, &sz, NULL, 0);
+    return resident;
+#else
+    return 0;
+#endif
+}
