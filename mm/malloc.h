@@ -18,4 +18,6 @@ char *mm_stats();
 
 size_t mm_size();
 
+int mm_free2os();
+
 #endif

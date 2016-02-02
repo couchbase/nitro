@@ -62,3 +62,12 @@ func Stats() string {
 func Size() uint64 {
 	return uint64(C.mm_size())
 }
+
+func FreeOSMemory() error {
+	errCode := int(C.mm_free2os())
+	if errCode != 0 {
+		return fmt.Errorf("status: %d", errCode)
+	}
+
+	return nil
+}

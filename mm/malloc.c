@@ -1,4 +1,6 @@
 #include "malloc.h"
+#include <stdio.h>
+#include <string.h>
 
 #ifdef JEMALLOC
 #include <jemalloc/jemalloc.h>
@@ -61,4 +63,16 @@ size_t mm_size() {
 #else
     return 0;
 #endif
+}
+
+int mm_free2os() {
+#ifdef JEMALLOC
+	char buf[100];
+	unsigned int narenas;
+	size_t len = sizeof(narenas);
+	je_mallctl("arenas.narenas", &narenas, &len, NULL, 0);
+	sprintf(buf, "arena.%u.purge", narenas);
+	return je_mallctl(buf, NULL, NULL, NULL, 0);
+#endif
+	return 0;
 }
