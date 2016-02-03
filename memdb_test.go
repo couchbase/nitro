@@ -251,6 +251,30 @@ func TestLoadStoreDisk(t *testing.T) {
 	fmt.Println(db.DumpStats())
 }
 
+func TestStoreDiskShutdown(t *testing.T) {
+	os.RemoveAll("db.dump")
+	var wg sync.WaitGroup
+	db := NewWithConfig(testConf)
+	n := 1000000
+	t0 := time.Now()
+	for i := 0; i < runtime.GOMAXPROCS(0); i++ {
+		wg.Add(1)
+		go doInsert(db, &wg, n/runtime.GOMAXPROCS(0), true, true)
+	}
+	wg.Wait()
+	fmt.Printf("Inserting %v items took %v\n", n, time.Since(t0))
+	snap, _ := db.NewSnapshot()
+	snap, _ = db.NewSnapshot()
+	fmt.Println(db.DumpStats())
+
+	db.Close()
+	t0 = time.Now()
+	err := db.StoreToDisk("db.dump", snap, 8, nil)
+	if err != ErrShutdown {
+		t.Errorf("Expected ErrShutdown. got=%v", err)
+	}
+}
+
 func TestDelete(t *testing.T) {
 	expected := 10
 	db := NewWithConfig(testConf)
