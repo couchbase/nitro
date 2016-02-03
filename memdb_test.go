@@ -267,10 +267,15 @@ func TestStoreDiskShutdown(t *testing.T) {
 	snap, _ = db.NewSnapshot()
 	fmt.Println(db.DumpStats())
 
-	db.Close()
 	t0 = time.Now()
-	err := db.StoreToDisk("db.dump", snap, 8, nil)
-	if err != ErrShutdown {
+	errch := make(chan error)
+	go func() {
+		errch <- db.StoreToDisk("db.dump", snap, 8, nil)
+	}()
+
+	db.Close()
+
+	if err := <-errch; err != ErrShutdown {
 		t.Errorf("Expected ErrShutdown. got=%v", err)
 	}
 }

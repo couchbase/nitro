@@ -289,7 +289,7 @@ type MemDB struct {
 	freechan chan *skiplist.Node
 
 	hasShutdown bool
-	shutdownWg1 sync.WaitGroup // GC workers
+	shutdownWg1 sync.WaitGroup // GC workers and StoreToDisk task
 	shutdownWg2 sync.WaitGroup // Free workers
 
 	Config
@@ -762,6 +762,11 @@ func (m *MemDB) Visitor(snap *Snapshot, callb VisitorCallback, shards int, concu
 }
 
 func (m *MemDB) StoreToDisk(dir string, snap *Snapshot, concurr int, itmCallback ItemCallback) error {
+	if m.useMemoryMgmt {
+		m.shutdownWg1.Add(1)
+		defer m.shutdownWg1.Done()
+	}
+
 	var err error
 	datadir := path.Join(dir, "data")
 	os.MkdirAll(datadir, 0755)
