@@ -2,10 +2,6 @@ package mm
 
 /*
 #include "malloc.h"
-#ifdef JEMALLOC
-#cgo LDFLAGS: -ljemalloc
-#endif
-
 */
 import "C"
 
