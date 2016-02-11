@@ -683,39 +683,47 @@ func (m *MemDB) GetSnapshots() []*Snapshot {
 	return snaps
 }
 
+func (m *MemDB) ptrToItem(itmPtr unsafe.Pointer) *Item {
+	o := (*Item)(itmPtr)
+	itm := m.newItem(o.Bytes(), false)
+	*itm = *o
+
+	return itm
+}
+
 func (m *MemDB) Visitor(snap *Snapshot, callb VisitorCallback, shards int, concurrency int) error {
 	var wg sync.WaitGroup
 
 	var iters []*Iterator
-	var lastNodes []*skiplist.Node
+	var pivotItems []*Item
 
 	wch := make(chan int)
 
-	iters = append(iters, m.NewIterator(snap))
-	iters[0].SeekFirst()
-
 	func() {
+		tmpIter := m.NewIterator(snap)
+		defer tmpIter.Close()
+
 		barrier := m.store.GetAccesBarrier()
 		token := barrier.Acquire()
 		defer barrier.Release(token)
 
-		pivots := m.store.GetRangeSplitItems(shards)
-		for _, p := range pivots {
-			itm := (*Item)(p)
-			iter := m.NewIterator(snap)
-			iter.Seek(itm.Bytes())
-
-			if iter.Valid() && (len(lastNodes) == 0 || iter.GetNode() != lastNodes[len(lastNodes)-1]) {
-				iters = append(iters, iter)
-				lastNodes = append(lastNodes, iter.GetNode())
-			} else {
-				iter.Close()
+		pivotItems = append(pivotItems, nil) // start item
+		pivotPtrs := m.store.GetRangeSplitItems(shards)
+		for _, itmPtr := range pivotPtrs {
+			itm := m.ptrToItem(itmPtr)
+			tmpIter.Seek(itm.Bytes())
+			if tmpIter.Valid() {
+				prevItm := pivotItems[len(pivotItems)-1]
+				// Find bigger item than prev pivot
+				if prevItm == nil || m.insCmp(unsafe.Pointer(itm), unsafe.Pointer(prevItm)) > 0 {
+					pivotItems = append(pivotItems, itm)
+				}
 			}
 		}
+		pivotItems = append(pivotItems, nil) // end item
 	}()
 
-	lastNodes = append(lastNodes, nil)
-	errors := make([]error, len(iters))
+	errors := make([]error, len(pivotItems)-1)
 
 	// Run workers
 	for i := 0; i < concurrency; i++ {
@@ -724,9 +732,19 @@ func (m *MemDB) Visitor(snap *Snapshot, callb VisitorCallback, shards int, concu
 			defer wg.Done()
 
 			for shard := range wch {
+				startItem := pivotItems[shard]
+				endItem := pivotItems[shard+1]
+
+				itr := m.NewIterator(snap)
+				iters = append(iters, itr)
+				if startItem == nil {
+					itr.SeekFirst()
+				} else {
+					itr.Seek(startItem.Bytes())
+				}
 			loop:
-				for itr := iters[shard]; itr.Valid(); itr.Next() {
-					if itr.GetNode() == lastNodes[shard] {
+				for ; itr.Valid(); itr.Next() {
+					if endItem != nil && m.insCmp(itr.GetNode().Item(), unsafe.Pointer(endItem)) >= 0 {
 						break loop
 					}
 
@@ -741,7 +759,7 @@ func (m *MemDB) Visitor(snap *Snapshot, callb VisitorCallback, shards int, concu
 	}
 
 	// Provide work and wait
-	for shard := 0; shard < len(iters); shard++ {
+	for shard := 0; shard < len(pivotItems)-1; shard++ {
 		wch <- shard
 	}
 	close(wch)
