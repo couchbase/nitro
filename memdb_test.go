@@ -222,7 +222,7 @@ func TestLoadStoreDisk(t *testing.T) {
 	fmt.Println(db.DumpStats())
 
 	t0 = time.Now()
-	err := db.StoreToDisk("db.dump", snap, 8, nil)
+	err := db.StoreToDisk("db.dump", snap, 8, nil, nil)
 	if err != nil {
 		t.Errorf("Expected no error. got=%v", err)
 	}
@@ -270,7 +270,7 @@ func TestStoreDiskShutdown(t *testing.T) {
 	t0 = time.Now()
 	errch := make(chan error)
 	go func() {
-		errch <- db.StoreToDisk("db.dump", snap, 8, nil)
+		errch <- db.StoreToDisk("db.dump", snap, 8, nil, nil)
 	}()
 
 	db.Close()
