@@ -6,6 +6,9 @@ import (
 )
 
 type Iterator struct {
+	count       int
+	refreshRate int
+
 	snap *Snapshot
 	iter *skiplist.Iterator
 	buf  *skiplist.ActionBuffer
@@ -19,6 +22,7 @@ loop:
 	itm := (*Item)(it.iter.Get())
 	if itm.bornSn > it.snap.sn || (itm.deadSn > 0 && itm.deadSn <= it.snap.sn) {
 		it.iter.Next()
+		it.count++
 		goto loop
 	}
 }
@@ -48,7 +52,26 @@ func (it *Iterator) GetNode() *skiplist.Node {
 
 func (it *Iterator) Next() {
 	it.iter.Next()
+	it.count++
 	it.skipUnwanted()
+	if it.refreshRate > 0 && it.count > it.refreshRate {
+		it.Refresh()
+		it.count = 0
+	}
+}
+
+// Refresh can help safe-memory-reclaimer to free deleted objects
+func (it *Iterator) Refresh() {
+	if it.Valid() {
+		itm := it.snap.db.ptrToItem(it.GetNode().Item())
+		it.iter.Close()
+		it.iter = it.snap.db.store.NewIterator(it.snap.db.iterCmp, it.buf)
+		it.iter.Seek(unsafe.Pointer(itm))
+	}
+}
+
+func (it *Iterator) SetRefreshRate(rate int) {
+	it.refreshRate = rate
 }
 
 func (it *Iterator) Close() {
