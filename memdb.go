@@ -457,21 +457,6 @@ func (m *MemDB) getCurrSn() uint32 {
 	return atomic.LoadUint32(&m.currSn)
 }
 
-func (m *MemDB) setLeastUnrefSn() {
-	buf := m.snapshots.MakeBuf()
-	defer m.snapshots.FreeBuf(buf)
-	iter := m.snapshots.NewIterator(CompareSnapshot, buf)
-	iter.SeekFirst()
-	if iter.Valid() {
-		snap := (*Snapshot)(iter.Get())
-		atomic.StoreUint32(&m.leastUnrefSn, snap.sn-1)
-	}
-}
-
-func (m *MemDB) getLeastUnrefSn() uint32 {
-	return atomic.LoadUint32(&m.leastUnrefSn)
-}
-
 func (m *MemDB) newWriter() *Writer {
 	return &Writer{
 		rand:  rand.New(rand.NewSource(int64(rand.Int()))),
@@ -555,10 +540,8 @@ func (s *Snapshot) Close() {
 		// Move from live snapshot list to dead list
 		s.db.snapshots.Delete(unsafe.Pointer(s), CompareSnapshot, buf)
 		s.db.gcsnapshots.Insert(unsafe.Pointer(s), CompareSnapshot, buf)
-		s.db.setLeastUnrefSn()
-		if atomic.CompareAndSwapInt32(&s.db.isGCRunning, 0, 1) {
-			s.db.GC()
-		}
+		s.db.GC()
+
 	}
 }
 
@@ -645,36 +628,35 @@ func (m *MemDB) freeWorker() {
 	m.shutdownWg2.Done()
 }
 
-func (m *MemDB) collectDead(sn uint32) {
+// Invarient: Each snapshot n is dependent on snapshot n-1.
+// Unless snapshot n-1 is collected, snapshot n cannot be collected.
+func (m *MemDB) collectDead() {
 	buf1 := m.snapshots.MakeBuf()
 	buf2 := m.snapshots.MakeBuf()
 	defer m.snapshots.FreeBuf(buf1)
 	defer m.snapshots.FreeBuf(buf2)
+
 	iter := m.gcsnapshots.NewIterator(CompareSnapshot, buf1)
-	iter.SeekFirst()
-	for ; iter.Valid(); iter.Next() {
+	defer iter.Close()
+
+	for iter.SeekFirst(); iter.Valid(); iter.Next() {
 		node := iter.GetNode()
 		sn := (*Snapshot)(node.Item())
-		if sn.sn > m.getLeastUnrefSn() {
+		if sn.sn != m.lastGCSn+1 {
 			return
 		}
 
+		m.lastGCSn = sn.sn
 		m.gcchan <- sn.gclist
 		m.gcsnapshots.DeleteNode(node, CompareSnapshot, buf2)
 	}
 }
 
 func (m *MemDB) GC() {
-	buf := m.snapshots.MakeBuf()
-	defer m.snapshots.FreeBuf(buf)
-
-	sn := m.getLeastUnrefSn()
-	if sn != m.lastGCSn && sn > 0 {
-		m.lastGCSn = sn
-		m.collectDead(m.lastGCSn)
+	if atomic.CompareAndSwapInt32(&m.isGCRunning, 0, 1) {
+		m.collectDead()
+		atomic.CompareAndSwapInt32(&m.isGCRunning, 1, 0)
 	}
-
-	atomic.CompareAndSwapInt32(&m.isGCRunning, 1, 0)
 }
 
 func (m *MemDB) GetSnapshots() []*Snapshot {
