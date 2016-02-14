@@ -222,7 +222,7 @@ func TestLoadStoreDisk(t *testing.T) {
 	fmt.Println(db.DumpStats())
 
 	t0 = time.Now()
-	err := db.StoreToDisk("db.dump", snap, 8, nil, nil)
+	err := db.StoreToDisk("db.dump", snap, 8, nil)
 	if err != nil {
 		t.Errorf("Expected no error. got=%v", err)
 	}
@@ -270,7 +270,7 @@ func TestStoreDiskShutdown(t *testing.T) {
 	t0 = time.Now()
 	errch := make(chan error)
 	go func() {
-		errch <- db.StoreToDisk("db.dump", snap, 8, nil, nil)
+		errch <- db.StoreToDisk("db.dump", snap, 8, nil)
 	}()
 
 	db.Close()
@@ -497,4 +497,140 @@ func TestVisitorError(t *testing.T) {
 	if db.Visitor(snap, callb, 4, 4) != errVisitor {
 		t.Errorf("Expected error")
 	}
+}
+
+func doUpdate(db *MemDB, wg *sync.WaitGroup, w *Writer, start, end int, version int) {
+	defer wg.Done()
+	for ; start < end; start++ {
+		oldval := uint64(start) + uint64(version-1)*10000000
+		val := uint64(start) + uint64(version)*10000000
+		buf1 := make([]byte, 8)
+		binary.BigEndian.PutUint64(buf1, uint64(val))
+		buf2 := make([]byte, 8)
+		binary.BigEndian.PutUint64(buf2, uint64(oldval))
+		if version > 1 {
+			if !w.Delete(buf2) {
+				panic("delete failed")
+			}
+		}
+		w.Put(buf1)
+	}
+}
+
+func TestLoadDeltaStoreDisk(t *testing.T) {
+	os.RemoveAll("db.dump")
+	conf := DefaultConfig()
+	conf.UseDeltaInterleaving()
+	db := NewWithConfig(conf)
+
+	var writers []*Writer
+	for i := 0; i < runtime.GOMAXPROCS(0); i++ {
+		writers = append(writers, db.NewWriter())
+	}
+
+	n := 1000000
+	chunk := n / runtime.GOMAXPROCS(0)
+	version := 0
+
+	doMutate := func() *Snapshot {
+		var wg sync.WaitGroup
+		version++
+		for i := 0; i < runtime.GOMAXPROCS(0); i++ {
+			wg.Add(1)
+			start := i * chunk
+			end := start + chunk
+			go doUpdate(db, &wg, writers[i], start, end, version)
+		}
+		wg.Wait()
+
+		snap, _ := db.NewSnapshot()
+		return snap
+	}
+
+	var snap *Snapshot
+	for x := 0; x < 2; x++ {
+		if snap != nil {
+			snap.Close()
+		}
+		snap = doMutate()
+	}
+
+	waiter := make(chan bool)
+	var wg2 sync.WaitGroup
+	wg2.Add(1)
+	go func() {
+		defer wg2.Done()
+
+		var snap *Snapshot
+		for x := 0; x < 10; x++ {
+			if snap != nil {
+				snap.Close()
+			}
+
+			snap = doMutate()
+			if x == 0 {
+				close(waiter)
+			}
+		}
+
+		snap.Close()
+		count := db.gcsnapshots.GetStats().NodeCount
+
+		for count > 5 {
+			time.Sleep(time.Second)
+			count = db.gcsnapshots.GetStats().NodeCount
+		}
+	}()
+
+	callb := func(itm *ItemEntry) {
+		<-waiter
+	}
+
+	t0 := time.Now()
+	err := db.StoreToDisk("db.dump", snap, 8, callb)
+	if err != nil {
+		t.Errorf("Expected no error. got=%v", err)
+	}
+
+	fmt.Printf("Storing to disk took %v\n", time.Since(t0))
+
+	wg2.Wait()
+	db.Close()
+
+	db = NewWithConfig(conf)
+	defer db.Close()
+	t0 = time.Now()
+	snap, err = db.LoadFromDisk("db.dump", 8, nil)
+	if err != nil {
+		t.Errorf("Expected no error. got=%v", err)
+	}
+	fmt.Printf("Loading from disk took %v\n", time.Since(t0))
+
+	count := CountItems(snap)
+	if count != n {
+		t.Errorf("Expected %v, got %v", n, count)
+	}
+
+	count = int(snap.Count())
+	if count != n {
+		t.Errorf("Count mismatch on snapshot. Expected %d, got %d", n, count)
+	}
+
+	itr := snap.NewIterator()
+	i := 0
+	for itr.SeekFirst(); itr.Valid(); itr.Next() {
+		itm := itr.Get()
+		val := binary.BigEndian.Uint64(itm)
+		exp := uint64(i) + uint64(2)*10000000
+
+		if val != exp {
+			t.Errorf("expected %d, got %d", exp, val)
+		}
+		i++
+	}
+	itr.Close()
+
+	fmt.Println(db.DumpStats())
+	fmt.Println("Restored", db.stats.DeltaRestored)
+	fmt.Println("RestoredFailed", db.stats.DeltaRestoreFailed)
 }
