@@ -198,17 +198,26 @@ func (w *Writer) Delete(bs []byte) (success bool) {
 	return
 }
 
-func (w *Writer) Delete2(bs []byte) (n *skiplist.Node, success bool) {
+func (w *Writer) GetNode(bs []byte) *skiplist.Node {
 	iter := w.store.NewIterator(w.iterCmp, w.buf)
 	defer iter.Close()
 
 	x := w.newItem(bs, false)
-	n = w.findLatestNode(iter, x)
-	if n != nil {
-		success = w.DeleteNode(n)
+	x.bornSn = w.getCurrSn()
+
+	if found := iter.SeekWithCmp(unsafe.Pointer(x), w.insCmp, w.existCmp); found {
+		return iter.GetNode()
 	}
 
-	return
+	return nil
+}
+
+func (w *Writer) Delete2(bs []byte) (n *skiplist.Node, success bool) {
+	if n := w.GetNode(bs); n != nil {
+		return n, w.DeleteNode(n)
+	}
+
+	return nil, false
 }
 
 func (w *Writer) DeleteNode(x *skiplist.Node) (success bool) {
@@ -240,41 +249,6 @@ func (w *Writer) DeleteNode(x *skiplist.Node) (success bool) {
 		}
 	}
 	return
-}
-
-// FIXME: Fix the algorithm to use single skiplist.findPath to locate the latest
-// node. Already skiplist.Insert3 makes use of this technique to check if an entry
-// already exists to avoid duplicate insertion.
-func (w *Writer) findLatestNode(iter *skiplist.Iterator, x *Item) *skiplist.Node {
-	var curr *skiplist.Node
-	found := iter.Seek(unsafe.Pointer(x))
-	if !found {
-		return nil
-	}
-
-	// Seek until most recent item for key is found
-	curr = iter.GetNode()
-	for {
-		iter.Next()
-		if !iter.Valid() {
-			break
-		}
-		next := iter.GetNode()
-		nxtItm := next.Item()
-		currItm := curr.Item()
-		if w.iterCmp(nxtItm, currItm) != 0 {
-			break
-		}
-
-		curr = next
-	}
-
-	currItm := (*Item)(curr.Item())
-	if currItm.deadSn != 0 {
-		return nil
-	}
-
-	return curr
 }
 
 type Config struct {

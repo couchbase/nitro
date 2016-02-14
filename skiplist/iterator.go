@@ -31,6 +31,20 @@ func (it *Iterator) SeekFirst() {
 	it.valid = true
 }
 
+func (it *Iterator) SeekWithCmp(itm unsafe.Pointer, cmp CompareFn, eqCmp CompareFn) bool {
+	var found bool
+	if found = it.s.findPath(itm, cmp, it.buf) != nil; found {
+		it.prev = it.buf.preds[0]
+		it.curr = it.buf.succs[0]
+	} else {
+		if found = eqCmp != nil && compare(eqCmp, itm, it.buf.preds[0].Item()) == 0; found {
+			it.prev = nil
+			it.curr = it.buf.preds[0]
+		}
+	}
+	return found
+}
+
 func (it *Iterator) Seek(itm unsafe.Pointer) bool {
 	it.valid = true
 	found := it.s.findPath(itm, it.cmp, it.buf) != nil
