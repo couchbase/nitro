@@ -12,7 +12,7 @@ import (
 	"math"
 	"math/rand"
 	"os"
-	"path"
+	"path/filepath"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -788,7 +788,7 @@ func (m *MemDB) StoreToDisk(dir string, snap *Snapshot, concurr int, itmCallback
 		defer m.shutdownWg1.Done()
 	}
 
-	datadir := path.Join(dir, "data")
+	datadir := filepath.Join(dir, "data")
 	os.MkdirAll(datadir, 0755)
 	shards := runtime.NumCPU()
 
@@ -805,7 +805,7 @@ func (m *MemDB) StoreToDisk(dir string, snap *Snapshot, concurr int, itmCallback
 	for shard := 0; shard < shards; shard++ {
 		w := m.newFileWriter(m.fileType)
 		file := fmt.Sprintf("shard-%d", shard)
-		datafile := path.Join(datadir, file)
+		datafile := filepath.Join(datadir, file)
 		if err := w.Open(datafile); err != nil {
 			return err
 		}
@@ -826,12 +826,12 @@ func (m *MemDB) StoreToDisk(dir string, snap *Snapshot, concurr int, itmCallback
 			}
 		}()
 
-		deltadir := path.Join(dir, "delta")
+		deltadir := filepath.Join(dir, "delta")
 		os.MkdirAll(deltadir, 0755)
 		for id := 0; id < m.numWriters(); id++ {
 			dw := m.newFileWriter(m.fileType)
 			file := fmt.Sprintf("shard-%d", id)
-			deltafile := path.Join(deltadir, file)
+			deltafile := filepath.Join(deltadir, file)
 			if err = dw.Open(deltafile); err != nil {
 				return err
 			}
@@ -856,7 +856,7 @@ func (m *MemDB) StoreToDisk(dir string, snap *Snapshot, concurr int, itmCallback
 		defer func() {
 			if err = m.changeDeltaWrState(dwStateTerminate, nil, nil); err == nil {
 				bs, _ := json.Marshal(deltaFiles)
-				ioutil.WriteFile(path.Join(deltadir, "files.json"), bs, 0660)
+				ioutil.WriteFile(filepath.Join(deltadir, "files.json"), bs, 0660)
 			}
 		}()
 	}
@@ -880,7 +880,7 @@ func (m *MemDB) StoreToDisk(dir string, snap *Snapshot, concurr int, itmCallback
 
 	if err = m.Visitor(snap, visitorCallback, shards, concurr); err == nil {
 		bs, _ := json.Marshal(files)
-		ioutil.WriteFile(path.Join(datadir, "files.json"), bs, 0660)
+		ioutil.WriteFile(filepath.Join(datadir, "files.json"), bs, 0660)
 	}
 
 	return err
@@ -888,10 +888,10 @@ func (m *MemDB) StoreToDisk(dir string, snap *Snapshot, concurr int, itmCallback
 
 func (m *MemDB) LoadFromDisk(dir string, concurr int, callb ItemCallback) (*Snapshot, error) {
 	var wg sync.WaitGroup
-	datadir := path.Join(dir, "data")
+	datadir := filepath.Join(dir, "data")
 	var files []string
 
-	if bs, err := ioutil.ReadFile(path.Join(datadir, "files.json")); err != nil {
+	if bs, err := ioutil.ReadFile(filepath.Join(datadir, "files.json")); err != nil {
 		return nil, err
 	} else {
 		json.Unmarshal(bs, &files)
@@ -923,7 +923,7 @@ func (m *MemDB) LoadFromDisk(dir string, concurr int, callb ItemCallback) (*Snap
 		segments[i] = b.NewSegment()
 		segments[i].SetNodeCallback(nodeCallb)
 		r := m.newFileReader(m.fileType)
-		datafile := path.Join(datadir, file)
+		datafile := filepath.Join(datadir, file)
 		if err := r.Open(datafile); err != nil {
 			return nil, err
 		}
@@ -975,9 +975,9 @@ func (m *MemDB) LoadFromDisk(dir string, concurr int, callb ItemCallback) (*Snap
 		m.stats.DeltaRestored = 0
 
 		wchan := make(chan int)
-		deltadir := path.Join(dir, "delta")
+		deltadir := filepath.Join(dir, "delta")
 		var files []string
-		if bs, err := ioutil.ReadFile(path.Join(deltadir, "files.json")); err == nil {
+		if bs, err := ioutil.ReadFile(filepath.Join(deltadir, "files.json")); err == nil {
 			json.Unmarshal(bs, &files)
 		}
 
@@ -995,7 +995,7 @@ func (m *MemDB) LoadFromDisk(dir string, concurr int, callb ItemCallback) (*Snap
 
 		for i, file := range files {
 			r := m.newFileReader(m.fileType)
-			deltafile := path.Join(deltadir, file)
+			deltafile := filepath.Join(deltadir, file)
 			if err := r.Open(deltafile); err != nil {
 				return nil, err
 			}
