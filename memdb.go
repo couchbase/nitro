@@ -660,7 +660,7 @@ func (m *MemDB) Visitor(snap *Snapshot, callb VisitorCallback, shards int, concu
 	var iters []*Iterator
 	var pivotItems []*Item
 
-	wch := make(chan int)
+	wch := make(chan int, shards)
 
 	func() {
 		tmpIter := m.NewIterator(snap)
