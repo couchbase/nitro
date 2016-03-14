@@ -33,7 +33,7 @@ func (it *Iterator) SeekFirst() {
 
 func (it *Iterator) SeekWithCmp(itm unsafe.Pointer, cmp CompareFn, eqCmp CompareFn) bool {
 	var found bool
-	if found = it.s.findPath(itm, cmp, it.buf) != nil; found {
+	if found = it.s.findPath(itm, cmp, it.buf, &it.s.Stats) != nil; found {
 		it.prev = it.buf.preds[0]
 		it.curr = it.buf.succs[0]
 	} else {
@@ -47,7 +47,7 @@ func (it *Iterator) SeekWithCmp(itm unsafe.Pointer, cmp CompareFn, eqCmp Compare
 
 func (it *Iterator) Seek(itm unsafe.Pointer) bool {
 	it.valid = true
-	found := it.s.findPath(itm, it.cmp, it.buf) != nil
+	found := it.s.findPath(itm, it.cmp, it.buf, &it.s.Stats) != nil
 	it.prev = it.buf.preds[0]
 	it.curr = it.buf.succs[0]
 	return found
@@ -70,7 +70,7 @@ func (it *Iterator) GetNode() *Node {
 }
 
 func (it *Iterator) Delete() {
-	it.s.softDelete(it.curr)
+	it.s.softDelete(it.curr, &it.s.Stats)
 	// It will observe that current item is deleted
 	// Run delete helper and move to the next possible item
 	it.Next()
@@ -90,11 +90,11 @@ retry:
 		// Current node is deleted. Unlink current node from the level
 		// and make next node as current node.
 		// If it fails, refresh the path buffer and obtain new current node.
-		if it.s.helpDelete(0, it.prev, it.curr, next) {
+		if it.s.helpDelete(0, it.prev, it.curr, next, &it.s.Stats) {
 			it.curr = next
 		} else {
-			atomic.AddUint64(&it.s.stats.readConflicts, 1)
-			found := it.s.findPath(it.curr.Item(), it.cmp, it.buf) != nil
+			atomic.AddUint64(&it.s.Stats.readConflicts, 1)
+			found := it.s.findPath(it.curr.Item(), it.cmp, it.buf, &it.s.Stats) != nil
 			last := it.curr
 			it.prev = it.buf.preds[0]
 			it.curr = it.buf.succs[0]

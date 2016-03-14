@@ -15,11 +15,11 @@ func TestInsert(t *testing.T) {
 	defer s.FreeBuf(buf)
 
 	for i := 0; i < 2000; i++ {
-		s.Insert(NewByteKeyItem([]byte(fmt.Sprintf("%010d", i))), cmp, buf)
+		s.Insert(NewByteKeyItem([]byte(fmt.Sprintf("%010d", i))), cmp, buf, &s.Stats)
 	}
 
 	for i := 1750; i < 2000; i++ {
-		s.Delete(NewByteKeyItem([]byte(fmt.Sprintf("%010d", i))), cmp, buf)
+		s.Delete(NewByteKeyItem([]byte(fmt.Sprintf("%010d", i))), cmp, buf, &s.Stats)
 	}
 
 	itr := s.NewIterator(cmp, buf)
@@ -56,7 +56,7 @@ func doInsert(sl *Skiplist, wg *sync.WaitGroup, n int, isRand bool) {
 		}
 
 		itm := intKeyItem(val)
-		sl.Insert2(unsafe.Pointer(&itm), cmp, nil, buf, rnd.Float32)
+		sl.Insert2(unsafe.Pointer(&itm), cmp, nil, buf, rnd.Float32, &sl.Stats)
 	}
 }
 

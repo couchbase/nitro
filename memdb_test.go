@@ -631,6 +631,6 @@ func TestLoadDeltaStoreDisk(t *testing.T) {
 	itr.Close()
 
 	fmt.Println(db.DumpStats())
-	fmt.Println("Restored", db.stats.DeltaRestored)
-	fmt.Println("RestoredFailed", db.stats.DeltaRestoreFailed)
+	fmt.Println("Restored", db.DeltaRestored)
+	fmt.Println("RestoredFailed", db.DeltaRestoreFailed)
 }

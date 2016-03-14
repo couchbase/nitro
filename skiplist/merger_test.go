@@ -23,7 +23,7 @@ func TestMerger(t *testing.T) {
 			continue
 		}
 		s := lists[i%n]
-		s.Insert(NewByteKeyItem([]byte(fmt.Sprintf("%010d", i))), cmp, buf)
+		s.Insert(NewByteKeyItem([]byte(fmt.Sprintf("%010d", i))), cmp, buf, &s.Stats)
 	}
 
 	for i := 0; i < n; i++ {

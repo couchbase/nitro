@@ -149,6 +149,11 @@ type Writer struct {
 	gchead *skiplist.Node
 	gctail *skiplist.Node
 	next   *Writer
+	// Local skiplist stats for writer, gcworker and freeworker
+	slSts1, slSts2, slSts3 skiplist.Stats
+	resSts                 restoreStats
+	count                  int64
+
 	*MemDB
 }
 
@@ -184,9 +189,10 @@ func (w *Writer) Put2(bs []byte) (n *skiplist.Node) {
 	var success bool
 	x := w.newItem(bs, w.useMemoryMgmt)
 	x.bornSn = w.getCurrSn()
-	n, success = w.store.Insert2(unsafe.Pointer(x), w.insCmp, w.existCmp, w.buf, w.rand.Float32)
+	n, success = w.store.Insert2(unsafe.Pointer(x), w.insCmp, w.existCmp, w.buf,
+		w.rand.Float32, &w.slSts1)
 	if success {
-		atomic.AddInt64(&w.count, 1)
+		w.count += 1
 	} else {
 		w.freeItem(x)
 	}
@@ -224,14 +230,14 @@ func (w *Writer) Delete2(bs []byte) (n *skiplist.Node, success bool) {
 func (w *Writer) DeleteNode(x *skiplist.Node) (success bool) {
 	defer func() {
 		if success {
-			atomic.AddInt64(&w.count, -1)
+			w.count -= 1
 		}
 	}()
 
 	sn := w.getCurrSn()
 	gotItem := (*Item)(x.Item())
 	if gotItem.bornSn == sn {
-		success = w.store.DeleteNode(x, w.insCmp, w.buf)
+		success = w.store.DeleteNode(x, w.insCmp, w.buf, &w.slSts1)
 
 		barrier := w.store.GetAccesBarrier()
 		barrier.FlushSession(unsafe.Pointer(x))
@@ -303,7 +309,7 @@ func (cfg *Config) UseDeltaInterleaving() {
 	cfg.useDeltaFiles = true
 }
 
-type Stats struct {
+type restoreStats struct {
 	DeltaRestored      uint64
 	DeltaRestoreFailed uint64
 }
@@ -317,7 +323,7 @@ type MemDB struct {
 	isGCRunning  int32
 	lastGCSn     uint32
 	leastUnrefSn uint32
-	count        int64
+	itemsCount   int64
 
 	wlist    *Writer
 	gcchan   chan *skiplist.Node
@@ -328,7 +334,7 @@ type MemDB struct {
 	shutdownWg2 sync.WaitGroup // Free workers
 
 	Config
-	stats Stats
+	restoreStats
 }
 
 func NewWithConfig(cfg Config) *MemDB {
@@ -347,7 +353,7 @@ func NewWithConfig(cfg Config) *MemDB {
 
 	buf := dbInstances.MakeBuf()
 	defer dbInstances.FreeBuf(buf)
-	dbInstances.Insert(unsafe.Pointer(m), CompareMemDB, buf)
+	dbInstances.Insert(unsafe.Pointer(m), CompareMemDB, buf, &dbInstances.Stats)
 
 	return m
 
@@ -400,7 +406,7 @@ func (m *MemDB) Close() {
 
 	buf := dbInstances.MakeBuf()
 	defer dbInstances.FreeBuf(buf)
-	dbInstances.Delete(unsafe.Pointer(m), CompareMemDB, buf)
+	dbInstances.Delete(unsafe.Pointer(m), CompareMemDB, buf, &dbInstances.Stats)
 
 	if m.useMemoryMgmt {
 		buf := m.snapshots.MakeBuf()
@@ -423,7 +429,7 @@ func (m *MemDB) Close() {
 
 		for lastNode != nil {
 			m.freeItem((*Item)(lastNode.Item()))
-			m.store.FreeNode(lastNode)
+			m.store.FreeNode(lastNode, &m.store.Stats)
 			lastNode = nil
 
 			if iter.Valid() {
@@ -439,11 +445,16 @@ func (m *MemDB) getCurrSn() uint32 {
 }
 
 func (m *MemDB) newWriter() *Writer {
-	return &Writer{
+	w := &Writer{
 		rand:  rand.New(rand.NewSource(int64(rand.Int()))),
 		buf:   m.store.MakeBuf(),
 		MemDB: m,
 	}
+
+	w.slSts1.IsLocal(true)
+	w.slSts2.IsLocal(true)
+	w.slSts3.IsLocal(true)
+	return w
 }
 
 func (m *MemDB) NewWriter() *Writer {
@@ -456,7 +467,7 @@ func (m *MemDB) NewWriter() *Writer {
 	go m.collectionWorker(w)
 	if m.useMemoryMgmt {
 		m.shutdownWg2.Add(1)
-		go m.freeWorker()
+		go m.freeWorker(w)
 	}
 
 	return w
@@ -519,8 +530,8 @@ func (s *Snapshot) Close() {
 		defer s.db.snapshots.FreeBuf(buf)
 
 		// Move from live snapshot list to dead list
-		s.db.snapshots.Delete(unsafe.Pointer(s), CompareSnapshot, buf)
-		s.db.gcsnapshots.Insert(unsafe.Pointer(s), CompareSnapshot, buf)
+		s.db.snapshots.Delete(unsafe.Pointer(s), CompareSnapshot, buf, &s.db.snapshots.Stats)
+		s.db.gcsnapshots.Insert(unsafe.Pointer(s), CompareSnapshot, buf, &s.db.snapshots.Stats)
 		s.db.GC()
 
 	}
@@ -541,13 +552,6 @@ func (m *MemDB) NewSnapshot() (*Snapshot, error) {
 	buf := m.snapshots.MakeBuf()
 	defer m.snapshots.FreeBuf(buf)
 
-	snap := &Snapshot{db: m, sn: m.getCurrSn(), refCount: 1, count: m.ItemsCount()}
-	m.snapshots.Insert(unsafe.Pointer(snap), CompareSnapshot, buf)
-	newSn := atomic.AddUint32(&m.currSn, 1)
-	if newSn == math.MaxUint32 {
-		return nil, ErrMaxSnapshotsLimitReached
-	}
-
 	// Stitch all local gclists from all writers to create snapshot gclist
 	var head, tail *skiplist.Node
 
@@ -562,15 +566,26 @@ func (m *MemDB) NewSnapshot() (*Snapshot, error) {
 
 		w.gchead = nil
 		w.gctail = nil
+
+		// Update global stats
+		m.store.Stats.Merge(&w.slSts1)
+		atomic.AddInt64(&m.itemsCount, w.count)
+		w.count = 0
 	}
 
+	snap := &Snapshot{db: m, sn: m.getCurrSn(), refCount: 1, count: m.ItemsCount()}
+	m.snapshots.Insert(unsafe.Pointer(snap), CompareSnapshot, buf, &m.snapshots.Stats)
 	snap.gclist = head
+	newSn := atomic.AddUint32(&m.currSn, 1)
+	if newSn == math.MaxUint32 {
+		return nil, ErrMaxSnapshotsLimitReached
+	}
 
 	return snap, nil
 }
 
 func (m *MemDB) ItemsCount() int64 {
-	return atomic.LoadInt64(&m.count)
+	return atomic.LoadInt64(&m.itemsCount)
 }
 
 func (m *MemDB) collectionWorker(w *Writer) {
@@ -588,8 +603,10 @@ func (m *MemDB) collectionWorker(w *Writer) {
 			}
 			for n := gclist; n != nil; n = n.GClink {
 				w.doDeltaWrite((*Item)(n.Item()))
-				m.store.DeleteNode(n, m.insCmp, buf)
+				m.store.DeleteNode(n, m.insCmp, buf, &w.slSts2)
 			}
+
+			m.store.Stats.Merge(&w.slSts2)
 
 			barrier := m.store.GetAccesBarrier()
 			barrier.FlushSession(unsafe.Pointer(gclist))
@@ -597,13 +614,15 @@ func (m *MemDB) collectionWorker(w *Writer) {
 	}
 }
 
-func (m *MemDB) freeWorker() {
+func (m *MemDB) freeWorker(w *Writer) {
 	for freelist := range m.freechan {
 		for n := freelist; n != nil; n = n.GClink {
 			itm := (*Item)(n.Item())
 			m.freeItem(itm)
-			m.store.FreeNode(n)
+			m.store.FreeNode(n, &w.slSts3)
 		}
+
+		m.store.Stats.Merge(&w.slSts3)
 	}
 
 	m.shutdownWg2.Done()
@@ -629,7 +648,7 @@ func (m *MemDB) collectDead() {
 
 		m.lastGCSn = sn.sn
 		m.gcchan <- sn.gclist
-		m.gcsnapshots.DeleteNode(node, CompareSnapshot, buf2)
+		m.gcsnapshots.DeleteNode(node, CompareSnapshot, buf2, &m.gcsnapshots.Stats)
 	}
 }
 
@@ -978,8 +997,8 @@ func (m *MemDB) LoadFromDisk(dir string, concurr int, callb ItemCallback) (*Snap
 
 	// Delta processing
 	if m.useDeltaFiles {
-		m.stats.DeltaRestoreFailed = 0
-		m.stats.DeltaRestored = 0
+		m.DeltaRestoreFailed = 0
+		m.DeltaRestored = 0
 
 		wchan := make(chan int)
 		deltadir := filepath.Join(dir, "delta")
@@ -1032,19 +1051,24 @@ func (m *MemDB) LoadFromDisk(dir string, concurr int, callb ItemCallback) (*Snap
 
 						w := writers[id]
 						if n, success := w.store.Insert2(unsafe.Pointer(itm),
-							w.insCmp, w.existCmp, w.buf, w.rand.Float32); success {
+							w.insCmp, w.existCmp, w.buf, w.rand.Float32, &w.slSts1); success {
 
-							atomic.AddInt64(&w.count, 1)
-							atomic.AddUint64(&w.stats.DeltaRestored, 1)
+							w.resSts.DeltaRestored += 1
 							if nodeCallb != nil {
 								nodeCallb(n)
 							}
 						} else {
 							w.freeItem(itm)
-							atomic.AddUint64(&w.stats.DeltaRestoreFailed, 1)
+							w.resSts.DeltaRestoreFailed += 1
 						}
 					}
 				}
+
+				// Aggregate stats
+				w := writers[id]
+				m.store.Stats.Merge(&w.slSts1)
+				atomic.AddUint64(&m.restoreStats.DeltaRestored, w.resSts.DeltaRestored)
+				atomic.AddUint64(&m.restoreStats.DeltaRestoreFailed, w.resSts.DeltaRestoreFailed)
 			}(&wg, i)
 		}
 
@@ -1062,7 +1086,7 @@ func (m *MemDB) LoadFromDisk(dir string, concurr int, callb ItemCallback) (*Snap
 	}
 
 	stats := m.store.GetStats()
-	m.count = int64(stats.NodeCount)
+	m.itemsCount = int64(stats.NodeCount)
 	return m.NewSnapshot()
 }
 
