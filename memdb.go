@@ -16,6 +16,7 @@ import (
 	"runtime"
 	"sync"
 	"sync/atomic"
+	"time"
 	"unsafe"
 )
 
@@ -389,6 +390,12 @@ func (m *MemDB) MemoryInUse() int64 {
 
 func (m *MemDB) Close() {
 	m.hasShutdown = true
+
+	// Acquire gc chan ownership
+	// This will make sure that no other goroutine will write to gcchan
+	for !atomic.CompareAndSwapInt32(&m.isGCRunning, 0, 1) {
+		time.Sleep(time.Millisecond)
+	}
 	close(m.gcchan)
 
 	buf := dbInstances.MakeBuf()
