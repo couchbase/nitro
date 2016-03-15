@@ -82,7 +82,7 @@ func TestInsertPerf(t *testing.T) {
 	var wg sync.WaitGroup
 	db := NewWithConfig(testConf)
 	defer db.Close()
-	n := 1000000
+	n := 20000000 / runtime.GOMAXPROCS(0)
 	t0 := time.Now()
 	total := n * runtime.GOMAXPROCS(0)
 	for i := 0; i < runtime.GOMAXPROCS(0); i++ {
@@ -92,8 +92,8 @@ func TestInsertPerf(t *testing.T) {
 	wg.Wait()
 
 	snap, _ := db.NewSnapshot()
-	VerifyCount(snap, n*runtime.GOMAXPROCS(0), t)
 	dur := time.Since(t0)
+	VerifyCount(snap, n*runtime.GOMAXPROCS(0), t)
 	fmt.Printf("%d items took %v -> %v items/s snapshots_created %v live_snapshots %v\n",
 		total, dur, float64(total)/float64(dur.Seconds()), db.getCurrSn(), len(db.GetSnapshots()))
 }
