@@ -73,7 +73,7 @@ func New(hfn HashFn, kfn EqualKeyFn) *NodeTable {
 
 	buf := dbInstances.MakeBuf()
 	defer dbInstances.FreeBuf(buf)
-	dbInstances.Insert(unsafe.Pointer(nt), CompareNodeTable, buf)
+	dbInstances.Insert(unsafe.Pointer(nt), CompareNodeTable, buf, &dbInstances.Stats)
 
 	return nt
 }
@@ -258,7 +258,7 @@ func (nt *NodeTable) Close() {
 
 	buf := dbInstances.MakeBuf()
 	defer dbInstances.FreeBuf(buf)
-	dbInstances.Delete(unsafe.Pointer(nt), CompareNodeTable, buf)
+	dbInstances.Delete(unsafe.Pointer(nt), CompareNodeTable, buf, &dbInstances.Stats)
 }
 
 func MemoryInUse() (sz int64) {
