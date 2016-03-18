@@ -682,14 +682,20 @@ func (m *MemDB) ptrToItem(itmPtr unsafe.Pointer) *Item {
 
 func (m *MemDB) Visitor(snap *Snapshot, callb VisitorCallback, shards int, concurrency int) error {
 	var wg sync.WaitGroup
-
 	var iters []*Iterator
 	var pivotItems []*Item
 
 	wch := make(chan int, shards)
 
+	if snap == nil {
+		panic("snapshot cannot be nil")
+	}
+
 	func() {
 		tmpIter := m.NewIterator(snap)
+		if tmpIter == nil {
+			panic("iterator cannot be nil")
+		}
 		defer tmpIter.Close()
 
 		barrier := m.store.GetAccesBarrier()
@@ -725,6 +731,9 @@ func (m *MemDB) Visitor(snap *Snapshot, callb VisitorCallback, shards int, concu
 				endItem := pivotItems[shard+1]
 
 				itr := m.NewIterator(snap)
+				if itr == nil {
+					panic("iterator cannot be nil")
+				}
 				itr.SetRefreshRate(m.refreshRate)
 				iters = append(iters, itr)
 				if startItem == nil {
