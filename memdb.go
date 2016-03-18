@@ -373,8 +373,11 @@ func (m *MemDB) newStoreConfig() skiplist.Config {
 
 func (m *MemDB) newBSDestructor() skiplist.BarrierSessionDestructor {
 	return func(ref unsafe.Pointer) {
-		freelist := (*skiplist.Node)(ref)
-		m.freechan <- freelist
+		// If gclist is not empty
+		if ref != nil {
+			freelist := (*skiplist.Node)(ref)
+			m.freechan <- freelist
+		}
 	}
 }
 
