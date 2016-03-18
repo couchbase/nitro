@@ -60,6 +60,11 @@ size_t mm_size() {
     size_t resident, sz;
     sz = sizeof(size_t);
 #ifdef JEMALLOC
+    // Force stats cache flush
+    uint64_t epoch = 1;
+    sz = sizeof(epoch);
+    je_mallctl("epoch", &epoch, &sz, &epoch, sz);
+
     je_mallctl("stats.resident", &resident, &sz, NULL, 0);
     return resident;
 #else
