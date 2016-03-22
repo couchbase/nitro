@@ -619,10 +619,13 @@ func (m *MemDB) collectionWorker(w *Writer) {
 
 func (m *MemDB) freeWorker(w *Writer) {
 	for freelist := range m.freechan {
-		for n := freelist; n != nil; n = n.GClink {
-			itm := (*Item)(n.Item())
+		for n := freelist; n != nil; {
+			dnode := n
+			n = n.GClink
+
+			itm := (*Item)(dnode.Item())
 			m.freeItem(itm)
-			m.store.FreeNode(n, &w.slSts3)
+			m.store.FreeNode(dnode, &w.slSts3)
 		}
 
 		m.store.Stats.Merge(&w.slSts3)
