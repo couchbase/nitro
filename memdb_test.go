@@ -9,14 +9,14 @@ import "math/rand"
 import "sync"
 import "runtime"
 import "encoding/binary"
-
-//import "github.com/t3rm1n4l/memdb/mm"
+import "github.com/t3rm1n4l/memdb/mm"
 
 var testConf Config
 
 func init() {
 	testConf = DefaultConfig()
-	//testConf.UseMemoryMgmt(mm.Malloc, mm.Free)
+	testConf.UseMemoryMgmt(mm.Malloc, mm.Free)
+	testConf.UseDeltaInterleaving()
 }
 
 func TestInsert(t *testing.T) {
