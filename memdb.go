@@ -396,7 +396,8 @@ func New() *MemDB {
 }
 
 func (m *MemDB) MemoryInUse() int64 {
-	return m.store.MemoryInUse() + m.snapshots.MemoryInUse() + m.gcsnapshots.MemoryInUse()
+	storeStats := m.aggrStoreStats()
+	return storeStats.Memory + m.snapshots.MemoryInUse() + m.gcsnapshots.MemoryInUse()
 }
 
 func (m *MemDB) Close() {
@@ -1118,7 +1119,18 @@ func (m *MemDB) LoadFromDisk(dir string, concurr int, callb ItemCallback) (*Snap
 }
 
 func (m *MemDB) DumpStats() string {
-	return m.store.GetStats().String()
+	return m.aggrStoreStats().String()
+}
+
+func (m *MemDB) aggrStoreStats() skiplist.StatsReport {
+	sts := m.store.GetStats()
+	for w := m.wlist; w != nil; w = w.next {
+		sts.Apply(&w.slSts1)
+		sts.Apply(&w.slSts2)
+		sts.Apply(&w.slSts3)
+	}
+
+	return sts
 }
 
 func MemoryInUse() (sz int64) {

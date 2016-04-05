@@ -16,6 +16,27 @@ type StatsReport struct {
 	NodeFrees  int64
 }
 
+func (report *StatsReport) Apply(s *Stats) {
+	var totalNextPtrs int
+	var totalNodes int
+
+	report.ReadConflicts += s.readConflicts
+	report.InsertConflicts += s.insertConflicts
+
+	for i, c := range s.levelNodesCount {
+		totalNodes += int(c)
+		totalNextPtrs += (i + 1) * int(c)
+		report.NodeDistribution[i] += s.levelNodesCount[i]
+	}
+
+	report.SoftDeletes += s.softDeletes
+	report.NodeCount += totalNodes
+	report.NextPointersPerNode += float64(totalNextPtrs) / float64(totalNodes)
+	report.NodeAllocs += s.nodeAllocs
+	report.NodeFrees += s.nodeFrees
+	report.Memory += s.usedBytes
+}
+
 type Stats struct {
 	insertConflicts       uint64
 	readConflicts         uint64
@@ -93,23 +114,7 @@ func (s StatsReport) String() string {
 
 func (s *Skiplist) GetStats() StatsReport {
 	var report StatsReport
-	var totalNextPtrs int
-	var totalNodes int
-	report.ReadConflicts = s.Stats.readConflicts
-	report.InsertConflicts = s.Stats.insertConflicts
-
-	for i, c := range s.Stats.levelNodesCount {
-		totalNodes += int(c)
-		totalNextPtrs += (i + 1) * int(c)
-	}
-
-	report.SoftDeletes = s.Stats.softDeletes
-	report.NodeCount = totalNodes
-	report.NodeDistribution = s.Stats.levelNodesCount
-	report.NextPointersPerNode = float64(totalNextPtrs) / float64(totalNodes)
-	report.Memory = int64(s.MemoryInUse())
-	report.NodeAllocs = s.Stats.nodeAllocs
-	report.NodeFrees = s.Stats.nodeFrees
+	report.Apply(&s.Stats)
 	return report
 }
 
