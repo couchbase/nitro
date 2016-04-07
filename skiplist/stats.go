@@ -24,14 +24,15 @@ func (report *StatsReport) Apply(s *Stats) {
 	report.InsertConflicts += s.insertConflicts
 
 	for i, c := range s.levelNodesCount {
-		totalNodes += int(c)
-		totalNextPtrs += (i + 1) * int(c)
-		report.NodeDistribution[i] += s.levelNodesCount[i]
+		report.NodeDistribution[i] += c
+		nodesAtlevel := report.NodeDistribution[i]
+		totalNodes += int(nodesAtlevel)
+		totalNextPtrs += (i + 1) * int(nodesAtlevel)
 	}
 
 	report.SoftDeletes += s.softDeletes
-	report.NodeCount += totalNodes
-	report.NextPointersPerNode += float64(totalNextPtrs) / float64(totalNodes)
+	report.NodeCount = totalNodes
+	report.NextPointersPerNode = float64(totalNextPtrs) / float64(totalNodes)
 	report.NodeAllocs += s.nodeAllocs
 	report.NodeFrees += s.nodeFrees
 	report.Memory += s.usedBytes
