@@ -73,6 +73,7 @@ func NewWithConfig(cfg Config) *Skiplist {
 
 	if cfg.UseMemoryMgmt {
 		s.freeNode = func(n *Node) {
+			debugMarkFree(n)
 			cfg.Free(unsafe.Pointer(n))
 		}
 	} else {

@@ -251,3 +251,26 @@ func allocNode(itm unsafe.Pointer, level int, malloc MallocFn) *Node {
 	n.GClink = nil
 	return n
 }
+
+var freeBlockContent []byte
+
+func init() {
+	l := int(nodeTypes[32].Size())
+	freeBlockContent = make([]byte, l)
+	for i := 0; i < l; i++ {
+		freeBlockContent[i] = 0xdd
+	}
+}
+
+// Fill free blocks with a const
+// This can help debugging of memory reclaimer bugs
+func debugMarkFree(n *Node) {
+	var block []byte
+	l := int(nodeTypes[n.level].Size())
+	sh := (*reflect.SliceHeader)(unsafe.Pointer(&block))
+	sh.Data = uintptr(unsafe.Pointer(n))
+	sh.Len = l
+	sh.Cap = l
+
+	copy(block, freeBlockContent)
+}
