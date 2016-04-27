@@ -178,7 +178,7 @@ retry:
 			cmpVal = compare(cmp, curr.Item(), itm)
 			if cmpVal < 0 {
 				prev = curr
-				curr, _ = prev.getNext(i)
+				curr = next
 			} else {
 				break levelSearch
 			}
