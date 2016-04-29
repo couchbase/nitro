@@ -634,3 +634,42 @@ func TestLoadDeltaStoreDisk(t *testing.T) {
 	fmt.Println("Restored", db.DeltaRestored)
 	fmt.Println("RestoredFailed", db.DeltaRestoreFailed)
 }
+
+func TestExecuteConcurrGCWorkers(t *testing.T) {
+	db := NewWithConfig(testConf)
+	defer db.Close()
+
+	w := db.NewWriter()
+
+	for x := 0; x < 40; x++ {
+		db.NewWriter()
+	}
+
+	for i := 0; i < 200000; i++ {
+		w.Put([]byte(fmt.Sprintf("%010d", i)))
+	}
+	snap, _ := w.NewSnapshot()
+	snap.Close()
+
+	var snaps []*Snapshot
+	for i := 0; i < 200000; i++ {
+		if i%1000 == 0 {
+			snap, _ := w.NewSnapshot()
+			snaps = append(snaps, snap)
+		}
+		w.Delete([]byte(fmt.Sprintf("%010d", i)))
+	}
+	snap, _ = w.NewSnapshot()
+	snaps = append(snaps, snap)
+
+	barrier := w.store.GetAccesBarrier()
+	bs := barrier.Acquire()
+	barrier.Release(bs)
+	for _, snap := range snaps {
+		snap.Close()
+	}
+
+	for db.store.GetStats().NodeFrees != 200000 {
+		time.Sleep(time.Millisecond)
+	}
+}
