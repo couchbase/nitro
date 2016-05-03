@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/t3rm1n4l/memdb/mm"
 	"github.com/t3rm1n4l/memdb/skiplist"
 	"io"
 	"io/ioutil"
@@ -1143,4 +1144,9 @@ func MemoryInUse() (sz int64) {
 	}
 
 	return
+}
+
+func Debug(flag bool) {
+	skiplist.Debug = flag
+	mm.Debug = flag
 }
