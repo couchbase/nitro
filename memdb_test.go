@@ -17,6 +17,7 @@ func init() {
 	testConf = DefaultConfig()
 	testConf.UseMemoryMgmt(mm.Malloc, mm.Free)
 	testConf.UseDeltaInterleaving()
+	Debug(true)
 }
 
 func TestInsert(t *testing.T) {
@@ -672,4 +673,35 @@ func TestExecuteConcurrGCWorkers(t *testing.T) {
 	for db.store.GetStats().NodeFrees != 200000 {
 		time.Sleep(time.Millisecond)
 	}
+}
+
+func TestCloseWithActiveIterators(t *testing.T) {
+	var wg sync.WaitGroup
+	db := NewWithConfig(testConf)
+
+	w := db.NewWriter()
+	for i := 0; i < 200000; i++ {
+		w.Put([]byte(fmt.Sprintf("%010d", i)))
+	}
+
+	snap, _ := w.NewSnapshot()
+	for i := 0; i < 1000; i++ {
+		wg.Add(1)
+		go func(wg *sync.WaitGroup) {
+			defer wg.Done()
+
+			if itr := db.NewIterator(snap); itr != nil {
+				for x := 0; x < 5; x++ {
+					for itr.SeekFirst(); itr.Valid(); itr.Next() {
+					}
+				}
+				itr.Close()
+			}
+		}(&wg)
+	}
+
+	snap.Close()
+	db.Close()
+	wg.Wait()
+
 }
