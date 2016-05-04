@@ -402,6 +402,11 @@ func (m *MemDB) MemoryInUse() int64 {
 }
 
 func (m *MemDB) Close() {
+	// Wait until all snapshot iterators have finished
+	for s := m.snapshots.GetStats(); int(s.NodeCount) != 0; s = m.snapshots.GetStats() {
+		time.Sleep(time.Millisecond)
+	}
+
 	m.hasShutdown = true
 
 	// Acquire gc chan ownership
@@ -538,9 +543,8 @@ func (s *Snapshot) Close() {
 
 		// Move from live snapshot list to dead list
 		s.db.snapshots.Delete(unsafe.Pointer(s), CompareSnapshot, buf, &s.db.snapshots.Stats)
-		s.db.gcsnapshots.Insert(unsafe.Pointer(s), CompareSnapshot, buf, &s.db.snapshots.Stats)
+		s.db.gcsnapshots.Insert(unsafe.Pointer(s), CompareSnapshot, buf, &s.db.gcsnapshots.Stats)
 		s.db.GC()
-
 	}
 }
 
