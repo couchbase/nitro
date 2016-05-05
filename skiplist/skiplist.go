@@ -230,16 +230,20 @@ retry:
 		}
 	}
 
-	x.setNext(0, buf.succs[0], false)
+	for i := 0; i <= int(itemLevel); i++ {
+		x.setNext(i, buf.succs[i], false)
+	}
+
+	// Now node is part of the skiplist
 	if !buf.preds[0].dcasNext(0, buf.succs[0], x, false, false) {
 		sts.AddUint64(&sts.insertConflicts, 1)
 		goto retry
 	}
 
+	// Add to optional index levels
 	for i := 1; i <= int(itemLevel); i++ {
 	fixThisLevel:
 		for {
-			x.setNext(i, buf.succs[i], false)
 			if buf.preds[i].dcasNext(i, buf.succs[i], x, false, false) {
 				break fixThisLevel
 			}
