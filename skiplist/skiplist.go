@@ -230,6 +230,7 @@ retry:
 		}
 	}
 
+	// Set all next links for the node non-atomically
 	for i := 0; i <= int(itemLevel); i++ {
 		x.setNext(i, buf.succs[i], false)
 	}
@@ -240,17 +241,29 @@ retry:
 		goto retry
 	}
 
-	// Add to optional index levels
+	// Add to index levels
 	for i := 1; i <= int(itemLevel); i++ {
 	fixThisLevel:
 		for {
-			if buf.preds[i].dcasNext(i, buf.succs[i], x, false, false) {
+			nodeNext, deleted := x.getNext(i)
+			next := buf.succs[i]
+
+			// Update the node's next pointer at current level if required.
+			// This is the only thread which can modify next pointer at this level
+			// The dcas operation can fail only if another thread marked delete
+			if deleted || (nodeNext != next && !x.dcasNext(i, nodeNext, next, false, false)) {
+				goto finished
+			}
+
+			if buf.preds[i].dcasNext(i, next, x, false, false) {
 				break fixThisLevel
 			}
+
 			s.findPath(itm, insCmp, buf, sts)
 		}
 	}
 
+finished:
 	sts.AddInt64(&sts.nodeAllocs, 1)
 	sts.AddInt64(&sts.levelNodesCount[itemLevel], 1)
 	sts.AddInt64(&sts.usedBytes, int64(s.Size(x)))
