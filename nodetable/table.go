@@ -1,6 +1,6 @@
 package nodetable
 
-// A high performance GC optimized Node lookup table for MemDB index storage
+// A high performance GC optimized Node lookup table for Nitro index storage
 // This table is not thread-safe
 //
 // Golang map does not need to pay the cost of GC scans if you have native
@@ -14,7 +14,7 @@ package nodetable
 
 import "unsafe"
 import "fmt"
-import "github.com/t3rm1n4l/memdb/skiplist"
+import "github.com/t3rm1n4l/nitro/skiplist"
 
 var emptyResult ntResult
 

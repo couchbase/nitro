@@ -1,4 +1,4 @@
-package memdb
+package nitro
 
 import "os"
 import "bufio"
@@ -32,7 +32,7 @@ type FileReader interface {
 	Close() error
 }
 
-func (m *MemDB) newFileWriter(t FileType) FileWriter {
+func (m *Nitro) newFileWriter(t FileType) FileWriter {
 	var w FileWriter
 	if t == RawdbFile {
 		w = &rawFileWriter{db: m}
@@ -42,7 +42,7 @@ func (m *MemDB) newFileWriter(t FileType) FileWriter {
 	return w
 }
 
-func (m *MemDB) newFileReader(t FileType) FileReader {
+func (m *Nitro) newFileReader(t FileType) FileReader {
 	var r FileReader
 	if t == RawdbFile {
 		r = &rawFileReader{db: m}
@@ -53,7 +53,7 @@ func (m *MemDB) newFileReader(t FileType) FileReader {
 }
 
 type rawFileWriter struct {
-	db   *MemDB
+	db   *Nitro
 	fd   *os.File
 	w    *bufio.Writer
 	buf  []byte
@@ -86,7 +86,7 @@ func (f *rawFileWriter) Close() error {
 }
 
 type rawFileReader struct {
-	db   *MemDB
+	db   *Nitro
 	fd   *os.File
 	r    *bufio.Reader
 	buf  []byte
@@ -112,7 +112,7 @@ func (f *rawFileReader) Close() error {
 }
 
 type forestdbFileWriter struct {
-	db    *MemDB
+	db    *Nitro
 	file  *forestdb.File
 	store *forestdb.KVStore
 	buf   []byte
@@ -153,7 +153,7 @@ func (f *forestdbFileWriter) Close() error {
 }
 
 type forestdbFileReader struct {
-	db    *MemDB
+	db    *Nitro
 	file  *forestdb.File
 	store *forestdb.KVStore
 	iter  *forestdb.Iterator

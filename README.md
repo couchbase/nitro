@@ -1,4 +1,4 @@
-# memdb
+# nitro
 
 A high performance DRAM storage engine
 

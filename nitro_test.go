@@ -1,4 +1,4 @@
-package memdb
+package nitro
 
 import "fmt"
 import "sync/atomic"
@@ -9,7 +9,7 @@ import "math/rand"
 import "sync"
 import "runtime"
 import "encoding/binary"
-import "github.com/t3rm1n4l/memdb/mm"
+import "github.com/t3rm1n4l/nitro/mm"
 
 var testConf Config
 
@@ -62,7 +62,7 @@ func TestInsert(t *testing.T) {
 	}
 }
 
-func doInsert(db *MemDB, wg *sync.WaitGroup, n int, isRand bool, shouldSnap bool) {
+func doInsert(db *Nitro, wg *sync.WaitGroup, n int, isRand bool, shouldSnap bool) {
 	defer wg.Done()
 	w := db.NewWriter()
 	rnd := rand.New(rand.NewSource(int64(rand.Int())))
@@ -104,7 +104,7 @@ func TestInsertPerf(t *testing.T) {
 		total, dur, float64(total)/float64(dur.Seconds()), db.getCurrSn(), len(db.GetSnapshots()))
 }
 
-func doGet(t *testing.T, db *MemDB, snap *Snapshot, wg *sync.WaitGroup, n int) {
+func doGet(t *testing.T, db *Nitro, snap *Snapshot, wg *sync.WaitGroup, n int) {
 	defer wg.Done()
 	rnd := rand.New(rand.NewSource(int64(rand.Int())))
 
@@ -521,7 +521,7 @@ func TestVisitorError(t *testing.T) {
 	}
 }
 
-func doUpdate(db *MemDB, wg *sync.WaitGroup, w *Writer, start, end int, version int) {
+func doUpdate(db *Nitro, wg *sync.WaitGroup, w *Writer, start, end int, version int) {
 	defer wg.Done()
 	for ; start < end; start++ {
 		oldval := uint64(start) + uint64(version-1)*10000000

@@ -1,4 +1,4 @@
-package memdb
+package nitro
 
 import (
 	"encoding/binary"
@@ -15,20 +15,20 @@ type Item struct {
 	dataLen uint32
 }
 
-func (m *MemDB) newItem(data []byte, useMM bool) (itm *Item) {
+func (m *Nitro) newItem(data []byte, useMM bool) (itm *Item) {
 	l := len(data)
 	itm = m.allocItem(l, useMM)
 	copy(itm.Bytes(), data)
 	return itm
 }
 
-func (m *MemDB) freeItem(itm *Item) {
+func (m *Nitro) freeItem(itm *Item) {
 	if m.useMemoryMgmt {
 		m.freeFun(unsafe.Pointer(itm))
 	}
 }
 
-func (m *MemDB) allocItem(l int, useMM bool) (itm *Item) {
+func (m *Nitro) allocItem(l int, useMM bool) (itm *Item) {
 	blockSize := itemHeaderSize + uintptr(l)
 	if useMM {
 		itm = (*Item)(m.mallocFun(int(blockSize)))
@@ -43,7 +43,7 @@ func (m *MemDB) allocItem(l int, useMM bool) (itm *Item) {
 	return
 }
 
-func (m *MemDB) EncodeItem(itm *Item, buf []byte, w io.Writer) error {
+func (m *Nitro) EncodeItem(itm *Item, buf []byte, w io.Writer) error {
 	l := 2
 	if len(buf) < l {
 		return ErrNotEnoughSpace
@@ -60,7 +60,7 @@ func (m *MemDB) EncodeItem(itm *Item, buf []byte, w io.Writer) error {
 	return nil
 }
 
-func (m *MemDB) DecodeItem(buf []byte, r io.Reader) (*Item, error) {
+func (m *Nitro) DecodeItem(buf []byte, r io.Reader) (*Item, error) {
 	if _, err := io.ReadFull(r, buf[0:2]); err != nil {
 		return nil, err
 	}

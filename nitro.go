@@ -1,4 +1,4 @@
-package memdb
+package nitro
 
 import (
 	"bytes"
@@ -6,8 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/t3rm1n4l/memdb/mm"
-	"github.com/t3rm1n4l/memdb/skiplist"
+	"github.com/t3rm1n4l/nitro/mm"
+	"github.com/t3rm1n4l/nitro/skiplist"
 	"io"
 	"io/ioutil"
 	"math"
@@ -23,7 +23,7 @@ import (
 
 var (
 	ErrMaxSnapshotsLimitReached = fmt.Errorf("Maximum snapshots limit reached")
-	ErrShutdown                 = fmt.Errorf("MemDB instance has been shutdown")
+	ErrShutdown                 = fmt.Errorf("Nitro instance has been shutdown")
 )
 
 type KeyCompare func([]byte, []byte) int
@@ -70,9 +70,9 @@ func init() {
 	dbInstances = skiplist.New()
 }
 
-func CompareMemDB(this unsafe.Pointer, that unsafe.Pointer) int {
-	thisItem := (*MemDB)(this)
-	thatItem := (*MemDB)(that)
+func CompareNitro(this unsafe.Pointer, that unsafe.Pointer) int {
+	thisItem := (*Nitro)(this)
+	thatItem := (*Nitro)(that)
 
 	return int(thisItem.id - thatItem.id)
 }
@@ -157,7 +157,7 @@ type Writer struct {
 	resSts                 restoreStats
 	count                  int64
 
-	*MemDB
+	*Nitro
 }
 
 func (w *Writer) doCheckpoint() {
@@ -317,7 +317,7 @@ type restoreStats struct {
 	DeltaRestoreFailed uint64
 }
 
-type MemDB struct {
+type Nitro struct {
 	id           int
 	store        *skiplist.Skiplist
 	currSn       uint32
@@ -340,8 +340,8 @@ type MemDB struct {
 	restoreStats
 }
 
-func NewWithConfig(cfg Config) *MemDB {
-	m := &MemDB{
+func NewWithConfig(cfg Config) *Nitro {
+	m := &Nitro{
 		snapshots:   skiplist.New(),
 		gcsnapshots: skiplist.New(),
 		currSn:      1,
@@ -356,13 +356,13 @@ func NewWithConfig(cfg Config) *MemDB {
 
 	buf := dbInstances.MakeBuf()
 	defer dbInstances.FreeBuf(buf)
-	dbInstances.Insert(unsafe.Pointer(m), CompareMemDB, buf, &dbInstances.Stats)
+	dbInstances.Insert(unsafe.Pointer(m), CompareNitro, buf, &dbInstances.Stats)
 
 	return m
 
 }
 
-func (m *MemDB) newStoreConfig() skiplist.Config {
+func (m *Nitro) newStoreConfig() skiplist.Config {
 	slCfg := skiplist.DefaultConfig()
 	if m.useMemoryMgmt {
 		slCfg.UseMemoryMgmt = true
@@ -374,7 +374,7 @@ func (m *MemDB) newStoreConfig() skiplist.Config {
 	return slCfg
 }
 
-func (m *MemDB) newBSDestructor() skiplist.BarrierSessionDestructor {
+func (m *Nitro) newBSDestructor() skiplist.BarrierSessionDestructor {
 	return func(ref unsafe.Pointer) {
 		// If gclist is not empty
 		if ref != nil {
@@ -384,7 +384,7 @@ func (m *MemDB) newBSDestructor() skiplist.BarrierSessionDestructor {
 	}
 }
 
-func (m *MemDB) initSizeFuns() {
+func (m *Nitro) initSizeFuns() {
 	m.snapshots.SetItemSizeFunc(SnapshotSize)
 	m.gcsnapshots.SetItemSizeFunc(SnapshotSize)
 	if !m.ignoreItemSize {
@@ -392,16 +392,16 @@ func (m *MemDB) initSizeFuns() {
 	}
 }
 
-func New() *MemDB {
+func New() *Nitro {
 	return NewWithConfig(DefaultConfig())
 }
 
-func (m *MemDB) MemoryInUse() int64 {
+func (m *Nitro) MemoryInUse() int64 {
 	storeStats := m.aggrStoreStats()
 	return storeStats.Memory + m.snapshots.MemoryInUse() + m.gcsnapshots.MemoryInUse()
 }
 
-func (m *MemDB) Close() {
+func (m *Nitro) Close() {
 	// Wait until all snapshot iterators have finished
 	for s := m.snapshots.GetStats(); int(s.NodeCount) != 0; s = m.snapshots.GetStats() {
 		time.Sleep(time.Millisecond)
@@ -418,7 +418,7 @@ func (m *MemDB) Close() {
 
 	buf := dbInstances.MakeBuf()
 	defer dbInstances.FreeBuf(buf)
-	dbInstances.Delete(unsafe.Pointer(m), CompareMemDB, buf, &dbInstances.Stats)
+	dbInstances.Delete(unsafe.Pointer(m), CompareNitro, buf, &dbInstances.Stats)
 
 	if m.useMemoryMgmt {
 		buf := m.snapshots.MakeBuf()
@@ -452,15 +452,15 @@ func (m *MemDB) Close() {
 	}
 }
 
-func (m *MemDB) getCurrSn() uint32 {
+func (m *Nitro) getCurrSn() uint32 {
 	return atomic.LoadUint32(&m.currSn)
 }
 
-func (m *MemDB) newWriter() *Writer {
+func (m *Nitro) newWriter() *Writer {
 	w := &Writer{
 		rand:  rand.New(rand.NewSource(int64(rand.Int()))),
 		buf:   m.store.MakeBuf(),
-		MemDB: m,
+		Nitro: m,
 	}
 
 	w.slSts1.IsLocal(true)
@@ -469,7 +469,7 @@ func (m *MemDB) newWriter() *Writer {
 	return w
 }
 
-func (m *MemDB) NewWriter() *Writer {
+func (m *Nitro) NewWriter() *Writer {
 	w := m.newWriter()
 	w.next = m.wlist
 	m.wlist = w
@@ -488,7 +488,7 @@ func (m *MemDB) NewWriter() *Writer {
 type Snapshot struct {
 	sn       uint32
 	refCount int32
-	db       *MemDB
+	db       *Nitro
 	count    int64
 
 	gclist *skiplist.Node
@@ -559,7 +559,7 @@ func CompareSnapshot(this, that unsafe.Pointer) int {
 	return int(thisItem.sn) - int(thatItem.sn)
 }
 
-func (m *MemDB) NewSnapshot() (*Snapshot, error) {
+func (m *Nitro) NewSnapshot() (*Snapshot, error) {
 	buf := m.snapshots.MakeBuf()
 	defer m.snapshots.FreeBuf(buf)
 
@@ -595,11 +595,11 @@ func (m *MemDB) NewSnapshot() (*Snapshot, error) {
 	return snap, nil
 }
 
-func (m *MemDB) ItemsCount() int64 {
+func (m *Nitro) ItemsCount() int64 {
 	return atomic.LoadInt64(&m.itemsCount)
 }
 
-func (m *MemDB) collectionWorker(w *Writer) {
+func (m *Nitro) collectionWorker(w *Writer) {
 	buf := m.store.MakeBuf()
 	defer m.store.FreeBuf(buf)
 	defer m.shutdownWg1.Done()
@@ -626,7 +626,7 @@ func (m *MemDB) collectionWorker(w *Writer) {
 	}
 }
 
-func (m *MemDB) freeWorker(w *Writer) {
+func (m *Nitro) freeWorker(w *Writer) {
 	for freelist := range m.freechan {
 		for n := freelist; n != nil; {
 			dnode := n
@@ -645,7 +645,7 @@ func (m *MemDB) freeWorker(w *Writer) {
 
 // Invarient: Each snapshot n is dependent on snapshot n-1.
 // Unless snapshot n-1 is collected, snapshot n cannot be collected.
-func (m *MemDB) collectDead() {
+func (m *Nitro) collectDead() {
 	buf1 := m.snapshots.MakeBuf()
 	buf2 := m.snapshots.MakeBuf()
 	defer m.snapshots.FreeBuf(buf1)
@@ -667,14 +667,14 @@ func (m *MemDB) collectDead() {
 	}
 }
 
-func (m *MemDB) GC() {
+func (m *Nitro) GC() {
 	if atomic.CompareAndSwapInt32(&m.isGCRunning, 0, 1) {
 		m.collectDead()
 		atomic.CompareAndSwapInt32(&m.isGCRunning, 1, 0)
 	}
 }
 
-func (m *MemDB) GetSnapshots() []*Snapshot {
+func (m *Nitro) GetSnapshots() []*Snapshot {
 	var snaps []*Snapshot
 	buf := m.snapshots.MakeBuf()
 	defer m.snapshots.FreeBuf(buf)
@@ -687,7 +687,7 @@ func (m *MemDB) GetSnapshots() []*Snapshot {
 	return snaps
 }
 
-func (m *MemDB) ptrToItem(itmPtr unsafe.Pointer) *Item {
+func (m *Nitro) ptrToItem(itmPtr unsafe.Pointer) *Item {
 	o := (*Item)(itmPtr)
 	itm := m.newItem(o.Bytes(), false)
 	*itm = *o
@@ -695,7 +695,7 @@ func (m *MemDB) ptrToItem(itmPtr unsafe.Pointer) *Item {
 	return itm
 }
 
-func (m *MemDB) Visitor(snap *Snapshot, callb VisitorCallback, shards int, concurrency int) error {
+func (m *Nitro) Visitor(snap *Snapshot, callb VisitorCallback, shards int, concurrency int) error {
 	var wg sync.WaitGroup
 	var pivotItems []*Item
 
@@ -789,7 +789,7 @@ func (m *MemDB) Visitor(snap *Snapshot, callb VisitorCallback, shards int, concu
 	return nil
 }
 
-func (m *MemDB) numWriters() int {
+func (m *Nitro) numWriters() int {
 	var count int
 	for w := m.wlist; w != nil; w = w.next {
 		count++
@@ -798,7 +798,7 @@ func (m *MemDB) numWriters() int {
 	return count
 }
 
-func (m *MemDB) changeDeltaWrState(state int,
+func (m *Nitro) changeDeltaWrState(state int,
 	writers []FileWriter, snap *Snapshot) error {
 
 	var err error
@@ -833,7 +833,7 @@ func (m *MemDB) changeDeltaWrState(state int,
 	return err
 }
 
-func (m *MemDB) StoreToDisk(dir string, snap *Snapshot, concurr int, itmCallback ItemCallback) (err error) {
+func (m *Nitro) StoreToDisk(dir string, snap *Snapshot, concurr int, itmCallback ItemCallback) (err error) {
 
 	var snapClosed bool
 	defer func() {
@@ -945,7 +945,7 @@ func (m *MemDB) StoreToDisk(dir string, snap *Snapshot, concurr int, itmCallback
 	return err
 }
 
-func (m *MemDB) LoadFromDisk(dir string, concurr int, callb ItemCallback) (*Snapshot, error) {
+func (m *Nitro) LoadFromDisk(dir string, concurr int, callb ItemCallback) (*Snapshot, error) {
 	var wg sync.WaitGroup
 	datadir := filepath.Join(dir, "data")
 	var files []string
@@ -1123,11 +1123,11 @@ func (m *MemDB) LoadFromDisk(dir string, concurr int, callb ItemCallback) (*Snap
 	return m.NewSnapshot()
 }
 
-func (m *MemDB) DumpStats() string {
+func (m *Nitro) DumpStats() string {
 	return m.aggrStoreStats().String()
 }
 
-func (m *MemDB) aggrStoreStats() skiplist.StatsReport {
+func (m *Nitro) aggrStoreStats() skiplist.StatsReport {
 	sts := m.store.GetStats()
 	for w := m.wlist; w != nil; w = w.next {
 		sts.Apply(&w.slSts1)
@@ -1141,9 +1141,9 @@ func (m *MemDB) aggrStoreStats() skiplist.StatsReport {
 func MemoryInUse() (sz int64) {
 	buf := dbInstances.MakeBuf()
 	defer dbInstances.FreeBuf(buf)
-	iter := dbInstances.NewIterator(CompareMemDB, buf)
+	iter := dbInstances.NewIterator(CompareNitro, buf)
 	for iter.SeekFirst(); iter.Valid(); iter.Next() {
-		db := (*MemDB)(iter.Get())
+		db := (*Nitro)(iter.Get())
 		sz += db.MemoryInUse()
 	}
 

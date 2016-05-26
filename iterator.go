@@ -1,7 +1,7 @@
-package memdb
+package nitro
 
 import (
-	"github.com/t3rm1n4l/memdb/skiplist"
+	"github.com/t3rm1n4l/nitro/skiplist"
 	"unsafe"
 )
 
@@ -80,7 +80,7 @@ func (it *Iterator) Close() {
 	it.iter.Close()
 }
 
-func (m *MemDB) NewIterator(snap *Snapshot) *Iterator {
+func (m *Nitro) NewIterator(snap *Snapshot) *Iterator {
 	if !snap.Open() {
 		return nil
 	}

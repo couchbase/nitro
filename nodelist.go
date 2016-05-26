@@ -1,8 +1,8 @@
-package memdb
+package nitro
 
 import (
 	"bytes"
-	"github.com/t3rm1n4l/memdb/skiplist"
+	"github.com/t3rm1n4l/nitro/skiplist"
 )
 
 type NodeList struct {
