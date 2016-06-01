@@ -11,22 +11,12 @@ package nitro
 import "os"
 import "bufio"
 import "errors"
-import "github.com/couchbase/goforestdb"
-import "bytes"
 
 const DiskBlockSize = 512 * 1024
 
 var (
 	ErrNotEnoughSpace = errors.New("Not enough space in the buffer")
-	forestdbConfig    *forestdb.Config
 )
-
-func init() {
-	forestdbConfig = forestdb.DefaultConfig()
-	forestdbConfig.SetSeqTreeOpt(forestdb.SEQTREE_NOT_USE)
-	forestdbConfig.SetBufferCacheSize(1024 * 1024)
-
-}
 
 type FileWriter interface {
 	Open(path string) error
@@ -44,8 +34,6 @@ func (m *Nitro) newFileWriter(t FileType) FileWriter {
 	var w FileWriter
 	if t == RawdbFile {
 		w = &rawFileWriter{db: m}
-	} else if t == ForestdbFile {
-		w = &forestdbFileWriter{db: m}
 	}
 	return w
 }
@@ -54,8 +42,6 @@ func (m *Nitro) newFileReader(t FileType) FileReader {
 	var r FileReader
 	if t == RawdbFile {
 		r = &rawFileReader{db: m}
-	} else if t == ForestdbFile {
-		r = &forestdbFileReader{db: m}
 	}
 	return r
 }
@@ -117,90 +103,4 @@ func (f *rawFileReader) ReadItem() (*Item, error) {
 
 func (f *rawFileReader) Close() error {
 	return f.fd.Close()
-}
-
-type forestdbFileWriter struct {
-	db    *Nitro
-	file  *forestdb.File
-	store *forestdb.KVStore
-	buf   []byte
-	wbuf  bytes.Buffer
-}
-
-func (f *forestdbFileWriter) Open(path string) error {
-	var err error
-	f.file, err = forestdb.Open(path, forestdbConfig)
-	if err == nil {
-		f.buf = make([]byte, encodeBufSize)
-		f.store, err = f.file.OpenKVStoreDefault(nil)
-	}
-
-	return err
-}
-
-func (f *forestdbFileWriter) WriteItem(itm *Item) error {
-	f.wbuf.Reset()
-	err := f.db.EncodeItem(itm, f.buf, &f.wbuf)
-	if err == nil {
-		err = f.store.SetKV(f.wbuf.Bytes(), nil)
-	}
-
-	return err
-}
-
-func (f *forestdbFileWriter) Close() error {
-	err := f.file.Commit(forestdb.COMMIT_NORMAL)
-	if err == nil {
-		err = f.store.Close()
-		if err == nil {
-			err = f.file.Close()
-		}
-	}
-
-	return err
-}
-
-type forestdbFileReader struct {
-	db    *Nitro
-	file  *forestdb.File
-	store *forestdb.KVStore
-	iter  *forestdb.Iterator
-	buf   []byte
-}
-
-func (f *forestdbFileReader) Open(path string) error {
-	var err error
-
-	f.file, err = forestdb.Open(path, forestdbConfig)
-	if err == nil {
-		f.buf = make([]byte, encodeBufSize)
-		f.store, err = f.file.OpenKVStoreDefault(nil)
-		if err == nil {
-			f.iter, err = f.store.IteratorInit(nil, nil, forestdb.ITR_NONE)
-		}
-	}
-
-	return err
-}
-
-func (f *forestdbFileReader) ReadItem() (*Item, error) {
-	itm := &Item{}
-	doc, err := f.iter.Get()
-	if err == forestdb.RESULT_ITERATOR_FAIL {
-		return nil, nil
-	}
-
-	f.iter.Next()
-	if err == nil {
-		rbuf := bytes.NewBuffer(doc.Key())
-		itm, err = f.db.DecodeItem(f.buf, rbuf)
-	}
-
-	return itm, err
-}
-
-func (f *forestdbFileReader) Close() error {
-	f.iter.Close()
-	f.store.Close()
-	return f.file.Close()
 }
