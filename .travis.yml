@@ -5,5 +5,7 @@ go:
 script:
 - go test -v ./...
 - go vet
+- go test -coverprofile=profile.out -covermode=count
+- goveralls -service=travis-ci -coverprofile=profile.out -repotoken $COVERALLS
 notifications:
   email: false
