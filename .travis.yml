@@ -3,6 +3,8 @@ language: go
 go:
 - 1.6
 script:
+- go get golang.org/x/tools/cmd/cover
+- go get github.com/mattn/goveralls
 - go test -v ./...
 - go vet
 - go test -coverprofile=profile.out -covermode=count
