@@ -16,7 +16,7 @@ import (
 	"unsafe"
 )
 
-// Debug flag enables addtional stats gathering
+// Debug flag enables additional stats gathering
 var Debug bool
 
 // MaxLevel is the limit for the skiplist levels
@@ -335,7 +335,7 @@ func (s *Skiplist) Delete(itm unsafe.Pointer, cmp CompareFn,
 	return s.deleteNode(delNode, cmp, buf, sts)
 }
 
-// DeleteNode an item from the skiplist by specifiying its node
+// DeleteNode an item from the skiplist by specifying its node
 func (s *Skiplist) DeleteNode(n *Node, cmp CompareFn,
 	buf *ActionBuffer, sts *Stats) bool {
 	token := s.barrier.Acquire()

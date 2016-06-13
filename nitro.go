@@ -674,7 +674,7 @@ func (m *Nitro) freeWorker(w *Writer) {
 	m.shutdownWg2.Done()
 }
 
-// Invarient: Each snapshot n is dependent on snapshot n-1.
+// Invariant: Each snapshot n is dependent on snapshot n-1.
 // Unless snapshot n-1 is collected, snapshot n cannot be collected.
 func (m *Nitro) collectDead() {
 	buf1 := m.snapshots.MakeBuf()
@@ -1194,7 +1194,7 @@ func MemoryInUse() (sz int64) {
 }
 
 // Debug enables debug mode
-// Addtional details will be logged in the statistics
+// Additional details will be logged in the statistics
 func Debug(flag bool) {
 	skiplist.Debug = flag
 	mm.Debug = flag

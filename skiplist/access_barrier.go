@@ -40,7 +40,7 @@ import (
 * for the node and barrier session terminates.
 *
 * Closing and installing a new barrier session:
-* A session liveCount is incremented everytime an accessor is entering the skiplist
+* A session liveCount is incremented every time an accessor is entering the skiplist
 * and decremented when the leave the skiplist. When a session is closed and new
 * one needs to be installed, we just swap the global barrier session reference.
 * There could be race conditions while a session is being marked as closed. Still
@@ -154,7 +154,7 @@ func (ab *AccessBarrier) Acquire() *BarrierSession {
 	return nil
 }
 
-// Release marks leaving of an accesssor in the skiplist
+// Release marks leaving of an accessor in the skiplist
 func (ab *AccessBarrier) Release(bs *BarrierSession) {
 	if ab.active {
 		liveCount := atomic.AddInt32(bs.liveCount, -1)
