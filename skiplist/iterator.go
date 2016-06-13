@@ -6,11 +6,13 @@
 // License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
 // either express or implied. See the License for the specific language governing permissions
 // and limitations under the License.
+
 package skiplist
 
 import "sync/atomic"
 import "unsafe"
 
+// Iterator is used for lookup and range operations on skiplist
 type Iterator struct {
 	cmp        CompareFn
 	s          *Skiplist
@@ -22,6 +24,7 @@ type Iterator struct {
 	bs *BarrierSession
 }
 
+// NewIterator creates an iterator for skiplist
 func (s *Skiplist) NewIterator(cmp CompareFn,
 	buf *ActionBuffer) *Iterator {
 
@@ -33,12 +36,14 @@ func (s *Skiplist) NewIterator(cmp CompareFn,
 	}
 }
 
+// SeekFirst moves cursor to the start
 func (it *Iterator) SeekFirst() {
 	it.prev = it.s.head
 	it.curr, _ = it.s.head.getNext(0)
 	it.valid = true
 }
 
+// SeekWithCmp moves iterator to a provided item by using custom comparator
 func (it *Iterator) SeekWithCmp(itm unsafe.Pointer, cmp CompareFn, eqCmp CompareFn) bool {
 	var found bool
 	if found = it.s.findPath(itm, cmp, it.buf, &it.s.Stats) != nil; found {
@@ -53,6 +58,7 @@ func (it *Iterator) SeekWithCmp(itm unsafe.Pointer, cmp CompareFn, eqCmp Compare
 	return found
 }
 
+// Seek moves iterator to a provided item
 func (it *Iterator) Seek(itm unsafe.Pointer) bool {
 	it.valid = true
 	found := it.s.findPath(itm, it.cmp, it.buf, &it.s.Stats) != nil
@@ -61,6 +67,7 @@ func (it *Iterator) Seek(itm unsafe.Pointer) bool {
 	return found
 }
 
+// Valid returns true when iterator reaches the end
 func (it *Iterator) Valid() bool {
 	if it.valid && it.curr == it.s.tail {
 		it.valid = false
@@ -69,14 +76,17 @@ func (it *Iterator) Valid() bool {
 	return it.valid
 }
 
+// Get returns the current item
 func (it *Iterator) Get() unsafe.Pointer {
 	return it.curr.Item()
 }
 
+// GetNode returns node which holds the current item
 func (it *Iterator) GetNode() *Node {
 	return it.curr
 }
 
+// Delete removes the current item from the skiplist
 func (it *Iterator) Delete() {
 	it.s.softDelete(it.curr, &it.s.Stats)
 	// It will observe that current item is deleted
@@ -85,6 +95,7 @@ func (it *Iterator) Delete() {
 	it.deleted = true
 }
 
+// Next moves iterator to the next item
 func (it *Iterator) Next() {
 	if it.deleted {
 		it.deleted = false
@@ -116,6 +127,7 @@ retry:
 	}
 }
 
+// Close is a destructor
 func (it *Iterator) Close() {
 	it.s.barrier.Release(it.bs)
 }

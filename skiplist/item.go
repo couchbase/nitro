@@ -6,6 +6,7 @@
 // License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
 // either express or implied. See the License for the specific language governing permissions
 // and limitations under the License.
+
 package skiplist
 
 import (
@@ -16,7 +17,7 @@ import (
 
 var (
 	minItem unsafe.Pointer
-	maxItem unsafe.Pointer = unsafe.Pointer(^uintptr(0))
+	maxItem = unsafe.Pointer(^uintptr(0))
 )
 
 func compare(cmp CompareFn, this, that unsafe.Pointer) int {
@@ -41,11 +42,13 @@ func (itm byteKeyItem) Size() int {
 	return len(itm)
 }
 
+// NewByteKeyItem creates a new item from bytes
 func NewByteKeyItem(k []byte) unsafe.Pointer {
 	itm := byteKeyItem(k)
 	return unsafe.Pointer(&itm)
 }
 
+// CompareBytes is a byte item comparator
 func CompareBytes(this, that unsafe.Pointer) int {
 	thisItem := (*byteKeyItem)(this)
 	thatItem := (*byteKeyItem)(that)
@@ -62,6 +65,7 @@ func (itm intKeyItem) Size() int {
 	return int(unsafe.Sizeof(itm))
 }
 
+// CompareInt is a helper integer item comparator
 func CompareInt(this, that unsafe.Pointer) int {
 	thisItem := (*intKeyItem)(this)
 	thatItem := (*intKeyItem)(that)

@@ -6,6 +6,7 @@
 // License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
 // either express or implied. See the License for the specific language governing permissions
 // and limitations under the License.
+
 package skiplist
 
 import (
@@ -59,10 +60,12 @@ import (
 * can be terminated only after termination of all previous closed sessions.
 * */
 
+// BarrierSessionDestructor is a callback for SMR based reclaim of objects
 type BarrierSessionDestructor func(objectRef unsafe.Pointer)
 
 const barrierFlushOffset = math.MaxInt32 / 2
 
+// BarrierSession handle tracks the live accessors of a barrier session
 type BarrierSession struct {
 	liveCount *int32
 	objectRef unsafe.Pointer
@@ -70,6 +73,7 @@ type BarrierSession struct {
 	closed    int32
 }
 
+// CompareBS is a barrier session comparator based on seqno
 func CompareBS(this, that unsafe.Pointer) int {
 	thisItm := (*BarrierSession)(this)
 	thatItm := (*BarrierSession)(that)
@@ -85,6 +89,7 @@ func newBarrierSession() *BarrierSession {
 	return bs
 }
 
+// AccessBarrier is the SMR core data structure for the skiplist
 type AccessBarrier struct {
 	activeSeqno uint64
 	session     unsafe.Pointer
@@ -132,6 +137,7 @@ func (ab *AccessBarrier) doCleanup() {
 	}
 }
 
+// Acquire marks enter of an accessor in the skiplist
 func (ab *AccessBarrier) Acquire() *BarrierSession {
 	if ab.active {
 	retry:
@@ -148,6 +154,7 @@ func (ab *AccessBarrier) Acquire() *BarrierSession {
 	return nil
 }
 
+// Release marks leaving of an accesssor in the skiplist
 func (ab *AccessBarrier) Release(bs *BarrierSession) {
 	if ab.active {
 		liveCount := atomic.AddInt32(bs.liveCount, -1)
@@ -168,6 +175,8 @@ func (ab *AccessBarrier) Release(bs *BarrierSession) {
 	}
 }
 
+// FlushSession closes the current barrier session and starts the new session.
+// The caller should provide the destructor pointer for the new session.
 func (ab *AccessBarrier) FlushSession(ref unsafe.Pointer) {
 	if ab.active {
 		ab.Lock()

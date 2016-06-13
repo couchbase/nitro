@@ -6,11 +6,13 @@
 // License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
 // either express or implied. See the License for the specific language governing permissions
 // and limitations under the License.
+
 package skiplist
 
 import "fmt"
 import "sync/atomic"
 
+// StatsReport is used for reporting skiplist statistics
 type StatsReport struct {
 	ReadConflicts       uint64
 	InsertConflicts     uint64
@@ -24,6 +26,7 @@ type StatsReport struct {
 	NodeFrees  int64
 }
 
+// Apply updates the report with provided paritial stats
 func (report *StatsReport) Apply(s *Stats) {
 	var totalNextPtrs int
 	var totalNodes int
@@ -46,6 +49,7 @@ func (report *StatsReport) Apply(s *Stats) {
 	report.Memory += s.usedBytes
 }
 
+// Stats keeps stats for a skiplist instance
 type Stats struct {
 	insertConflicts       uint64
 	readConflicts         uint64
@@ -57,10 +61,12 @@ type Stats struct {
 	isLocal bool
 }
 
+// IsLocal reports true if the stats is partial
 func (s *Stats) IsLocal(flag bool) {
 	s.isLocal = flag
 }
 
+// AddInt64 provides atomic add
 func (s *Stats) AddInt64(src *int64, val int64) {
 	if s.isLocal {
 		*src += val
@@ -69,6 +75,7 @@ func (s *Stats) AddInt64(src *int64, val int64) {
 	}
 }
 
+// AddUint64 provides atomic add
 func (s *Stats) AddUint64(src *uint64, val uint64) {
 	if s.isLocal {
 		*src += val
@@ -77,6 +84,7 @@ func (s *Stats) AddUint64(src *uint64, val uint64) {
 	}
 }
 
+// Merge updates global stats with partial stats and resets partial stats
 func (s *Stats) Merge(sts *Stats) {
 	atomic.AddUint64(&s.insertConflicts, sts.insertConflicts)
 	sts.insertConflicts = 0
@@ -99,7 +107,7 @@ func (s *Stats) Merge(sts *Stats) {
 	}
 }
 
-func (s StatsReport) String() string {
+func (report StatsReport) String() string {
 	str := fmt.Sprintf(
 		"node_count             = %d\n"+
 			"soft_deletes           = %d\n"+
@@ -109,24 +117,27 @@ func (s StatsReport) String() string {
 			"memory_used            = %d\n"+
 			"node_allocs            = %d\n"+
 			"node_frees             = %d\n\n",
-		s.NodeCount, s.SoftDeletes, s.ReadConflicts, s.InsertConflicts,
-		s.NextPointersPerNode, s.Memory, s.NodeAllocs, s.NodeFrees)
+		report.NodeCount, report.SoftDeletes, report.ReadConflicts,
+		report.InsertConflicts, report.NextPointersPerNode, report.Memory,
+		report.NodeAllocs, report.NodeFrees)
 
 	str += "level_node_distribution:\n"
 
-	for i, c := range s.NodeDistribution {
+	for i, c := range report.NodeDistribution {
 		str += fmt.Sprintf("level%d => %d\n", i, c)
 	}
 
 	return str
 }
 
+// GetStats returns skiplist stats
 func (s *Skiplist) GetStats() StatsReport {
 	var report StatsReport
 	report.Apply(&s.Stats)
 	return report
 }
 
+// MemoryInUse returns memory used by skiplist
 func (s *Skiplist) MemoryInUse() int64 {
 	return atomic.LoadInt64(&s.Stats.usedBytes)
 }

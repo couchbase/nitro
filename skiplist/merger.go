@@ -6,12 +6,14 @@
 // License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
 // either express or implied. See the License for the specific language governing permissions
 // and limitations under the License.
+
 package skiplist
 
 import "container/heap"
 import "unsafe"
 
-type mIterator struct {
+// MergeIterator aggregates multiple iterators
+type MergeIterator struct {
 	iters []*Iterator
 	h     nodeHeap
 	curr  *Node
@@ -40,13 +42,15 @@ func (h *nodeHeap) Pop() interface{} {
 	return x
 }
 
-func NewMergeIterator(iters []*Iterator) *mIterator {
-	return &mIterator{
+// NewMergeIterator creates an iterator that merges multiple iterators
+func NewMergeIterator(iters []*Iterator) *MergeIterator {
+	return &MergeIterator{
 		iters: iters,
 	}
 }
 
-func (mit *mIterator) SeekFirst() {
+// SeekFirst moves cursor to the first item
+func (mit *MergeIterator) SeekFirst() {
 	for _, it := range mit.iters {
 		it.SeekFirst()
 		if it.Valid() {
@@ -59,11 +63,13 @@ func (mit *mIterator) SeekFirst() {
 	mit.Next()
 }
 
-func (mit *mIterator) Valid() bool {
+// Valid returns false when cursor reaches end
+func (mit *MergeIterator) Valid() bool {
 	return mit.curr != nil
 }
 
-func (mit *mIterator) Next() {
+// Next moves cursor to the next item
+func (mit *MergeIterator) Next() {
 	mit.curr = nil
 	if mit.h.Len() == 0 {
 		return
@@ -79,7 +85,8 @@ func (mit *mIterator) Next() {
 	}
 }
 
-func (mit *mIterator) Seek(itm unsafe.Pointer) bool {
+// Seek moves cursor to the specified item, if present
+func (mit *MergeIterator) Seek(itm unsafe.Pointer) bool {
 	var found bool
 	for _, it := range mit.iters {
 		if it.Seek(itm) {
@@ -97,10 +104,12 @@ func (mit *mIterator) Seek(itm unsafe.Pointer) bool {
 	return found
 }
 
-func (mit *mIterator) Get() unsafe.Pointer {
+// Get returns current item
+func (mit *MergeIterator) Get() unsafe.Pointer {
 	return mit.curr.Item()
 }
 
-func (mit *mIterator) GetNode() *Node {
+// GetNode returns node for the current item
+func (mit *MergeIterator) GetNode() *Node {
 	return mit.curr
 }

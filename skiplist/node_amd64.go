@@ -6,6 +6,7 @@
 // License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
 // either express or implied. See the License for the specific language governing permissions
 // and limitations under the License.
+
 package skiplist
 
 import (
@@ -33,32 +34,39 @@ var nodeRefFlagSize = unsafe.Sizeof(NodeRef{}.flag)
 
 const deletedFlag = 0xff
 
+// Node represents skiplist node header
 type Node struct {
 	itm    unsafe.Pointer
 	GClink *Node
 	level  uint16
 }
 
+// Level returns the level of a node in the skiplist
 func (n Node) Level() int {
 	return int(n.level)
 }
 
+// Size returns memory used by the node
 func (n Node) Size() int {
 	return int(nodeHdrSize + uintptr(n.level+1)*nodeRefSize)
 }
 
+// Item returns item held by the node
 func (n *Node) Item() unsafe.Pointer {
 	return n.itm
 }
 
+// SetLink can be used to set link pointer for the node
 func (n *Node) SetLink(l *Node) {
 	n.GClink = l
 }
 
+// GetLink returns link pointer from the node
 func (n *Node) GetLink() *Node {
 	return n.GClink
 }
 
+// NodeRef is a wrapper for node pointer
 type NodeRef struct {
 	flag uint64
 	ptr  *Node

@@ -14,16 +14,19 @@ import (
 	"github.com/t3rm1n4l/nitro/skiplist"
 )
 
+// NodeList is a linked list of skiplist nodes
 type NodeList struct {
 	head *skiplist.Node
 }
 
+// NewNodeList creates new node list
 func NewNodeList(head *skiplist.Node) *NodeList {
 	return &NodeList{
 		head: head,
 	}
 }
 
+// Keys returns all keys from the node list
 func (l *NodeList) Keys() (keys [][]byte) {
 	node := l.head
 	for node != nil {
@@ -35,6 +38,7 @@ func (l *NodeList) Keys() (keys [][]byte) {
 	return
 }
 
+// Remove a key from the node list
 func (l *NodeList) Remove(key []byte) *skiplist.Node {
 	var prev *skiplist.Node
 	node := l.head
@@ -44,10 +48,10 @@ func (l *NodeList) Remove(key []byte) *skiplist.Node {
 			if prev == nil {
 				l.head = node.GetLink()
 				return node
-			} else {
-				prev.SetLink(node.GetLink())
-				return node
 			}
+
+			prev.SetLink(node.GetLink())
+			return node
 		}
 		prev = node
 		node = node.GetLink()
@@ -56,11 +60,13 @@ func (l *NodeList) Remove(key []byte) *skiplist.Node {
 	return nil
 }
 
+// Add a key into the node list
 func (l *NodeList) Add(node *skiplist.Node) {
 	node.SetLink(l.head)
 	l.head = node
 }
 
+// Head returns head node from the list
 func (l *NodeList) Head() *skiplist.Node {
 	return l.head
 }

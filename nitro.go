@@ -13,7 +13,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"github.com/t3rm1n4l/nitro/mm"
 	"github.com/t3rm1n4l/nitro/skiplist"
@@ -31,44 +30,41 @@ import (
 )
 
 var (
+	// ErrMaxSnapshotsLimitReached means 32 bit integer overflow of snap number
 	ErrMaxSnapshotsLimitReached = fmt.Errorf("Maximum snapshots limit reached")
-	ErrShutdown                 = fmt.Errorf("Nitro instance has been shutdown")
+	// ErrShutdown means an operation on a shutdown Nitro instance
+	ErrShutdown = fmt.Errorf("Nitro instance has been shutdown")
 )
 
+// KeyCompare implements item data key comparator
 type KeyCompare func([]byte, []byte) int
 
+// VisitorCallback implements  Nitro snapshot visitor callback
 type VisitorCallback func(*Item, int) error
 
+// ItemEntry is a wrapper item struct used by backup file to Nitro restore callback
 type ItemEntry struct {
 	itm *Item
 	n   *skiplist.Node
 }
 
+// Item returns Nitro item
 func (e *ItemEntry) Item() *Item {
 	return e.itm
 }
 
+// Node returns the skiplist node which holds the item
 func (e *ItemEntry) Node() *skiplist.Node {
 	return e.n
 }
 
+// ItemCallback implements callback used for backup file to Nitro restore API
 type ItemCallback func(*ItemEntry)
-type CheckPointCallback func()
-
-type FileType int
 
 const (
-	encodeBufSize      = 4
-	readerBufSize      = 10000
 	defaultRefreshRate = 10000
+	gcchanBufSize      = 256
 )
-
-const (
-	ForestdbFile FileType = iota
-	RawdbFile
-)
-
-const gcchanBufSize = 256
 
 var (
 	dbInstances      *skiplist.Skiplist
@@ -79,6 +75,7 @@ func init() {
 	dbInstances = skiplist.New()
 }
 
+// CompareNitro implements comparator for Nitro instances based on its id
 func CompareNitro(this unsafe.Pointer, that unsafe.Pointer) int {
 	thisItem := (*Nitro)(this)
 	thatItem := (*Nitro)(that)
@@ -86,10 +83,11 @@ func CompareNitro(this unsafe.Pointer, that unsafe.Pointer) int {
 	return int(thisItem.id - thatItem.id)
 }
 
+// DefaultConfig - Nitro configuration
 func DefaultConfig() Config {
 	var cfg Config
 	cfg.SetKeyComparator(defaultKeyCmp)
-	cfg.SetFileType(RawdbFile)
+	cfg.fileType = RawdbFile
 	cfg.useMemoryMgmt = false
 	cfg.refreshRate = defaultRefreshRate
 	return cfg
@@ -153,6 +151,9 @@ func (ctx *deltaWrContext) Init() {
 	ctx.closed = make(chan struct{})
 }
 
+// Writer provides a handle for concurrent access
+// Nitro writer is thread-unsafe and should initialize separate Nitro writers
+// to perform concurrent writes from multiple threads.
 type Writer struct {
 	dwrCtx deltaWrContext // Used for cooperative disk snapshotting
 
@@ -193,10 +194,13 @@ func (w *Writer) doDeltaWrite(itm *Item) {
 	}
 }
 
+// Put implements insert of an item into Intro
+// Put fails if an item already exists
 func (w *Writer) Put(bs []byte) {
 	w.Put2(bs)
 }
 
+// Put2 returns the skiplist node of the item if Put() succeeds
 func (w *Writer) Put2(bs []byte) (n *skiplist.Node) {
 	var success bool
 	x := w.newItem(bs, w.useMemoryMgmt)
@@ -204,33 +208,21 @@ func (w *Writer) Put2(bs []byte) (n *skiplist.Node) {
 	n, success = w.store.Insert2(unsafe.Pointer(x), w.insCmp, w.existCmp, w.buf,
 		w.rand.Float32, &w.slSts1)
 	if success {
-		w.count += 1
+		w.count++
 	} else {
 		w.freeItem(x)
 	}
 	return
 }
 
-// Find first item, seek until dead=0, mark dead=sn
+// Delete an item
+// Delete always succeed if an item exists.
 func (w *Writer) Delete(bs []byte) (success bool) {
 	_, success = w.Delete2(bs)
 	return
 }
 
-func (w *Writer) GetNode(bs []byte) *skiplist.Node {
-	iter := w.store.NewIterator(w.iterCmp, w.buf)
-	defer iter.Close()
-
-	x := w.newItem(bs, false)
-	x.bornSn = w.getCurrSn()
-
-	if found := iter.SeekWithCmp(unsafe.Pointer(x), w.insCmp, w.existCmp); found {
-		return iter.GetNode()
-	}
-
-	return nil
-}
-
+// Delete2 is same as Delete(). Additionally returns the deleted item's node
 func (w *Writer) Delete2(bs []byte) (n *skiplist.Node, success bool) {
 	if n := w.GetNode(bs); n != nil {
 		return n, w.DeleteNode(n)
@@ -239,10 +231,12 @@ func (w *Writer) Delete2(bs []byte) (n *skiplist.Node, success bool) {
 	return nil, false
 }
 
+// DeleteNode deletes an item by specifying its skiplist Node.
+// Using this API can avoid a O(logn) lookup during Delete().
 func (w *Writer) DeleteNode(x *skiplist.Node) (success bool) {
 	defer func() {
 		if success {
-			w.count -= 1
+			w.count--
 		}
 	}()
 
@@ -270,6 +264,23 @@ func (w *Writer) DeleteNode(x *skiplist.Node) (success bool) {
 	return
 }
 
+// GetNode implements lookup of an item and return its skiplist Node
+// This API enables to lookup an item without using a snapshot handle.
+func (w *Writer) GetNode(bs []byte) *skiplist.Node {
+	iter := w.store.NewIterator(w.iterCmp, w.buf)
+	defer iter.Close()
+
+	x := w.newItem(bs, false)
+	x.bornSn = w.getCurrSn()
+
+	if found := iter.SeekWithCmp(unsafe.Pointer(x), w.insCmp, w.existCmp); found {
+		return iter.GetNode()
+	}
+
+	return nil
+}
+
+// Config - Nitro instance configuration
 type Config struct {
 	keyCmp      KeyCompare
 	insCmp      skiplist.CompareFn
@@ -287,6 +298,7 @@ type Config struct {
 	freeFun       skiplist.FreeFn
 }
 
+// SetKeyComparator provides key comparator for the Nitro item data
 func (cfg *Config) SetKeyComparator(cmp KeyCompare) {
 	cfg.keyCmp = cmp
 	cfg.insCmp = newInsertCompare(cmp)
@@ -294,21 +306,11 @@ func (cfg *Config) SetKeyComparator(cmp KeyCompare) {
 	cfg.existCmp = newExistCompare(cmp)
 }
 
-func (cfg *Config) SetFileType(t FileType) error {
-	switch t {
-	case ForestdbFile, RawdbFile:
-	default:
-		return errors.New("Invalid format")
-	}
-
-	cfg.fileType = t
-	return nil
-}
-
 func (cfg *Config) IgnoreItemSize() {
 	cfg.ignoreItemSize = true
 }
 
+// UseMemoryMgmt provides custom memory allocator for Nitro items storage
 func (cfg *Config) UseMemoryMgmt(malloc skiplist.MallocFn, free skiplist.FreeFn) {
 	if runtime.GOARCH == "amd64" {
 		cfg.useMemoryMgmt = true
@@ -317,6 +319,10 @@ func (cfg *Config) UseMemoryMgmt(malloc skiplist.MallocFn, free skiplist.FreeFn)
 	}
 }
 
+// UseDeltaInterleaving option enables to avoid additional memory required during disk backup
+// as due to locking of older snapshots. This non-intrusive backup mode
+// eliminates the need for locking garbage collectable old snapshots. But, it may
+// use additional amount of disk space for backup.
 func (cfg *Config) UseDeltaInterleaving() {
 	cfg.useDeltaFiles = true
 }
@@ -326,6 +332,7 @@ type restoreStats struct {
 	DeltaRestoreFailed uint64
 }
 
+// Nitro instance
 type Nitro struct {
 	id           int
 	store        *skiplist.Skiplist
@@ -349,6 +356,7 @@ type Nitro struct {
 	restoreStats
 }
 
+// NewWithConfig creates a new Nitro instance based on provided configuration.
 func NewWithConfig(cfg Config) *Nitro {
 	m := &Nitro{
 		snapshots:   skiplist.New(),
@@ -401,15 +409,18 @@ func (m *Nitro) initSizeFuns() {
 	}
 }
 
+// New creates a Nitro instance using default configuration
 func New() *Nitro {
 	return NewWithConfig(DefaultConfig())
 }
 
+// MemoryInUse returns total memory used by the Nitro instance.
 func (m *Nitro) MemoryInUse() int64 {
 	storeStats := m.aggrStoreStats()
 	return storeStats.Memory + m.snapshots.MemoryInUse() + m.gcsnapshots.MemoryInUse()
 }
 
+// Close shuts down the nitro instance
 func (m *Nitro) Close() {
 	// Wait until all snapshot iterators have finished
 	for s := m.snapshots.GetStats(); int(s.NodeCount) != 0; s = m.snapshots.GetStats() {
@@ -478,6 +489,7 @@ func (m *Nitro) newWriter() *Writer {
 	return w
 }
 
+// NewWriter creates a Nitro writer
 func (m *Nitro) NewWriter() *Writer {
 	w := m.newWriter()
 	w.next = m.wlist
@@ -494,6 +506,7 @@ func (m *Nitro) NewWriter() *Writer {
 	return w
 }
 
+// Snapshot describes Nitro immutable snapshot
 type Snapshot struct {
 	sn       uint32
 	refCount int32
@@ -503,20 +516,23 @@ type Snapshot struct {
 	gclist *skiplist.Node
 }
 
+// SnapshotSize returns the memory used by Nitro snapshot metadata
 func SnapshotSize(p unsafe.Pointer) int {
 	s := (*Snapshot)(p)
 	return int(unsafe.Sizeof(s.sn) + unsafe.Sizeof(s.refCount) + unsafe.Sizeof(s.db) +
 		unsafe.Sizeof(s.count) + unsafe.Sizeof(s.gclist))
 }
 
+// Count returns the number of items in the Nitro snapshot
 func (s Snapshot) Count() int64 {
 	return s.count
 }
 
+// Encode implements Binary encoder for snapshot metadata
 func (s *Snapshot) Encode(buf []byte, w io.Writer) error {
 	l := 4
 	if len(buf) < l {
-		return ErrNotEnoughSpace
+		return errNotEnoughSpace
 	}
 
 	binary.BigEndian.PutUint32(buf[0:4], s.sn)
@@ -528,6 +544,7 @@ func (s *Snapshot) Encode(buf []byte, w io.Writer) error {
 
 }
 
+// Decode implements binary decoder for snapshot metadata
 func (s *Snapshot) Decode(buf []byte, r io.Reader) error {
 	if _, err := io.ReadFull(r, buf[0:4]); err != nil {
 		return err
@@ -536,6 +553,9 @@ func (s *Snapshot) Decode(buf []byte, r io.Reader) error {
 	return nil
 }
 
+// Open implements reference couting and garbage collection for snapshots
+// When snapshots are shared by multiple threads, each thread should Open the
+// snapshot. This API internally tracks the reference count for the snapshot.
 func (s *Snapshot) Open() bool {
 	if atomic.LoadInt32(&s.refCount) == 0 {
 		return false
@@ -544,6 +564,9 @@ func (s *Snapshot) Open() bool {
 	return true
 }
 
+// Close is the snapshot descructor
+// Once a thread has finished using a snapshot, it can be destroyed by calling
+// Close(). Internal garbage collector takes care of freeing the items.
 func (s *Snapshot) Close() {
 	newRefcount := atomic.AddInt32(&s.refCount, -1)
 	if newRefcount == 0 {
@@ -557,10 +580,12 @@ func (s *Snapshot) Close() {
 	}
 }
 
+// NewIterator creates a new snapshot iterator
 func (s *Snapshot) NewIterator() *Iterator {
 	return s.db.NewIterator(s)
 }
 
+// CompareSnapshot implements comparator for snapshots based on snapshot number
 func CompareSnapshot(this, that unsafe.Pointer) int {
 	thisItem := (*Snapshot)(this)
 	thatItem := (*Snapshot)(that)
@@ -568,6 +593,10 @@ func CompareSnapshot(this, that unsafe.Pointer) int {
 	return int(thisItem.sn) - int(thatItem.sn)
 }
 
+// NewSnapshot creates a new Nitro snapshot.
+// This is a thread-unsafe API.
+// While this API is invoked, no other Nitro writer should concurrently call any
+// public APIs such as Put*() and Delete*().
 func (m *Nitro) NewSnapshot() (*Snapshot, error) {
 	buf := m.snapshots.MakeBuf()
 	defer m.snapshots.FreeBuf(buf)
@@ -604,6 +633,7 @@ func (m *Nitro) NewSnapshot() (*Snapshot, error) {
 	return snap, nil
 }
 
+// ItemsCount returns the number of items in the Nitro instance
 func (m *Nitro) ItemsCount() int64 {
 	return atomic.LoadInt64(&m.itemsCount)
 }
@@ -676,6 +706,7 @@ func (m *Nitro) collectDead() {
 	}
 }
 
+// GC implements manual garbage collection of Nitro snapshots.
 func (m *Nitro) GC() {
 	if atomic.CompareAndSwapInt32(&m.isGCRunning, 0, 1) {
 		m.collectDead()
@@ -683,6 +714,8 @@ func (m *Nitro) GC() {
 	}
 }
 
+// GetSnapshots returns the list of current live snapshots
+// This API is mainly for debugging purpose
 func (m *Nitro) GetSnapshots() []*Snapshot {
 	var snaps []*Snapshot
 	buf := m.snapshots.MakeBuf()
@@ -704,6 +737,9 @@ func (m *Nitro) ptrToItem(itmPtr unsafe.Pointer) *Item {
 	return itm
 }
 
+// Visitor implements concurrent Nitro snapshot visitor
+// This API divides the range of keys in a snapshot into `shards` range partitions
+// Number of concurrent worker threads used can be specified.
 func (m *Nitro) Visitor(snap *Snapshot, callb VisitorCallback, shards int, concurrency int) error {
 	var wg sync.WaitGroup
 	var pivotItems []*Item
@@ -842,6 +878,8 @@ func (m *Nitro) changeDeltaWrState(state int,
 	return err
 }
 
+// StoreToDisk backups Nitro snapshot to disk
+// Concurrent threads are used to perform backup and concurrency can be specified.
 func (m *Nitro) StoreToDisk(dir string, snap *Snapshot, concurr int, itmCallback ItemCallback) (err error) {
 
 	var snapClosed bool
@@ -954,16 +992,18 @@ func (m *Nitro) StoreToDisk(dir string, snap *Snapshot, concurr int, itmCallback
 	return err
 }
 
+// LoadFromDisk restores Nitro from a disk backup
 func (m *Nitro) LoadFromDisk(dir string, concurr int, callb ItemCallback) (*Snapshot, error) {
 	var wg sync.WaitGroup
-	datadir := filepath.Join(dir, "data")
 	var files []string
+	var bs []byte
+	var err error
+	datadir := filepath.Join(dir, "data")
 
-	if bs, err := ioutil.ReadFile(filepath.Join(datadir, "files.json")); err != nil {
+	if bs, err = ioutil.ReadFile(filepath.Join(datadir, "files.json")); err != nil {
 		return nil, err
-	} else {
-		json.Unmarshal(bs, &files)
 	}
+	json.Unmarshal(bs, &files)
 
 	var nodeCallb skiplist.NodeCallback
 	wchan := make(chan int)
@@ -1023,7 +1063,7 @@ func (m *Nitro) LoadFromDisk(dir string, concurr int, callb ItemCallback) (*Snap
 		}(&wg)
 	}
 
-	for i, _ := range files {
+	for i := range files {
 		wchan <- i
 	}
 	close(wchan)
@@ -1095,13 +1135,13 @@ func (m *Nitro) LoadFromDisk(dir string, concurr int, callb ItemCallback) (*Snap
 						if n, success := w.store.Insert2(unsafe.Pointer(itm),
 							w.insCmp, w.existCmp, w.buf, w.rand.Float32, &w.slSts1); success {
 
-							w.resSts.DeltaRestored += 1
+							w.resSts.DeltaRestored++
 							if nodeCallb != nil {
 								nodeCallb(n)
 							}
 						} else {
 							w.freeItem(itm)
-							w.resSts.DeltaRestoreFailed += 1
+							w.resSts.DeltaRestoreFailed++
 						}
 					}
 				}
@@ -1114,7 +1154,7 @@ func (m *Nitro) LoadFromDisk(dir string, concurr int, callb ItemCallback) (*Snap
 			}(&wg, i)
 		}
 
-		for i, _ := range files {
+		for i := range files {
 			wchan <- i
 		}
 		close(wchan)
@@ -1132,6 +1172,7 @@ func (m *Nitro) LoadFromDisk(dir string, concurr int, callb ItemCallback) (*Snap
 	return m.NewSnapshot()
 }
 
+// DumpStats returns Nitro statistics
 func (m *Nitro) DumpStats() string {
 	return m.aggrStoreStats().String()
 }
@@ -1147,6 +1188,7 @@ func (m *Nitro) aggrStoreStats() skiplist.StatsReport {
 	return sts
 }
 
+// MemoryInUse returns total memory used by all Nitro instances in the current process
 func MemoryInUse() (sz int64) {
 	buf := dbInstances.MakeBuf()
 	defer dbInstances.FreeBuf(buf)
@@ -1159,6 +1201,8 @@ func MemoryInUse() (sz int64) {
 	return
 }
 
+// Debug enables debug mode
+// Addtional details will be logged in the statistics
 func Debug(flag bool) {
 	skiplist.Debug = flag
 	mm.Debug = flag

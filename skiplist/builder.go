@@ -6,13 +6,16 @@
 // License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
 // either express or implied. See the License for the specific language governing permissions
 // and limitations under the License.
+
 package skiplist
 
 import "math/rand"
 import "unsafe"
 
+// NodeCallback is used by segment builder
 type NodeCallback func(*Node)
 
+// Segment is a skiplist segment
 type Segment struct {
 	builder *Builder
 	tail    []*Node
@@ -24,10 +27,12 @@ type Segment struct {
 	sts Stats
 }
 
+// SetNodeCallback sets callback for segment builder
 func (s *Segment) SetNodeCallback(fn NodeCallback) {
 	s.callb = fn
 }
 
+// Add an item into skiplist segment
 func (s *Segment) Add(itm unsafe.Pointer) {
 	itemLevel := s.builder.store.NewLevel(s.rand.Float32)
 	x := s.builder.store.newNode(itm, itemLevel)
@@ -49,15 +54,17 @@ func (s *Segment) Add(itm unsafe.Pointer) {
 	}
 }
 
-// Concurrent bottom-up skiplist builder
+// Builder performs concurrent bottom-up skiplist build
 type Builder struct {
 	store *Skiplist
 }
 
+// SetItemSizeFunc configures items size function
 func (b *Builder) SetItemSizeFunc(fn ItemSizeFn) {
 	b.store.ItemSize = fn
 }
 
+// NewSegment creates a new skiplist segment
 func (b *Builder) NewSegment() *Segment {
 	seg := &Segment{tail: make([]*Node, MaxLevel+1),
 		head: make([]*Node, MaxLevel+1), builder: b,
@@ -68,6 +75,7 @@ func (b *Builder) NewSegment() *Segment {
 	return seg
 }
 
+// Assemble multiple skiplist segments and form a parent skiplist
 func (b *Builder) Assemble(segments ...*Segment) *Skiplist {
 	tail := make([]*Node, MaxLevel+1)
 	head := make([]*Node, MaxLevel+1)
@@ -103,10 +111,12 @@ func (b *Builder) Assemble(segments ...*Segment) *Skiplist {
 
 }
 
+// NewBuilder creates a builder based on default config
 func NewBuilder() *Builder {
 	return NewBuilderWithConfig(DefaultConfig())
 }
 
+// NewBuilderWithConfig creates a builder from a config
 func NewBuilderWithConfig(cfg Config) *Builder {
 	return &Builder{store: NewWithConfig(cfg)}
 }

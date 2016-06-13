@@ -13,18 +13,30 @@ import "os"
 import "bufio"
 import "errors"
 
-const DiskBlockSize = 512 * 1024
-
 var (
-	ErrNotEnoughSpace = errors.New("Not enough space in the buffer")
+	// DiskBlockSize - backup file reader and writer
+	DiskBlockSize     = 512 * 1024
+	errNotEnoughSpace = errors.New("Not enough space in the buffer")
 )
 
+// FileType describes backup file format
+type FileType int
+
+const (
+	encodeBufSize = 4
+	readerBufSize = 10000
+	// RawdbFile - backup file storage format
+	RawdbFile FileType = iota
+)
+
+// FileWriter represents backup file writer
 type FileWriter interface {
 	Open(path string) error
 	WriteItem(*Item) error
 	Close() error
 }
 
+// FileReader represents backup file reader
 type FileReader interface {
 	Open(path string) error
 	ReadItem() (*Item, error)

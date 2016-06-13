@@ -6,6 +6,7 @@
 // License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
 // either express or implied. See the License for the specific language governing permissions
 // and limitations under the License.
+
 package skiplist
 
 import (
@@ -15,21 +16,30 @@ import (
 	"unsafe"
 )
 
+// Debug flag enables addtional stats gathering
 var Debug bool
 
+// MaxLevel is the limit for the skiplist levels
 const MaxLevel = 32
 const p = 0.25
 
+// CompareFn is the skiplist item comparator
 type CompareFn func(unsafe.Pointer, unsafe.Pointer) int
+
+// ItemSizeFn returns size of a skiplist item
 type ItemSizeFn func(unsafe.Pointer) int
 
 func defaultItemSize(unsafe.Pointer) int {
 	return 0
 }
 
+// MallocFn is a custom memory allocator
 type MallocFn func(int) unsafe.Pointer
+
+// FreeFn is a custom memory deallocator
 type FreeFn func(unsafe.Pointer)
 
+// Config holds skiplist configuration
 type Config struct {
 	ItemSize ItemSizeFn
 
@@ -39,10 +49,12 @@ type Config struct {
 	BarrierDestructor BarrierSessionDestructor
 }
 
+// SetItemSizeFunc configures item size function
 func (cfg *Config) SetItemSizeFunc(fn ItemSizeFn) {
 	cfg.ItemSize = fn
 }
 
+// DefaultConfig returns default skiplist configuration
 func DefaultConfig() Config {
 	return Config{
 		ItemSize:      defaultItemSize,
@@ -50,6 +62,7 @@ func DefaultConfig() Config {
 	}
 }
 
+// Skiplist - core data structure
 type Skiplist struct {
 	head    *Node
 	tail    *Node
@@ -63,10 +76,12 @@ type Skiplist struct {
 	Config
 }
 
+// New creates a skiplist with default config
 func New() *Skiplist {
 	return NewWithConfig(DefaultConfig())
 }
 
+// NewWithConfig creates a config from given config
 func NewWithConfig(cfg Config) *Skiplist {
 	if runtime.GOARCH != "amd64" {
 		cfg.UseMemoryMgmt = false
@@ -105,20 +120,24 @@ func NewWithConfig(cfg Config) *Skiplist {
 	return s
 }
 
+// GetAccesBarrier returns current active access barrier
 func (s *Skiplist) GetAccesBarrier() *AccessBarrier {
 	return s.barrier
 }
 
+// FreeNode deallocates the skiplist node memory
 func (s *Skiplist) FreeNode(n *Node, sts *Stats) {
 	s.freeNode(n)
 	sts.AddInt64(&sts.nodeFrees, 1)
 }
 
+// ActionBuffer is a temporary buffer used by skiplist operations
 type ActionBuffer struct {
 	preds []*Node
 	succs []*Node
 }
 
+// MakeBuf creates an action buffer
 func (s *Skiplist) MakeBuf() *ActionBuffer {
 	return &ActionBuffer{
 		preds: make([]*Node, MaxLevel+1),
@@ -126,13 +145,16 @@ func (s *Skiplist) MakeBuf() *ActionBuffer {
 	}
 }
 
+// FreeBuf frees an action buffer
 func (s *Skiplist) FreeBuf(b *ActionBuffer) {
 }
 
+// Size returns the size of a node
 func (s *Skiplist) Size(n *Node) int {
 	return s.ItemSize(n.Item()) + n.Size()
 }
 
+// NewLevel returns a random level for the next node
 func (s *Skiplist) NewLevel(randFn func() float32) int {
 	var nextLevel int
 
@@ -167,7 +189,7 @@ func (s *Skiplist) helpDelete(level int, prev, curr, next *Node, sts *Stats) boo
 
 func (s *Skiplist) findPath(itm unsafe.Pointer, cmp CompareFn,
 	buf *ActionBuffer, sts *Stats) (foundNode *Node) {
-	var cmpVal int = 1
+	var cmpVal = 1
 
 retry:
 	prev := s.head
@@ -206,18 +228,21 @@ retry:
 	return
 }
 
+// Insert adds an item into the skiplist
 func (s *Skiplist) Insert(itm unsafe.Pointer, cmp CompareFn,
 	buf *ActionBuffer, sts *Stats) (success bool) {
 	_, success = s.Insert2(itm, cmp, nil, buf, rand.Float32, sts)
 	return
 }
 
+// Insert2 is a more verbose version of Insert
 func (s *Skiplist) Insert2(itm unsafe.Pointer, inscmp CompareFn, eqCmp CompareFn,
 	buf *ActionBuffer, randFn func() float32, sts *Stats) (*Node, bool) {
 	itemLevel := s.NewLevel(randFn)
 	return s.Insert3(itm, inscmp, eqCmp, buf, itemLevel, false, sts)
 }
 
+// Insert3 is more verbose version of Insert2
 func (s *Skiplist) Insert3(itm unsafe.Pointer, insCmp CompareFn, eqCmp CompareFn,
 	buf *ActionBuffer, itemLevel int, skipFindPath bool, sts *Stats) (*Node, bool) {
 
@@ -295,6 +320,7 @@ func (s *Skiplist) softDelete(delNode *Node, sts *Stats) bool {
 	return marked
 }
 
+// Delete an item from the skiplist
 func (s *Skiplist) Delete(itm unsafe.Pointer, cmp CompareFn,
 	buf *ActionBuffer, sts *Stats) bool {
 	token := s.barrier.Acquire()
@@ -309,6 +335,7 @@ func (s *Skiplist) Delete(itm unsafe.Pointer, cmp CompareFn,
 	return s.deleteNode(delNode, cmp, buf, sts)
 }
 
+// DeleteNode an item from the skiplist by specifiying its node
 func (s *Skiplist) DeleteNode(n *Node, cmp CompareFn,
 	buf *ActionBuffer, sts *Stats) bool {
 	token := s.barrier.Acquire()
@@ -327,6 +354,7 @@ func (s *Skiplist) deleteNode(n *Node, cmp CompareFn, buf *ActionBuffer, sts *St
 	return false
 }
 
+// GetRangeSplitItems returns `nways` split range pivots of the skiplist items
 // Explicit barrier and release should be used by the caller before
 // and after this function call
 func (s *Skiplist) GetRangeSplitItems(nways int) []unsafe.Pointer {

@@ -18,6 +18,10 @@ import (
 
 var itemHeaderSize = unsafe.Sizeof(Item{})
 
+// Item represents nitro item header
+// The item data is followed by the header.
+// Item data is a block of bytes. The user can store key and value into a
+// block of bytes and provide custom key comparator.
 type Item struct {
 	bornSn  uint32
 	deadSn  uint32
@@ -52,10 +56,11 @@ func (m *Nitro) allocItem(l int, useMM bool) (itm *Item) {
 	return
 }
 
+// EncodeItem encodes in [2 byte len][item_bytes] format.
 func (m *Nitro) EncodeItem(itm *Item, buf []byte, w io.Writer) error {
 	l := 2
 	if len(buf) < l {
-		return ErrNotEnoughSpace
+		return errNotEnoughSpace
 	}
 
 	binary.BigEndian.PutUint16(buf[0:2], uint16(itm.dataLen))
@@ -69,6 +74,7 @@ func (m *Nitro) EncodeItem(itm *Item, buf []byte, w io.Writer) error {
 	return nil
 }
 
+// DecodeItem decodes encoded [2 byte len][item_bytes] format.
 func (m *Nitro) DecodeItem(buf []byte, r io.Reader) (*Item, error) {
 	if _, err := io.ReadFull(r, buf[0:2]); err != nil {
 		return nil, err
@@ -85,6 +91,7 @@ func (m *Nitro) DecodeItem(buf []byte, r io.Reader) (*Item, error) {
 	return nil, nil
 }
 
+// Bytes return item data bytes
 func (itm *Item) Bytes() (bs []byte) {
 	l := itm.dataLen
 	dataOffset := uintptr(unsafe.Pointer(itm)) + itemHeaderSize
@@ -96,6 +103,7 @@ func (itm *Item) Bytes() (bs []byte) {
 	return
 }
 
+// ItemSize returns total bytes consumed by item representation
 func ItemSize(p unsafe.Pointer) int {
 	itm := (*Item)(p)
 	return int(itemHeaderSize + uintptr(itm.dataLen))
