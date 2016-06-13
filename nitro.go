@@ -282,15 +282,13 @@ func (w *Writer) GetNode(bs []byte) *skiplist.Node {
 
 // Config - Nitro instance configuration
 type Config struct {
-	keyCmp      KeyCompare
-	insCmp      skiplist.CompareFn
-	iterCmp     skiplist.CompareFn
-	existCmp    skiplist.CompareFn
+	keyCmp   KeyCompare
+	insCmp   skiplist.CompareFn
+	iterCmp  skiplist.CompareFn
+	existCmp skiplist.CompareFn
+
 	refreshRate int
-
-	ignoreItemSize bool
-
-	fileType FileType
+	fileType    FileType
 
 	useMemoryMgmt bool
 	useDeltaFiles bool
@@ -304,10 +302,6 @@ func (cfg *Config) SetKeyComparator(cmp KeyCompare) {
 	cfg.insCmp = newInsertCompare(cmp)
 	cfg.iterCmp = newIterCompare(cmp)
 	cfg.existCmp = newExistCompare(cmp)
-}
-
-func (cfg *Config) IgnoreItemSize() {
-	cfg.ignoreItemSize = true
 }
 
 // UseMemoryMgmt provides custom memory allocator for Nitro items storage
@@ -404,9 +398,7 @@ func (m *Nitro) newBSDestructor() skiplist.BarrierSessionDestructor {
 func (m *Nitro) initSizeFuns() {
 	m.snapshots.SetItemSizeFunc(SnapshotSize)
 	m.gcsnapshots.SetItemSizeFunc(SnapshotSize)
-	if !m.ignoreItemSize {
-		m.store.SetItemSizeFunc(ItemSize)
-	}
+	m.store.SetItemSizeFunc(ItemSize)
 }
 
 // New creates a Nitro instance using default configuration
