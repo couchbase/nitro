@@ -22,7 +22,8 @@ import (
 )
 
 var (
-	Debug bool = true
+	// Debug enables debug stats
+	Debug = true
 	mu    sync.Mutex
 )
 
@@ -31,7 +32,7 @@ var stats struct {
 	frees  uint64
 }
 
-// C like memory allocator
+// Malloc implements C like memory allocator
 func Malloc(l int) unsafe.Pointer {
 	if Debug {
 		atomic.AddUint64(&stats.allocs, 1)
@@ -39,7 +40,7 @@ func Malloc(l int) unsafe.Pointer {
 	return C.mm_malloc(C.size_t(l))
 }
 
-// C like memory deallocator
+// Free implements C like memory deallocator
 func Free(p unsafe.Pointer) {
 	if Debug {
 		atomic.AddUint64(&stats.frees, 1)
@@ -47,7 +48,7 @@ func Free(p unsafe.Pointer) {
 	C.mm_free(p)
 }
 
-// Allocator statistics
+// Stats returns allocator statistics
 // Returns jemalloc stats
 func Stats() string {
 	mu.Lock()
@@ -68,12 +69,12 @@ func Stats() string {
 	return s
 }
 
-// Total size allocated by mm allocator
+// Size returns total size allocated by mm allocator
 func Size() uint64 {
 	return uint64(C.mm_size())
 }
 
-// Force jemalloc to scrub memory and release back to OS
+// FreeOSMemory forces jemalloc to scrub memory and release back to OS
 func FreeOSMemory() error {
 	errCode := int(C.mm_free2os())
 	if errCode != 0 {
