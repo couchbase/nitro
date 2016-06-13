@@ -291,7 +291,6 @@ func TestStoreDiskShutdown(t *testing.T) {
 	snap, _ := db.NewSnapshot()
 	fmt.Println(db.DumpStats())
 
-	t0 = time.Now()
 	errch := make(chan error, 1)
 	go func() {
 		errch <- db.StoreToDisk("db.dump", snap, 8, nil)

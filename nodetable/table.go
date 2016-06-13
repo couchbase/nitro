@@ -7,10 +7,8 @@
 // either express or implied. See the License for the specific language governing permissions
 // and limitations under the License.
 
-package nodetable
-
-// A high performance GC optimized Node lookup table for Nitro index storage
-// This table is not thread-safe
+// Package nodetable implements high performance GC optimized Node lookup table
+// for Nitro index storage. This table is not thread-safe
 //
 // Golang map does not need to pay the cost of GC scans if you have native
 // fixed size types for both key and value. We use two tables for the node
@@ -20,6 +18,7 @@ package nodetable
 // key used. If the bit is set, that means we need to lookup second table,
 // which is the slow table. Slow table has multiple entries which are mapped
 // by the same crc32 key.
+package nodetable
 
 import "unsafe"
 import "fmt"
@@ -35,9 +34,13 @@ func init() {
 	dbInstances = skiplist.New()
 }
 
+// EqualKeyFn implements key equality check
 type EqualKeyFn func(unsafe.Pointer, []byte) bool
+
+// HashFn implements 32bit hash function on a string
 type HashFn func([]byte) uint32
 
+// NodeTable describes lookup table
 type NodeTable struct {
 	fastHT      map[uint32]uint64
 	slowHT      map[uint32][]uint64
@@ -51,6 +54,7 @@ type NodeTable struct {
 	res ntResult
 }
 
+// CompareNodeTable implements comparator for nodetable instances
 func CompareNodeTable(a, b unsafe.Pointer) int {
 	return int(uintptr(a)) - int(uintptr(b))
 }
@@ -72,6 +76,7 @@ type ntResult struct {
 	slowHTPos      int
 }
 
+// New creates a nodetable instance
 func New(hfn HashFn, kfn EqualKeyFn) *NodeTable {
 	nt := &NodeTable{
 		fastHT:   make(map[uint32]uint64),
@@ -87,6 +92,7 @@ func New(hfn HashFn, kfn EqualKeyFn) *NodeTable {
 	return nt
 }
 
+// Stats returns nodetable statistics
 func (nt *NodeTable) Stats() string {
 	return fmt.Sprintf("\nFastHTCount = %d\n"+
 		"SlowHTCount = %d\n"+
@@ -95,23 +101,25 @@ func (nt *NodeTable) Stats() string {
 		nt.fastHTCount, nt.slowHTCount, nt.conflicts, nt.MemoryInUse())
 }
 
+// MemoryInUse returns memory used by nodetable instance
 func (nt *NodeTable) MemoryInUse() int64 {
 	return int64(approxItemSize * (nt.fastHTCount + nt.slowHTCount))
 }
 
+// Get returns node pointer for the lookup key
 func (nt *NodeTable) Get(key []byte) unsafe.Pointer {
 	res := nt.find(key)
 	if res.status&ntFoundMask == ntFoundMask {
 		if res.status == ntFoundInFast {
 			return decodePointer(res.fastHTValue)
-		} else {
-			return decodePointer(res.slowHTValues[res.slowHTPos])
 		}
+		return decodePointer(res.slowHTValues[res.slowHTPos])
 	}
 
 	return nil
 }
 
+// Update inserts or replaces an existing entry
 func (nt *NodeTable) Update(key []byte, nptr unsafe.Pointer) (updated bool, oldPtr unsafe.Pointer) {
 	res := nt.find(key)
 	if res.status&ntFoundMask == ntFoundMask {
@@ -150,6 +158,7 @@ func (nt *NodeTable) Update(key []byte, nptr unsafe.Pointer) (updated bool, oldP
 	return
 }
 
+// Remove an item from the nodetable
 func (nt *NodeTable) Remove(key []byte) (success bool, nptr unsafe.Pointer) {
 	res := nt.find(key)
 	if res.status&ntFoundMask == ntFoundMask {
@@ -258,6 +267,7 @@ func (nt *NodeTable) find(key []byte) (res *ntResult) {
 	return
 }
 
+// Close destroys the nodetable
 func (nt *NodeTable) Close() {
 	nt.fastHTCount = 0
 	nt.slowHTCount = 0
@@ -270,6 +280,7 @@ func (nt *NodeTable) Close() {
 	dbInstances.Delete(unsafe.Pointer(nt), CompareNodeTable, buf, &dbInstances.Stats)
 }
 
+// MemoryInUse returns total memory used by nodetables in a process
 func MemoryInUse() (sz int64) {
 	buf := dbInstances.MakeBuf()
 	defer dbInstances.FreeBuf(buf)
