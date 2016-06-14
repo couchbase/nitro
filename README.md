@@ -5,9 +5,8 @@ The storage engine is based lock-free data structures and scales well with
 multicore CPUs.
 
 [![Build Status](https://travis-ci.org/t3rm1n4l/nitro.svg?branch=master)](https://travis-ci.org/t3rm1n4l/nitro)
-[![Coverage Status](https://coveralls.io/repos/github/t3rm1n4l/nitro/badge.svg?branch=master)](https://coveralls.io/github/t3rm1n4l/nitro?branch=master)
-[![GoDoc](https://godoc.org/github.com/t3rm1n4l/nitro?status.svg)](https://godoc.org/github.com/t3rm1n4l/nitro)
 [![Go Report Card](https://goreportcard.com/badge/github.com/t3rm1n4l/nitro)](https://goreportcard.com/report/github.com/t3rm1n4l/nitro)
+[![GoDoc](https://godoc.org/github.com/t3rm1n4l/nitro?status.svg)](https://godoc.org/github.com/t3rm1n4l/nitro)
 
 
 ### Features
