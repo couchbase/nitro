@@ -10,6 +10,7 @@
 package nitro
 
 import (
+	"bytes"
 	"encoding/binary"
 	"io"
 	"reflect"
@@ -107,4 +108,30 @@ func (itm *Item) Bytes() (bs []byte) {
 func ItemSize(p unsafe.Pointer) int {
 	itm := (*Item)(p)
 	return int(itemHeaderSize + uintptr(itm.dataLen))
+}
+
+// KVToBytes encodes key-value pair to item bytes which can be passed
+// to the Put() and Delete() methods.
+func KVToBytes(k, v []byte) []byte {
+	klen := len(k)
+	buf := make([]byte, 2, len(k)+len(v)+2)
+	binary.LittleEndian.PutUint16(buf[0:2], uint16(klen))
+	buf = append(buf, k...)
+	buf = append(buf, v...)
+
+	return buf
+}
+
+// KVFromBytes extracts key-value pair from item bytes returned by iterator
+func KVFromBytes(bs []byte) (k, v []byte) {
+	klen := int(binary.LittleEndian.Uint16(bs[0:2]))
+	return bs[2 : 2+klen], bs[2+klen:]
+}
+
+// CompareKV is a comparator for KV item
+func CompareKV(a []byte, b []byte) int {
+	la := int(binary.LittleEndian.Uint16(a[0:2]))
+	lb := int(binary.LittleEndian.Uint16(b[0:2]))
+
+	return bytes.Compare(a[2:2+la], b[2:2+lb])
 }
