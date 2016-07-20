@@ -192,7 +192,7 @@ func (nt *NodeTable) Remove(key []byte) (success bool, nptr unsafe.Pointer) {
 			// Remove key from slowHT
 			newSlowValue := append([]uint64(nil), res.slowHTValues[:res.slowHTPos]...)
 			if res.slowHTPos+1 != len(res.slowHTValues) {
-				newSlowValue = append(newSlowValue, res.slowHTValues[:res.slowHTPos+1]...)
+				newSlowValue = append(newSlowValue, res.slowHTValues[res.slowHTPos+1:]...)
 			}
 			nt.slowHTCount--
 
@@ -200,6 +200,8 @@ func (nt *NodeTable) Remove(key []byte) (success bool, nptr unsafe.Pointer) {
 				delete(nt.slowHT, res.hash)
 				nt.fastHT[res.hash] = encodePointer(decodePointer(nt.fastHT[res.hash]), false)
 				nt.conflicts--
+			} else {
+				nt.slowHT[res.hash] = newSlowValue
 			}
 		}
 	}
