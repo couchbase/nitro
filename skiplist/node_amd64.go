@@ -24,8 +24,9 @@ import (
 //                                  +----------------------+--------------+--------------+--------------+
 
 var nodeHdrSize = unsafe.Sizeof(struct {
-	itm    unsafe.Pointer
-	GClink *Node
+	itm     unsafe.Pointer
+	GClink  *Node
+	DataPtr unsafe.Pointer
 }{})
 
 var nodeRefSize = unsafe.Sizeof(NodeRef{})
@@ -36,9 +37,10 @@ const deletedFlag = 0xff
 
 // Node represents skiplist node header
 type Node struct {
-	itm    unsafe.Pointer
-	GClink *Node
-	level  uint16
+	itm     unsafe.Pointer
+	GClink  *Node
+	DataPtr unsafe.Pointer
+	level   uint16
 }
 
 // Level returns the level of a node in the skiplist
