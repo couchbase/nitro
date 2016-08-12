@@ -253,10 +253,10 @@ loop:
 			bp := (*basePage)(unsafe.Pointer(pd))
 			n := int(bp.numItems)
 			index := sort.Search(n, func(i int) bool {
-				return pg.cmp(bp.items[i], itm) == 0
+				return pg.cmp(bp.items[i], itm) >= 0
 			})
 
-			if index < n {
+			if index < n && pg.cmp(bp.items[index], itm) == 0 {
 				return bp.items[index]
 			}
 
@@ -406,7 +406,7 @@ type pageIterator struct {
 }
 
 func (pi *pageIterator) Get() unsafe.Pointer {
-	return pi.itms[pi.i].Item()
+	return pi.itms[pi.i]
 }
 
 func (pi *pageIterator) Valid() bool {
@@ -424,7 +424,7 @@ func (pi *pageIterator) Seek(itm unsafe.Pointer) {
 
 }
 
-func (pg *page) NewIterator() *pageIterator {
+func (pg *page) NewIterator() ItemIterator {
 	return &pageIterator{
 		itms: pg.collectItems(pg.head, nil, pg.head.hiItm),
 		cmp:  pg.cmp,
