@@ -41,6 +41,30 @@ type Page interface {
 	Compact()
 }
 
+type ItemIterator interface {
+	Seek(unsafe.Pointer)
+	Get() unsafe.Pointer
+	Valid() bool
+	Next()
+}
+
+type PageItem interface {
+	IsInsert() bool
+	Item() unsafe.Pointer
+}
+
+type pageItem struct {
+	itm unsafe.Pointer
+}
+
+func (pi *pageItem) IsInsert() bool {
+	return true
+}
+
+func (pi *pageItem) Item() unsafe.Pointer {
+	return pi.itm
+}
+
 var pageDeltaHdrSize = unsafe.Sizeof(*new(pageDelta))
 
 type pageDelta struct {
@@ -91,6 +115,20 @@ type mergePageDelta struct {
 }
 
 type removePageDelta pageDelta
+
+type storeCtx struct {
+	itemSize  func(unsafe.Pointer) uintptr
+	cmp       CompareFn
+	getDeltas func(PageId) *pageDelta
+}
+
+type page struct {
+	*storeCtx
+
+	low         unsafe.Pointer
+	prevHeadPtr unsafe.Pointer
+	head        *pageDelta
+}
 
 func (pg *page) newRecordDelta(op pageOp, itm unsafe.Pointer) *pageDelta {
 	pd := new(recordDelta)
@@ -215,7 +253,7 @@ loop:
 			bp := (*basePage)(unsafe.Pointer(pd))
 			n := int(bp.numItems)
 			index := sort.Search(n, func(i int) bool {
-				return pg.cmp(bp.items[i], itm) >= 0
+				return pg.cmp(bp.items[i], itm) == 0
 			})
 
 			if index < n {
@@ -359,4 +397,36 @@ func (pg *page) collectItems(head *pageDelta, loItm, hiItm unsafe.Pointer) []uns
 	}
 
 	return itms
+}
+
+type pageIterator struct {
+	cmp  CompareFn
+	itms []unsafe.Pointer
+	i    int
+}
+
+func (pi *pageIterator) Get() unsafe.Pointer {
+	return pi.itms[pi.i].Item()
+}
+
+func (pi *pageIterator) Valid() bool {
+	return pi.i < len(pi.itms)
+}
+
+func (pi *pageIterator) Next() {
+	pi.i++
+}
+
+func (pi *pageIterator) Seek(itm unsafe.Pointer) {
+	pi.i = sort.Search(len(pi.itms), func(i int) bool {
+		return pi.cmp(pi.itms[i], itm) >= 0
+	})
+
+}
+
+func (pg *page) NewIterator() *pageIterator {
+	return &pageIterator{
+		itms: pg.collectItems(pg.head, nil, pg.head.hiItm),
+		cmp:  pg.cmp,
+	}
 }
