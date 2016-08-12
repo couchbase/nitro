@@ -250,6 +250,13 @@ func (s *Skiplist) Insert3(itm unsafe.Pointer, insCmp CompareFn, eqCmp CompareFn
 	defer s.barrier.Release(token)
 
 	x := s.newNode(itm, itemLevel)
+	return x, s.insert(x, insCmp, eqCmp, buf, itemLevel, skipFindPath, sts)
+}
+
+func (s *Skiplist) insert(x *Node, insCmp CompareFn, eqCmp CompareFn, buf *ActionBuffer,
+	itemLevel int, skipFindPath bool, sts *Stats) bool {
+
+	itm := x.Item()
 
 retry:
 	if skipFindPath {
@@ -259,7 +266,7 @@ retry:
 			eqCmp != nil && compare(eqCmp, itm, buf.preds[0].Item()) == 0 {
 
 			s.freeNode(x)
-			return nil, false
+			return false
 		}
 	}
 
@@ -300,7 +307,7 @@ finished:
 	sts.AddInt64(&sts.nodeAllocs, 1)
 	sts.AddInt64(&sts.levelNodesCount[itemLevel], 1)
 	sts.AddInt64(&sts.usedBytes, int64(s.Size(x)))
-	return x, true
+	return true
 }
 
 func (s *Skiplist) softDelete(delNode *Node, sts *Stats) bool {
