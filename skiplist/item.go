@@ -48,6 +48,16 @@ func NewByteKeyItem(k []byte) unsafe.Pointer {
 	return unsafe.Pointer(&itm)
 }
 
+func NewIntKeyItem(x int) unsafe.Pointer {
+	p := new(int)
+	*p = x
+	return unsafe.Pointer(p)
+}
+
+func IntFromItem(itm unsafe.Pointer) int {
+	return int(*(*intKeyItem)(itm))
+}
+
 // CompareBytes is a byte item comparator
 func CompareBytes(this, that unsafe.Pointer) int {
 	thisItem := (*byteKeyItem)(this)
@@ -67,6 +77,14 @@ func (itm intKeyItem) Size() int {
 
 // CompareInt is a helper integer item comparator
 func CompareInt(this, that unsafe.Pointer) int {
+	if this == minItem || that == maxItem {
+		return -1
+	}
+
+	if this == maxItem || that == minItem {
+		return 1
+	}
+
 	thisItem := (*intKeyItem)(this)
 	thatItem := (*intKeyItem)(that)
 	return int(*thisItem - *thatItem)
