@@ -1,4 +1,4 @@
-package skiplist
+package plasma
 
 import (
 	"reflect"
