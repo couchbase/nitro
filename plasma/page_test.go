@@ -1,6 +1,7 @@
 package plasma
 
 import (
+	"github.com/t3rm1n4l/nitro/skiplist"
 	"testing"
 	"unsafe"
 )
@@ -14,9 +15,9 @@ func newTestPage() (*page, *storePtr) {
 	return &page{
 		storeCtx: &storeCtx{
 			itemSize: func(unsafe.Pointer) uintptr {
-				return unsafe.Sizeof(new(IntKeyItem))
+				return unsafe.Sizeof(new(skiplist.IntKeyItem))
 			},
-			cmp: CompareInt,
+			cmp: skiplist.CompareInt,
 			getDeltas: func(PageId) *pageDelta {
 				return sp.p.(*pageDelta)
 			},
@@ -27,24 +28,24 @@ func newTestPage() (*page, *storePtr) {
 func TestPageOperations(t *testing.T) {
 	pg, sp := newTestPage()
 	for i := 0; i < 1000; i++ {
-		bk := NewIntKeyItem(i)
+		bk := skiplist.NewIntKeyItem(i)
 		pg.Insert(bk)
 	}
 
 	verify := func(pg Page, start, end int, missing bool) {
 		for i := start; i < end; i++ {
-			bk := NewIntKeyItem(i)
+			bk := skiplist.NewIntKeyItem(i)
 			itm := pg.Lookup(bk)
 			if missing {
 				if itm != nil {
-					v := IntFromItem(itm)
+					v := skiplist.IntFromItem(itm)
 					t.Errorf("expected missing for %d, got %d", i, v)
 				}
 			} else {
 				if itm == nil {
 					t.Errorf("unexpected nil for %d", i)
 				} else {
-					v := IntFromItem(itm)
+					v := skiplist.IntFromItem(itm)
 					if v != i {
 						t.Errorf("expected %d, got %d", i, v)
 					}
@@ -90,12 +91,12 @@ func TestPageOperations(t *testing.T) {
 	verify(pg, 0, 1000, false)
 
 	for i := 100; i < 400; i++ {
-		bk := NewIntKeyItem(i)
+		bk := skiplist.NewIntKeyItem(i)
 		pg.Delete(bk)
 	}
 
 	for i := 500; i < 800; i++ {
-		bk := NewIntKeyItem(i)
+		bk := skiplist.NewIntKeyItem(i)
 		pg.Delete(bk)
 	}
 
@@ -115,13 +116,13 @@ func TestPageOperations(t *testing.T) {
 func TestPageIterator(t *testing.T) {
 	pg, _ := newTestPage()
 	for i := 0; i < 1000; i++ {
-		bk := NewIntKeyItem(i)
+		bk := skiplist.NewIntKeyItem(i)
 		pg.Insert(bk)
 	}
 
 	i := 0
 	for itr := pg.NewIterator(); itr.Valid(); itr.Next() {
-		v := IntFromItem(itr.Get())
+		v := skiplist.IntFromItem(itr.Get())
 		if v != i {
 			t.Errorf("expected %d, got %d", i, v)
 		}
@@ -133,8 +134,8 @@ func TestPageIterator(t *testing.T) {
 
 	i = 550
 	itr := pg.NewIterator()
-	for itr.Seek(NewIntKeyItem(i)); itr.Valid(); itr.Next() {
-		v := IntFromItem(itr.Get())
+	for itr.Seek(skiplist.NewIntKeyItem(i)); itr.Valid(); itr.Next() {
+		v := skiplist.IntFromItem(itr.Get())
 		if v != i {
 			t.Errorf("expected %d, got %d", i, v)
 		}
@@ -145,12 +146,12 @@ func TestPageIterator(t *testing.T) {
 		t.Errorf("expected 1000 items")
 	}
 
-	pg.Insert(NewIntKeyItem(1500))
-	pg.Insert(NewIntKeyItem(1600))
-	pg.Insert(NewIntKeyItem(1601))
+	pg.Insert(skiplist.NewIntKeyItem(1500))
+	pg.Insert(skiplist.NewIntKeyItem(1600))
+	pg.Insert(skiplist.NewIntKeyItem(1601))
 	itr = pg.NewIterator()
-	itr.Seek(NewIntKeyItem((1510)))
-	v := IntFromItem(itr.Get())
+	itr.Seek(skiplist.NewIntKeyItem((1510)))
+	v := skiplist.IntFromItem(itr.Get())
 	if v != 1600 {
 		t.Errorf("expected %d, got %d", 1600, v)
 	}

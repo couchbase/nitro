@@ -1,6 +1,7 @@
 package plasma
 
 import (
+	"github.com/t3rm1n4l/nitro/skiplist"
 	"reflect"
 	"sort"
 	"unsafe"
@@ -22,7 +23,7 @@ func memcopy(dst, src unsafe.Pointer, sz int) {
 
 type pageItemSorter struct {
 	itms []PageItem
-	cmp  CompareFn
+	cmp  skiplist.CompareFn
 }
 
 func (s *pageItemSorter) Len() int {

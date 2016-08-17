@@ -2,6 +2,7 @@ package plasma
 
 import (
 	"fmt"
+	"github.com/t3rm1n4l/nitro/skiplist"
 	"reflect"
 	"sort"
 	"unsafe"
@@ -118,7 +119,7 @@ type removePageDelta pageDelta
 
 type storeCtx struct {
 	itemSize  func(unsafe.Pointer) uintptr
-	cmp       CompareFn
+	cmp       skiplist.CompareFn
 	getDeltas func(PageId) *pageDelta
 }
 
@@ -134,7 +135,7 @@ func (pg *page) newRecordDelta(op pageOp, itm unsafe.Pointer) *pageDelta {
 	pd := new(recordDelta)
 	var hiItm unsafe.Pointer
 	if pg.head == nil {
-		hiItm = maxItem
+		hiItm = skiplist.MaxItem
 	} else {
 		*(*pageDelta)(unsafe.Pointer(pd)) = *pg.head
 		hiItm = pg.head.hiItm
@@ -400,7 +401,7 @@ func (pg *page) collectItems(head *pageDelta, loItm, hiItm unsafe.Pointer) []uns
 }
 
 type pageIterator struct {
-	cmp  CompareFn
+	cmp  skiplist.CompareFn
 	itms []unsafe.Pointer
 	i    int
 }
