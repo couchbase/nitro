@@ -1,8 +1,11 @@
 package plasma
 
 import (
+	"fmt"
 	"github.com/t3rm1n4l/nitro/skiplist"
+	"sync"
 	"testing"
+	"time"
 	"unsafe"
 )
 
@@ -51,4 +54,118 @@ func TestPlasmaSimple(t *testing.T) {
 			}
 		}
 	}
+}
+
+func doInsert(w *Writer, wg *sync.WaitGroup, id, n int) {
+	defer wg.Done()
+
+	for i := 0; i < n; i++ {
+		val := i + id*n
+		itm := skiplist.NewIntKeyItem(val)
+		w.Insert(itm)
+	}
+}
+
+func doDelete(w *Writer, wg *sync.WaitGroup, id, n int) {
+	defer wg.Done()
+
+	for i := 0; i < n; i++ {
+		val := i + id*n
+		itm := skiplist.NewIntKeyItem(val)
+		w.Delete(itm)
+	}
+}
+
+func doLookup(w *Writer, wg *sync.WaitGroup, id, n int) {
+	defer wg.Done()
+
+	for i := 0; i < n; i++ {
+		val := i + id*n
+		itm := skiplist.NewIntKeyItem(val)
+		if w.Lookup(itm) == nil {
+			panic(i)
+		}
+	}
+}
+
+func TestPlasmaInsertPerf(t *testing.T) {
+	var wg sync.WaitGroup
+
+	numThreads := 4
+	n := 10000000
+	nPerThr := n / numThreads
+	s := newTestIntPlasmaStore()
+	total := numThreads * nPerThr
+
+	t0 := time.Now()
+	for i := 0; i < numThreads; i++ {
+		wg.Add(1)
+		w := s.NewWriter()
+		go doInsert(w, &wg, i, nPerThr)
+	}
+	wg.Wait()
+
+	dur := time.Since(t0)
+
+	fmt.Printf("%d items insert took %v -> %v items/s\n", total, dur, float64(total)/float64(dur.Seconds()))
+
+}
+
+func TestPlasmaDeletePerf(t *testing.T) {
+	var wg sync.WaitGroup
+
+	numThreads := 4
+	n := 10000000
+	nPerThr := n / numThreads
+	s := newTestIntPlasmaStore()
+	total := numThreads * nPerThr
+
+	for i := 0; i < numThreads; i++ {
+		wg.Add(1)
+		w := s.NewWriter()
+		go doInsert(w, &wg, i, nPerThr)
+	}
+	wg.Wait()
+
+	t0 := time.Now()
+	for i := 0; i < numThreads; i++ {
+		wg.Add(1)
+		w := s.NewWriter()
+		go doDelete(w, &wg, i, nPerThr)
+	}
+	wg.Wait()
+
+	dur := time.Since(t0)
+
+	fmt.Printf("%d items delete took %v -> %v items/s\n", total, dur, float64(total)/float64(dur.Seconds()))
+}
+
+func TestPlasmaLookupPerf(t *testing.T) {
+	var wg sync.WaitGroup
+
+	numThreads := 4
+	n := 10000000
+	nPerThr := n / numThreads
+	s := newTestIntPlasmaStore()
+	total := numThreads * nPerThr
+
+	for i := 0; i < numThreads; i++ {
+		wg.Add(1)
+		w := s.NewWriter()
+		go doInsert(w, &wg, i, nPerThr)
+	}
+	wg.Wait()
+
+	t0 := time.Now()
+	for i := 0; i < numThreads; i++ {
+		wg.Add(1)
+		w := s.NewWriter()
+		go doLookup(w, &wg, i, nPerThr)
+	}
+	wg.Wait()
+
+	dur := time.Since(t0)
+
+	fmt.Printf("%d items lookup took %v -> %v items/s\n", total, dur, float64(total)/float64(dur.Seconds()))
+
 }
