@@ -1,7 +1,9 @@
 package plasma
 
 import (
+	"fmt"
 	"github.com/t3rm1n4l/nitro/skiplist"
+	"sync"
 	"unsafe"
 )
 
@@ -9,11 +11,62 @@ type Plasma struct {
 	Config
 	*skiplist.Skiplist
 	*pageTable
+	wlist []*Writer
+	sync.RWMutex
 }
 
 type wCtx struct {
-	buf *skiplist.ActionBuffer
-	sts *skiplist.Stats
+	buf   *skiplist.ActionBuffer
+	slSts *skiplist.Stats
+	sts   *Stats
+}
+
+type Stats struct {
+	Compacts int64
+	Splits   int64
+	Merges   int64
+	Inserts  int64
+	Deletes  int64
+
+	CompactConflicts int64
+	SplitConflicts   int64
+	MergeConflicts   int64
+	InsertConflicts  int64
+	DeleteConflicts  int64
+}
+
+func (s *Stats) Merge(o *Stats) {
+	s.Compacts += o.Compacts
+	s.Splits += o.Splits
+	s.Merges += o.Merges
+	s.Inserts += o.Inserts
+	s.Deletes += o.Deletes
+
+	s.CompactConflicts += o.CompactConflicts
+	s.SplitConflicts += o.SplitConflicts
+	s.MergeConflicts += o.MergeConflicts
+	s.InsertConflicts += o.InsertConflicts
+	s.DeleteConflicts += o.DeleteConflicts
+}
+
+func (s Stats) String() string {
+	return fmt.Sprintf("===== Stats =====\n"+
+		"count             = %d\n"+
+		"compacts          = %d\n"+
+		"splits            = %d\n"+
+		"merges            = %d\n"+
+		"inserts           = %d\n"+
+		"deletes           = %d\n"+
+		"compact_conflicts = %d\n"+
+		"split_conflicts   = %d\n"+
+		"merge_conflicts   = %d\n"+
+		"insert_conflicts  = %d\n"+
+		"delete_conflicts  = %d\n",
+		s.Inserts-s.Deletes,
+		s.Compacts, s.Splits, s.Merges,
+		s.Inserts, s.Deletes, s.CompactConflicts,
+		s.SplitConflicts, s.MergeConflicts,
+		s.InsertConflicts, s.DeleteConflicts)
 }
 
 type Config struct {
@@ -41,30 +94,49 @@ type Writer struct {
 }
 
 func (s *Plasma) NewWriter() *Writer {
-	return &Writer{
+	w := &Writer{
 		Plasma: s,
 		wCtx: &wCtx{
-			buf: s.Skiplist.MakeBuf(),
-			sts: &s.Skiplist.Stats,
+			buf:   s.Skiplist.MakeBuf(),
+			slSts: &s.Skiplist.Stats,
+			sts:   new(Stats),
 		},
 	}
-	return nil
+
+	s.Lock()
+	defer s.Unlock()
+
+	s.wlist = append(s.wlist, w)
+	return w
+}
+
+func (s *Plasma) GetStats() Stats {
+	var sts Stats
+
+	s.RLock()
+	defer s.RUnlock()
+
+	for _, w := range s.wlist {
+		sts.Merge(w.sts)
+	}
+
+	return sts
 }
 
 func (s *Plasma) indexPage(pid PageId, ctx *wCtx) {
 	n := pid.(*skiplist.Node)
-	s.Skiplist.Insert4(n, s.cmp, s.cmp, ctx.buf, n.Level(), false, ctx.sts)
+	s.Skiplist.Insert4(n, s.cmp, s.cmp, ctx.buf, n.Level(), false, ctx.slSts)
 }
 
 func (s *Plasma) unindexPage(pid PageId, ctx *wCtx) {
 	n := pid.(*skiplist.Node)
-	s.Skiplist.DeleteNode(n, s.cmp, ctx.buf, ctx.sts)
+	s.Skiplist.DeleteNode(n, s.cmp, ctx.buf, ctx.slSts)
 }
 
 func (s *Plasma) tryPageRemoval(pid PageId, pg Page, ctx *wCtx) {
 	n := pid.(*skiplist.Node)
 	itm := n.Item()
-	prev, _, found := s.Skiplist.Lookup(itm, s.cmp, ctx.buf, ctx.sts)
+	prev, _, found := s.Skiplist.Lookup(itm, s.cmp, ctx.buf, ctx.slSts)
 	if !found {
 		panic("should not happen")
 	}
@@ -83,26 +155,35 @@ func (s *Plasma) isRootPage(pid PageId) bool {
 func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx) {
 	if pg.NeedCompaction(s.Config.MaxDeltaChainLen) {
 		pg.Compact()
-		s.UpdateMapping(pid, pg)
+		if s.UpdateMapping(pid, pg) {
+			ctx.sts.Compacts++
+		} else {
+			ctx.sts.CompactConflicts++
+		}
 	} else if pg.NeedSplit(s.Config.MaxPageItems) {
 		splitPid := s.AllocPageId()
 		if newPg := pg.Split(splitPid); newPg == nil || !s.UpdateMapping(pid, pg) {
+			ctx.sts.SplitConflicts++
 			s.FreePageId(splitPid)
 		} else {
 			s.CreateMapping(splitPid, newPg)
 			s.indexPage(splitPid, ctx)
+			ctx.sts.Splits++
 		}
 	} else if !s.isRootPage(pid) && pg.NeedMerge(s.Config.MinPageItems) {
 		pg.Close()
 		if s.UpdateMapping(pid, pg) {
 			s.tryPageRemoval(pid, pg, ctx)
+			ctx.sts.Merges++
+		} else {
+			ctx.sts.MergeConflicts++
 		}
 	}
 }
 
 func (s *Plasma) fetchPage(itm unsafe.Pointer, ctx *wCtx) (pid PageId, pg Page) {
 retry:
-	if prev, curr, found := s.Skiplist.Lookup(itm, s.cmp, ctx.buf, ctx.sts); found {
+	if prev, curr, found := s.Skiplist.Lookup(itm, s.cmp, ctx.buf, ctx.slSts); found {
 		pid = curr
 	} else {
 		pid = prev
@@ -128,9 +209,11 @@ retry:
 	pid, pg := w.fetchPage(itm, w.wCtx)
 	pg.Insert(itm)
 	if !w.UpdateMapping(pid, pg) {
+		w.sts.InsertConflicts++
 		goto retry
 	}
 
+	w.sts.Inserts++
 	w.trySMOs(pid, pg, w.wCtx)
 }
 
@@ -139,9 +222,11 @@ retry:
 	pid, pg := w.fetchPage(itm, w.wCtx)
 	pg.Delete(itm)
 	if !w.UpdateMapping(pid, pg) {
+		w.sts.DeleteConflicts++
 		goto retry
 	}
 
+	w.sts.Deletes++
 	w.trySMOs(pid, pg, w.wCtx)
 }
 

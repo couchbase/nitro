@@ -54,6 +54,8 @@ func TestPlasmaSimple(t *testing.T) {
 			}
 		}
 	}
+
+	fmt.Println(s.GetStats())
 }
 
 func doInsert(w *Writer, wg *sync.WaitGroup, id, n int) {
@@ -107,8 +109,8 @@ func TestPlasmaInsertPerf(t *testing.T) {
 
 	dur := time.Since(t0)
 
+	fmt.Println(s.GetStats())
 	fmt.Printf("%d items insert took %v -> %v items/s\n", total, dur, float64(total)/float64(dur.Seconds()))
-
 }
 
 func TestPlasmaDeletePerf(t *testing.T) {
@@ -137,6 +139,7 @@ func TestPlasmaDeletePerf(t *testing.T) {
 
 	dur := time.Since(t0)
 
+	fmt.Println(s.GetStats())
 	fmt.Printf("%d items delete took %v -> %v items/s\n", total, dur, float64(total)/float64(dur.Seconds()))
 }
 
@@ -166,6 +169,6 @@ func TestPlasmaLookupPerf(t *testing.T) {
 
 	dur := time.Since(t0)
 
+	fmt.Println(s.GetStats())
 	fmt.Printf("%d items lookup took %v -> %v items/s\n", total, dur, float64(total)/float64(dur.Seconds()))
-
 }
