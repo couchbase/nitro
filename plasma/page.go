@@ -117,8 +117,10 @@ type mergePageDelta struct {
 
 type removePageDelta pageDelta
 
+type ItemSizeFn func(unsafe.Pointer) uintptr
+
 type storeCtx struct {
-	itemSize  func(unsafe.Pointer) uintptr
+	itemSize  ItemSizeFn
 	cmp       skiplist.CompareFn
 	getDeltas func(PageId) *pageDelta
 }
