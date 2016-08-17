@@ -58,6 +58,11 @@ func (n *Node) Item() unsafe.Pointer {
 	return n.itm
 }
 
+// SetItem sets itm ptr
+func (n *Node) SetItem(itm unsafe.Pointer) {
+	n.itm = itm
+}
+
 // SetLink can be used to set link pointer for the node
 func (n *Node) SetLink(l *Node) {
 	n.GClink = l

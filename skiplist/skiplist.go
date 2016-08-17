@@ -131,6 +131,18 @@ func (s *Skiplist) FreeNode(n *Node, sts *Stats) {
 	sts.AddInt64(&sts.nodeFrees, 1)
 }
 
+func (s *Skiplist) NewNode(level int) *Node {
+	return s.newNode(nil, level)
+}
+
+func (s *Skiplist) HeadNode() *Node {
+	return s.head
+}
+
+func (s *Skiplist) TailNode() *Node {
+	return s.tail
+}
+
 // ActionBuffer is a temporary buffer used by skiplist operations
 type ActionBuffer struct {
 	preds []*Node
@@ -185,6 +197,13 @@ func (s *Skiplist) helpDelete(level int, prev, curr, next *Node, sts *Stats) boo
 		sts.AddInt64(&sts.usedBytes, -int64(s.Size(curr)))
 	}
 	return success
+}
+
+func (s *Skiplist) Lookup(itm unsafe.Pointer, cmp CompareFn, buf *ActionBuffer, sts *Stats) (pred *Node, curr *Node, found bool) {
+	found = s.findPath(itm, cmp, buf, sts) != nil
+	pred = buf.preds[0]
+	curr = buf.succs[0]
+	return
 }
 
 func (s *Skiplist) findPath(itm unsafe.Pointer, cmp CompareFn,
@@ -250,10 +269,10 @@ func (s *Skiplist) Insert3(itm unsafe.Pointer, insCmp CompareFn, eqCmp CompareFn
 	defer s.barrier.Release(token)
 
 	x := s.newNode(itm, itemLevel)
-	return x, s.insert(x, insCmp, eqCmp, buf, itemLevel, skipFindPath, sts)
+	return x, s.Insert4(x, insCmp, eqCmp, buf, itemLevel, skipFindPath, sts)
 }
 
-func (s *Skiplist) insert(x *Node, insCmp CompareFn, eqCmp CompareFn, buf *ActionBuffer,
+func (s *Skiplist) Insert4(x *Node, insCmp CompareFn, eqCmp CompareFn, buf *ActionBuffer,
 	itemLevel int, skipFindPath bool, sts *Stats) bool {
 
 	itm := x.Item()
