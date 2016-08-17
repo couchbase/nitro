@@ -160,6 +160,7 @@ func (pg *page) newSplitPageDelta(itm unsafe.Pointer, pid PageId) *pageDelta {
 	pd.next = pg.head
 	pd.op = opPageSplitDelta
 	pd.itm = itm
+	pd.chainLen++
 	pd.rightSibling = pid
 	return (*pageDelta)(unsafe.Pointer(pd))
 }
@@ -170,6 +171,12 @@ func (pg *page) newMergePageDelta(itm unsafe.Pointer, sibl *pageDelta) *pageDelt
 	pd.itm = itm
 	pd.next = pg.head
 	pd.mergeSibling = sibl
+	if pg.head != nil {
+		pd.chainLen = pg.head.chainLen
+		pd.numItems = pg.head.numItems
+	}
+	pd.chainLen += sibl.chainLen + 1
+	pd.numItems += sibl.numItems
 	pd.rightSibling = sibl.rightSibling
 	return (*pageDelta)(unsafe.Pointer(pd))
 }

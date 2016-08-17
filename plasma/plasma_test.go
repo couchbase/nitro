@@ -38,7 +38,7 @@ func TestPlasmaSimple(t *testing.T) {
 		w.Delete(skiplist.NewIntKeyItem(i))
 	}
 
-	for i := 0; i < 800000; i++ {
+	for i := 0; i < 1000000; i++ {
 		itm := skiplist.NewIntKeyItem(i)
 		got := w.Lookup(itm)
 		if i < 800000 {
