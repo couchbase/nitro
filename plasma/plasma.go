@@ -152,33 +152,47 @@ func (s *Plasma) isRootPage(pid PageId) bool {
 	return pid.(*skiplist.Node) == s.Skiplist.HeadNode()
 }
 
-func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx) {
+func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
+	var updated bool
+
 	if pg.NeedCompaction(s.Config.MaxDeltaChainLen) {
 		pg.Compact()
-		if s.UpdateMapping(pid, pg) {
+		updated = s.UpdateMapping(pid, pg)
+		if updated {
 			ctx.sts.Compacts++
 		} else {
 			ctx.sts.CompactConflicts++
 		}
 	} else if pg.NeedSplit(s.Config.MaxPageItems) {
 		splitPid := s.AllocPageId()
-		if newPg := pg.Split(splitPid); newPg == nil || !s.UpdateMapping(pid, pg) {
-			ctx.sts.SplitConflicts++
-			s.FreePageId(splitPid)
-		} else {
+		newPg := pg.Split(splitPid)
+		if newPg != nil && s.UpdateMapping(pid, pg) {
 			s.CreateMapping(splitPid, newPg)
 			s.indexPage(splitPid, ctx)
 			ctx.sts.Splits++
+		} else {
+			ctx.sts.SplitConflicts++
+			s.FreePageId(splitPid)
+
+			// Did not perform split, but perform update
+			if newPg == nil && doUpdate {
+				updated = s.UpdateMapping(pid, pg)
+			}
 		}
 	} else if !s.isRootPage(pid) && pg.NeedMerge(s.Config.MinPageItems) {
 		pg.Close()
 		if s.UpdateMapping(pid, pg) {
 			s.tryPageRemoval(pid, pg, ctx)
 			ctx.sts.Merges++
+			updated = true
 		} else {
 			ctx.sts.MergeConflicts++
 		}
+	} else if doUpdate {
+		updated = s.UpdateMapping(pid, pg)
 	}
+
+	return updated
 }
 
 func (s *Plasma) fetchPage(itm unsafe.Pointer, ctx *wCtx) (pid PageId, pg Page) {
@@ -208,31 +222,29 @@ func (w *Writer) Insert(itm unsafe.Pointer) {
 retry:
 	pid, pg := w.fetchPage(itm, w.wCtx)
 	pg.Insert(itm)
-	if !w.UpdateMapping(pid, pg) {
+
+	if !w.trySMOs(pid, pg, w.wCtx, true) {
 		w.sts.InsertConflicts++
 		goto retry
 	}
-
 	w.sts.Inserts++
-	w.trySMOs(pid, pg, w.wCtx)
 }
 
 func (w *Writer) Delete(itm unsafe.Pointer) {
 retry:
 	pid, pg := w.fetchPage(itm, w.wCtx)
 	pg.Delete(itm)
-	if !w.UpdateMapping(pid, pg) {
+
+	if !w.trySMOs(pid, pg, w.wCtx, true) {
 		w.sts.DeleteConflicts++
 		goto retry
 	}
-
 	w.sts.Deletes++
-	w.trySMOs(pid, pg, w.wCtx)
 }
 
 func (w *Writer) Lookup(itm unsafe.Pointer) unsafe.Pointer {
 	pid, pg := w.fetchPage(itm, w.wCtx)
 	ret := pg.Lookup(itm)
-	w.trySMOs(pid, pg, w.wCtx)
+	w.trySMOs(pid, pg, w.wCtx, false)
 	return ret
 }
