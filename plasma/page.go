@@ -43,6 +43,7 @@ type Page interface {
 }
 
 type ItemIterator interface {
+	SeekFirst()
 	Seek(unsafe.Pointer)
 	Get() unsafe.Pointer
 	Valid() bool
@@ -426,6 +427,8 @@ func (pi *pageIterator) Valid() bool {
 func (pi *pageIterator) Next() {
 	pi.i++
 }
+
+func (pi *pageIterator) SeekFirst() {}
 
 func (pi *pageIterator) Seek(itm unsafe.Pointer) {
 	pi.i = sort.Search(len(pi.itms), func(i int) bool {
