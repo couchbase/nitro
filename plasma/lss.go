@@ -7,10 +7,11 @@ import (
 )
 
 type lssOffset uint64
+type lssResource interface{}
 
 type LSS interface {
-	ReserveSpace(size int) (lssOffset, []byte)
-	FinalizeWrite(lssOffset)
+	ReserveSpace(size int) (lssOffset, []byte, lssResource)
+	FinalizeWrite(lssResource)
 	Read(lssOffset, buf []byte) (int, error)
 }
 
@@ -54,11 +55,11 @@ func newLSStore(file string, maxSize int64, bufSize int, nbufs int) (*lsStore, e
 
 func (s *lsStore) flush(fb *flushBuffer) {
 	fpos := fb.baseOffset % s.maxSize
-	s.w.WriteAt(fb.b, fpos)
+	s.w.WriteAt(fb.Bytes(), fpos)
 	fb.Reset()
 }
 
-func (s *lsStore) ReserveSpace(size int) (lssOffset, []byte) {
+func (s *lsStore) ReserveSpace(size int) (lssOffset, []byte, lssResource) {
 retry:
 	id := atomic.LoadInt32(&s.currBuf)
 	fbid := int(id) % len(s.flushBufs)
@@ -73,7 +74,7 @@ retry:
 				runtime.Gosched()
 			}
 
-			nextFb.Init(fb, int64(nextId)*int64(s.bufSize))
+			nextFb.Init(fb, fb.NextOffset())
 
 			if !atomic.CompareAndSwapInt32(&s.currBuf, id, nextId) {
 				panic("should not happen")
@@ -85,7 +86,7 @@ retry:
 		}
 	}
 
-	return lssOffset(int(id)*s.bufSize + offset), buf
+	return lssOffset(offset), buf, lssResource(fb)
 }
 
 func (s *lsStore) Read(offset lssOffset, buf []byte) (int, error) {
@@ -93,10 +94,8 @@ func (s *lsStore) Read(offset lssOffset, buf []byte) (int, error) {
 	return s.r.ReadAt(buf, fpos)
 }
 
-func (s *lsStore) FinalizeWrite(offset lssOffset) {
-	id := int(offset) / s.bufSize
-	fbid := int(id) % len(s.flushBufs)
-	fb := s.flushBufs[fbid]
+func (s *lsStore) FinalizeWrite(res lssResource) {
+	fb := res.(*flushBuffer)
 	fb.Done()
 }
 
@@ -117,20 +116,33 @@ func newFlushBuffer(sz int, callb flushCallback) *flushBuffer {
 	}
 }
 
+func (fb *flushBuffer) Bytes() []byte {
+	_, _, offset := decodeState(fb.state)
+	return fb.b[:offset]
+}
+
+func (fb *flushBuffer) NextOffset() int64 {
+	_, _, offset := decodeState(fb.state)
+	return fb.baseOffset + int64(offset)
+}
+
 func (fb *flushBuffer) Init(parent *flushBuffer, baseOffset int64) {
+	fb.baseOffset = baseOffset
 	// 1 writer rc for parent to enforce ordering of flush callback
 	// 1 writer rc for parent to call flush callback if writers have already
 	// terminated while initialization of next buffer.
-	fb.state = encodeState(false, 2, 0)
-	fb.baseOffset = baseOffset
-	parent.child = fb
+	if parent != nil {
+		fb.state = encodeState(false, 2, 0)
+		parent.child = fb
 
-	// If parent is already full and writers have completed operations,
-	// this would trigger flush callback.
-	parent.Done()
+		// If parent is already full and writers have completed operations,
+		// this would trigger flush callback.
+		parent.Done()
+	}
+
 }
 
-func (fb *flushBuffer) Alloc(size int) (status bool, markedFull bool, offset int, buf []byte) {
+func (fb *flushBuffer) Alloc(size int) (status bool, markedFull bool, off int64, buf []byte) {
 retry:
 	state := atomic.LoadUint64(&fb.state)
 	isfull, nw, offset := decodeState(state)
@@ -148,11 +160,11 @@ retry:
 		return false, markedFull, 0, nil
 	}
 
-	newState := encodeState(false, nw+1, offset+size)
+	newState := encodeState(false, nw+1, newOffset)
 	if !atomic.CompareAndSwapUint64(&fb.state, state, newState) {
 		goto retry
 	}
-	return true, false, offset, fb.b[offset : offset+size]
+	return true, false, fb.baseOffset + int64(offset), fb.b[offset:newOffset]
 }
 
 func (fb *flushBuffer) Done() {
