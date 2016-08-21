@@ -59,11 +59,37 @@ func newLSStore(file string, maxSize int64, bufSize int, nbufs int) (*lsStore, e
 	return s, nil
 }
 
+func (s *lsStore) UsedSpace() int64 {
+	return s.tailOffset - s.headOffset
+}
+
+func (s *lsStore) AvailableSpace() int64 {
+	return s.maxSize - s.UsedSpace()
+}
+
 func (s *lsStore) flush(fb *flushBuffer) {
 	fpos := fb.StartOffset() % s.maxSize
-	s.w.WriteAt(fb.Bytes(), fpos)
-	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&s.head)), unsafe.Pointer(fb.child))
+	size := fb.EndOffset() - fb.StartOffset()
+	for {
+		if size <= s.AvailableSpace() {
+			break
+		}
+
+		runtime.Gosched()
+	}
+
+	if fpos+size > s.maxSize {
+		bs := fb.Bytes()
+		tailSz := s.maxSize - fpos
+		s.w.WriteAt(bs[tailSz:], 0)
+		s.w.WriteAt(bs[:tailSz], fpos)
+	} else {
+		s.w.WriteAt(fb.Bytes(), fpos)
+	}
 	atomic.StoreInt64(&s.tailOffset, fb.EndOffset())
+	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&s.head)),
+		unsafe.Pointer(fb.NextBuffer()))
+
 	fb.Reset()
 }
 
@@ -97,6 +123,27 @@ retry:
 	return lssOffset(offset), buf, lssResource(fb)
 }
 
+func (s *lsStore) readBlock(off int64, buf []byte) error {
+	fpos := off % s.maxSize
+
+	if fpos+int64(len(buf)) > s.maxSize {
+		tailSz := s.maxSize - fpos
+		if _, err := s.r.ReadAt(buf[:tailSz], fpos); err != nil {
+			return err
+		}
+
+		if _, err := s.r.ReadAt(buf[tailSz:], 0); err != nil {
+			return err
+		}
+	} else {
+		if _, err := s.r.ReadAt(buf, fpos); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (s *lsStore) Read(lssOf lssOffset, buf []byte) (int, error) {
 	offset := int64(lssOf)
 retry:
@@ -128,12 +175,30 @@ retry:
 	}
 
 	fpos := int64(offset) % s.maxSize
-	if _, err := s.r.ReadAt(buf[:headerFBSize], fpos); err != nil {
+	if fpos+headerFBSize > s.maxSize {
+		tailSz := s.maxSize - fpos
+		if _, err := s.r.ReadAt(buf[:tailSz], fpos); err != nil {
+			return 0, err
+		}
+
+		fpos = 0
+		if _, err := s.r.ReadAt(buf[tailSz:headerFBSize], fpos); err != nil {
+			return 0, err
+		}
+		fpos += headerFBSize - tailSz
+	} else {
+		if _, err := s.r.ReadAt(buf[:headerFBSize], fpos); err != nil {
+			return 0, err
+		}
+		fpos += headerFBSize
+	}
+
+	if err := s.readBlock(offset, buf[:headerFBSize]); err != nil {
 		return 0, err
 	}
 
 	l := int(binary.BigEndian.Uint32(buf[:headerFBSize]))
-	_, err := s.r.ReadAt(buf[:l], fpos+headerFBSize)
+	err := s.readBlock(offset+headerFBSize, buf[:l])
 	return l, err
 }
 
