@@ -1,9 +1,11 @@
 package plasma
 
 import (
+	"errors"
 	"os"
 	"runtime"
 	"sync/atomic"
+	"unsafe"
 )
 
 type lssOffset uint64
@@ -21,6 +23,8 @@ type lsStore struct {
 	maxSize    int64
 	headOffset int64
 	tailOffset int64
+
+	head *flushBuffer
 
 	bufSize   int
 	flushBufs []*flushBuffer
@@ -50,12 +54,15 @@ func newLSStore(file string, maxSize int64, bufSize int, nbufs int) (*lsStore, e
 		s.flushBufs[i].Reset()
 	}
 
+	s.head = s.flushBufs[0]
 	return s, nil
 }
 
 func (s *lsStore) flush(fb *flushBuffer) {
-	fpos := fb.baseOffset % s.maxSize
+	fpos := fb.StartOffset() % s.maxSize
 	s.w.WriteAt(fb.Bytes(), fpos)
+	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&s.head)), unsafe.Pointer(fb.child))
+	atomic.StoreInt64(&s.tailOffset, fb.EndOffset())
 	fb.Reset()
 }
 
@@ -74,7 +81,7 @@ retry:
 				runtime.Gosched()
 			}
 
-			nextFb.Init(fb, fb.NextOffset())
+			nextFb.Init(fb, fb.EndOffset())
 
 			if !atomic.CompareAndSwapInt32(&s.currBuf, id, nextId) {
 				panic("should not happen")
@@ -89,7 +96,36 @@ retry:
 	return lssOffset(offset), buf, lssResource(fb)
 }
 
-func (s *lsStore) Read(offset lssOffset, buf []byte) (int, error) {
+func (s *lsStore) Read(lssOf lssOffset, buf []byte) (int, error) {
+	offset := int64(lssOf)
+retry:
+	tail := atomic.LoadInt64(&s.tailOffset)
+
+	// It's in the flush buffers
+	if offset >= tail {
+		id := atomic.LoadInt32(&s.currBuf)
+		fbid := int(id) % len(s.flushBufs)
+		end := s.flushBufs[fbid]
+		start := s.head
+
+		startOffset := start.StartOffset()
+		endOffset := end.EndOffset()
+
+		if startOffset < endOffset && offset >= startOffset && offset < endOffset {
+		loop:
+			for fb := start; fb != nil; fb = fb.NextBuffer() {
+				if n, err := fb.Read(offset, buf); err == nil {
+					return n, nil
+				}
+
+				if fb == end {
+					break loop
+				}
+			}
+		}
+		goto retry
+	}
+
 	fpos := int64(offset) % s.maxSize
 	return s.r.ReadAt(buf, fpos)
 }
@@ -98,6 +134,8 @@ func (s *lsStore) FinalizeWrite(res lssResource) {
 	fb := res.(*flushBuffer)
 	fb.Done()
 }
+
+var errFBReadFailed = errors.New("flushBuffer read failed")
 
 type flushCallback func(fb *flushBuffer)
 
@@ -121,9 +159,39 @@ func (fb *flushBuffer) Bytes() []byte {
 	return fb.b[:offset]
 }
 
-func (fb *flushBuffer) NextOffset() int64 {
+func (fb *flushBuffer) StartOffset() int64 {
+	return fb.baseOffset
+}
+
+func (fb *flushBuffer) EndOffset() int64 {
 	_, _, offset := decodeState(fb.state)
 	return fb.baseOffset + int64(offset)
+}
+
+func (fb *flushBuffer) NextBuffer() *flushBuffer {
+	return fb.child
+}
+
+func (fb *flushBuffer) Read(off int64, buf []byte) (int, error) {
+	base := fb.baseOffset
+	start := int(off - base)
+	_, _, offset := decodeState(fb.state)
+
+	if base != fb.baseOffset || !(base <= off && off < base+int64(offset)) {
+		return 0, errFBReadFailed
+	}
+
+	l := len(buf)
+	if start+l > len(fb.b) {
+		return 0, errFBReadFailed
+	}
+
+	copy(buf, fb.b[start:start+l])
+	if base == fb.baseOffset {
+		return l, nil
+	}
+
+	return 0, errFBReadFailed
 }
 
 func (fb *flushBuffer) Init(parent *flushBuffer, baseOffset int64) {
@@ -193,6 +261,7 @@ func (fb *flushBuffer) IsFull() bool {
 }
 
 func (fb *flushBuffer) Reset() {
+	fb.baseOffset = 0
 	fb.state = encodeState(false, 1, 0)
 	fb.child = nil
 }
@@ -206,15 +275,15 @@ func decodeState(state uint64) (bool, int, int) {
 }
 
 func encodeState(isfull bool, nwriters int, offset int) uint64 {
-	var sealbits, nwritersbits, offsetbits uint64
+	var isfullbits, nwritersbits, offsetbits uint64
 
 	if isfull {
-		sealbits = 1
+		isfullbits = 1
 	}
 
 	nwritersbits = uint64(nwriters) << 1
 	offsetbits = uint64(offset) << 33
 
-	state := sealbits | nwritersbits | offsetbits
+	state := isfullbits | nwritersbits | offsetbits
 	return state
 }
