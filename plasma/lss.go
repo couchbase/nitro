@@ -5,17 +5,21 @@ import (
 	"errors"
 	"os"
 	"runtime"
+	"sync"
 	"sync/atomic"
 	"unsafe"
 )
 
 type lssOffset uint64
 type lssResource interface{}
+type lssCleanerCallback func(lssOffset, []byte) bool
 
 type LSS interface {
 	ReserveSpace(size int) (lssOffset, []byte, lssResource)
 	FinalizeWrite(lssResource)
 	Read(lssOffset, buf []byte) (int, error)
+
+	RunCleaner(callb lssCleanerCallback, buf []byte) error
 }
 
 type lsStore struct {
@@ -30,6 +34,8 @@ type lsStore struct {
 	bufSize   int
 	flushBufs []*flushBuffer
 	currBuf   int32
+
+	sync.Mutex
 }
 
 func newLSStore(file string, maxSize int64, bufSize int, nbufs int) (*lsStore, error) {
@@ -205,6 +211,33 @@ retry:
 func (s *lsStore) FinalizeWrite(res lssResource) {
 	fb := res.(*flushBuffer)
 	fb.Done()
+}
+
+func (s *lsStore) RunCleaner(callb lssCleanerCallback, buf []byte) error {
+	s.Lock()
+	defer s.Unlock()
+
+	curr := atomic.LoadInt64(&s.headOffset)
+	end := atomic.LoadInt64(&s.tailOffset)
+
+	for {
+		n, err := s.Read(lssOffset(curr), buf)
+		if err != nil {
+			return err
+		}
+
+		if !callb(lssOffset(curr), buf[:n]) {
+			break
+		}
+
+		curr += int64(n + headerFBSize)
+		atomic.StoreInt64(&s.headOffset, curr)
+		if end == curr {
+			break
+		}
+	}
+
+	return nil
 }
 
 var errFBReadFailed = errors.New("flushBuffer read failed")
