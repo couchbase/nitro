@@ -1,6 +1,7 @@
 package plasma
 
 import (
+	"encoding/binary"
 	"errors"
 	"os"
 	"runtime"
@@ -127,7 +128,13 @@ retry:
 	}
 
 	fpos := int64(offset) % s.maxSize
-	return s.r.ReadAt(buf, fpos)
+	if _, err := s.r.ReadAt(buf[:headerFBSize], fpos); err != nil {
+		return 0, err
+	}
+
+	l := int(binary.BigEndian.Uint32(buf[:headerFBSize]))
+	_, err := s.r.ReadAt(buf[:l], fpos+headerFBSize)
+	return l, err
 }
 
 func (s *lsStore) FinalizeWrite(res lssResource) {
@@ -138,6 +145,8 @@ func (s *lsStore) FinalizeWrite(res lssResource) {
 var errFBReadFailed = errors.New("flushBuffer read failed")
 
 type flushCallback func(fb *flushBuffer)
+
+const headerFBSize = 4
 
 type flushBuffer struct {
 	baseOffset int64
@@ -181,12 +190,13 @@ func (fb *flushBuffer) Read(off int64, buf []byte) (int, error) {
 		return 0, errFBReadFailed
 	}
 
-	l := len(buf)
-	if start+l > len(fb.b) {
+	payloadOffset := start + headerFBSize
+	l := int(binary.BigEndian.Uint32(fb.b[start:payloadOffset]))
+	if payloadOffset+l > len(fb.b) {
 		return 0, errFBReadFailed
 	}
 
-	copy(buf, fb.b[start:start+l])
+	copy(buf, fb.b[payloadOffset:payloadOffset+l])
 	if base == fb.baseOffset {
 		return l, nil
 	}
@@ -218,7 +228,7 @@ retry:
 		return false, false, 0, nil
 	}
 
-	newOffset := size + offset
+	newOffset := headerFBSize + offset + size
 	if newOffset > len(fb.b) {
 		markedFull := true
 		newState := encodeState(true, nw, offset)
@@ -232,7 +242,9 @@ retry:
 	if !atomic.CompareAndSwapUint64(&fb.state, state, newState) {
 		goto retry
 	}
-	return true, false, fb.baseOffset + int64(offset), fb.b[offset:newOffset]
+
+	binary.BigEndian.PutUint32(fb.b[offset:offset+headerFBSize], uint32(size))
+	return true, false, fb.baseOffset + int64(offset), fb.b[offset+headerFBSize : newOffset]
 }
 
 func (fb *flushBuffer) Done() {
