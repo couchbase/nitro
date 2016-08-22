@@ -66,7 +66,7 @@ func newLSStore(file string, maxSize int64, bufSize int, nbufs int) (*lsStore, e
 }
 
 func (s *lsStore) UsedSpace() int64 {
-	return s.tailOffset - s.headOffset
+	return atomic.LoadInt64(&s.tailOffset) - atomic.LoadInt64(&s.headOffset)
 }
 
 func (s *lsStore) AvailableSpace() int64 {
@@ -119,11 +119,11 @@ retry:
 			if !atomic.CompareAndSwapInt32(&s.currBuf, id, nextId) {
 				panic("should not happen")
 			}
-
-		} else {
-			runtime.Gosched()
 			goto retry
 		}
+
+		runtime.Gosched()
+		goto retry
 	}
 
 	return lssOffset(offset), buf, lssResource(fb)
@@ -178,25 +178,6 @@ retry:
 			}
 		}
 		goto retry
-	}
-
-	fpos := int64(offset) % s.maxSize
-	if fpos+headerFBSize > s.maxSize {
-		tailSz := s.maxSize - fpos
-		if _, err := s.r.ReadAt(buf[:tailSz], fpos); err != nil {
-			return 0, err
-		}
-
-		fpos = 0
-		if _, err := s.r.ReadAt(buf[tailSz:headerFBSize], fpos); err != nil {
-			return 0, err
-		}
-		fpos += headerFBSize - tailSz
-	} else {
-		if _, err := s.r.ReadAt(buf[:headerFBSize], fpos); err != nil {
-			return 0, err
-		}
-		fpos += headerFBSize
 	}
 
 	if err := s.readBlock(offset, buf[:headerFBSize]); err != nil {
@@ -326,7 +307,7 @@ retry:
 		return false, false, 0, nil
 	}
 
-	newOffset := headerFBSize + offset + size
+	newOffset := offset + headerFBSize + size
 	if newOffset > len(fb.b) {
 		markedFull := true
 		newState := encodeState(true, nw, offset)
@@ -356,11 +337,10 @@ retry:
 	}
 
 	if nw == 1 && isfull {
+		if fb.child != nil {
+			fb.child.Done()
+		}
 		fb.callb(fb)
-	}
-
-	if fb.child != nil {
-		fb.child.Done()
 	}
 }
 
