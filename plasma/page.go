@@ -1,6 +1,7 @@
 package plasma
 
 import (
+	"encoding/binary"
 	"fmt"
 	"github.com/t3rm1n4l/nitro/skiplist"
 	"reflect"
@@ -19,6 +20,8 @@ const (
 	opPageSplitDelta
 	opPageRemoveDelta
 	opPageMergeDelta
+
+	opFlushPageDelta
 )
 
 type PageId interface{}
@@ -116,6 +119,11 @@ type mergePageDelta struct {
 	mergeSibling *pageDelta
 }
 
+type flushPageDelta struct {
+	pageDelta
+	offset lssOffset
+}
+
 type removePageDelta pageDelta
 
 type ItemSizeFn func(unsafe.Pointer) uintptr
@@ -124,6 +132,8 @@ type storeCtx struct {
 	itemSize  ItemSizeFn
 	cmp       skiplist.CompareFn
 	getDeltas func(PageId) *pageDelta
+	getPageId func(unsafe.Pointer) PageId
+	getItem   func(PageId) unsafe.Pointer
 }
 
 type page struct {
@@ -210,8 +220,10 @@ func (pg *page) newBasePage(itms []unsafe.Pointer) *pageDelta {
 	}
 
 	bp.numItems = uint16(len(itms))
-	bp.rightSibling = pg.head.rightSibling
-	bp.hiItm = pg.head.hiItm
+	if pg.head != nil {
+		bp.rightSibling = pg.head.rightSibling
+		bp.hiItm = pg.head.hiItm
+	}
 
 	return (*pageDelta)(unsafe.Pointer(bp))
 }
@@ -441,5 +453,171 @@ func (pg *page) NewIterator() ItemIterator {
 	return &pageIterator{
 		itms: pg.collectItems(pg.head, nil, pg.head.hiItm),
 		cmp:  pg.cmp,
+	}
+}
+
+func (pg *page) Marshal(buf []byte) []byte {
+	woffset := 0
+	pd := pg.head
+	if pd != nil {
+		// chainlen
+		binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(pd.chainLen))
+		woffset += 2
+
+		// numItems
+		binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(pd.numItems))
+		woffset += 2
+
+		// hiItm
+		if pd.hiItm == skiplist.MaxItem {
+			binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(0))
+			woffset += 2
+		} else {
+			l := int(pg.itemSize(pd.hiItm))
+			binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(l))
+			woffset += 2
+			memcopy(unsafe.Pointer(&buf[woffset]), pd.hiItm, l)
+			woffset += l
+		}
+
+		// rightSibling
+		nkey := pg.getItem(pd.rightSibling)
+		if nkey == skiplist.MaxItem {
+			binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(0))
+			woffset += 2
+		} else {
+			l := int(pg.itemSize(nkey))
+			binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(l))
+			woffset += 2
+			memcopy(unsafe.Pointer(&buf[woffset]), nkey, l)
+			woffset += l
+		}
+	}
+
+loop:
+	for ; pd != nil; pd = pd.next {
+		switch pd.op {
+		case opInsertDelta, opDeleteDelta:
+			rpd := (*recordDelta)(unsafe.Pointer(pd))
+			if pg.InRange(rpd.itm) {
+				binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(pd.op))
+				woffset += 2
+				sz := int(pg.itemSize(rpd.itm))
+				binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(sz))
+				woffset += 2
+				memcopy(unsafe.Pointer(&buf[woffset]), rpd.itm, sz)
+				woffset += sz
+			}
+		case opBasePage:
+			bp := (*basePage)(unsafe.Pointer(pd))
+			binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(pd.op))
+			woffset += 2
+			bufnitm := buf[woffset : woffset+2]
+			nItms := 0
+			woffset += 2
+			for _, itm := range bp.items {
+				if pg.InRange(itm) {
+					sz := int(pg.itemSize(itm))
+					binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(sz))
+					woffset += 2
+					memcopy(unsafe.Pointer(&buf[woffset]), itm, sz)
+					woffset += sz
+					nItms++
+				}
+			}
+			binary.BigEndian.PutUint16(bufnitm, uint16(nItms))
+			break loop
+		case opFlushPageDelta:
+			fpd := (*flushPageDelta)(unsafe.Pointer(pd))
+			binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(pd.op))
+			woffset += 2
+			binary.BigEndian.PutUint64(buf[woffset:woffset+8], uint64(fpd.offset))
+			woffset += 8
+			break loop
+		}
+	}
+
+	return buf[:woffset]
+}
+
+func (pg *page) Unmarshal(data []byte) {
+	roffset := 0
+
+	chainLen := int(binary.BigEndian.Uint16(data[roffset : roffset+2]))
+	roffset += 2
+
+	numItems := int(binary.BigEndian.Uint16(data[roffset : roffset+2]))
+	roffset += 2
+
+	l := int(binary.BigEndian.Uint16(data[roffset : roffset+2]))
+	roffset += 2
+
+	var hiItm unsafe.Pointer
+	if l == 0 {
+		hiItm = skiplist.MaxItem
+	} else {
+		hiItm = pg.alloc(uintptr(l))
+		memcopy(hiItm, unsafe.Pointer(&data[roffset]), l)
+		roffset += l
+	}
+
+	var rightSibling PageId
+	l = int(binary.BigEndian.Uint16(data[roffset : roffset+2]))
+	roffset += 2
+	if l == 0 {
+		rightSibling = pg.getPageId(skiplist.MaxItem)
+	} else {
+		rightSibling = pg.getPageId(unsafe.Pointer(&data[roffset]))
+		roffset += l
+	}
+
+	var pd, lastPd *pageDelta
+	for roffset < len(data) {
+		op := pageOp(binary.BigEndian.Uint16(data[roffset : roffset+2]))
+		roffset += 2
+
+		switch op {
+		case opInsertDelta, opDeleteDelta:
+			l := int(binary.BigEndian.Uint16(data[roffset : roffset+2]))
+			roffset += 2
+			itm := append([]byte(nil), data[roffset:roffset+l]...)
+			roffset += l
+			rpd := &recordDelta{
+				pageDelta: pageDelta{
+					op:           op,
+					chainLen:     uint16(chainLen),
+					numItems:     uint16(numItems),
+					hiItm:        hiItm,
+					rightSibling: rightSibling,
+				},
+				itm: unsafe.Pointer(&itm[0]),
+			}
+
+			chainLen--
+			pd = (*pageDelta)(unsafe.Pointer(rpd))
+		case opBasePage:
+			nItms := int(binary.BigEndian.Uint16(data[roffset : roffset+2]))
+			roffset += 2
+			var itms []unsafe.Pointer
+			size := 0
+			for i := 0; i < nItms; i++ {
+				l := int(binary.BigEndian.Uint16(data[roffset : roffset+2]))
+				roffset += 2
+				itms = append(itms, unsafe.Pointer(&data[roffset]))
+				roffset += l
+				size += l
+			}
+
+			bp := pg.newBasePage(itms)
+			bp.hiItm = hiItm
+			bp.rightSibling = rightSibling
+			pd = (*pageDelta)(unsafe.Pointer(bp))
+		}
+		if pg.head == nil {
+			pg.head = pd
+		} else {
+			lastPd.next = pd
+		}
+		lastPd = pd
 	}
 }
