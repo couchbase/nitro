@@ -21,6 +21,13 @@ func newTestPage() (*page, *storePtr) {
 			getDeltas: func(PageId) *pageDelta {
 				return sp.p.(*pageDelta)
 			},
+			getPageId: func(unsafe.Pointer) PageId {
+				return nil
+			},
+
+			getItem: func(PageId) unsafe.Pointer {
+				return skiplist.MaxItem
+			},
 		},
 	}, sp
 }
@@ -154,5 +161,53 @@ func TestPageIterator(t *testing.T) {
 	v := skiplist.IntFromItem(itr.Get())
 	if v != 1600 {
 		t.Errorf("expected %d, got %d", 1600, v)
+	}
+}
+
+func TestPageMarshal(t *testing.T) {
+	pg, _ := newTestPage()
+	buf := make([]byte, 1024*1024)
+	for i := 0; i < 1000; i++ {
+		pg.Insert(skiplist.NewIntKeyItem(i))
+	}
+
+	pg.Compact()
+	for i := 300; i < 700; i++ {
+		pg.Delete(skiplist.NewIntKeyItem(i))
+	}
+
+	encb := pg.Marshal(buf)
+	newPg, _ := newTestPage()
+	newPg.Unmarshal(encb)
+
+	x := 699
+	y := 0
+	for pd := newPg.head; pd != nil; pd = pd.next {
+		if pd.op != opBasePage {
+			v := skiplist.IntFromItem((*recordDelta)(unsafe.Pointer(pd)).itm)
+			if pd.op != opDeleteDelta || x != v {
+				t.Errorf("expected op:%d, val:%d, got op:%d, val:%d",
+					opDeleteDelta, x, pd.op, v)
+			}
+			x--
+		} else {
+			bp := (*basePage)(unsafe.Pointer(pd))
+			for _, itm := range bp.items {
+				v := skiplist.IntFromItem(itm)
+				if v != y {
+					t.Errorf("expected %d, got %d", y, v)
+				}
+				y++
+			}
+			break
+		}
+	}
+
+	if x != 299 {
+		t.Errorf("expected 299 items, got %d", x)
+	}
+
+	if y != 1000 {
+		t.Errorf("expected 1000 items, got %d", y)
 	}
 }
