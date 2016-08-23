@@ -18,8 +18,17 @@ func newTestIntPlasmaStore() *Plasma {
 		ItemSize: func(unsafe.Pointer) uintptr {
 			return unsafe.Sizeof(new(skiplist.IntKeyItem))
 		},
+		File:            "teststore.data",
+		MaxSize:         1024 * 1024 * 1024 * 10,
+		FlushBufferSize: 1024 * 1024,
 	}
-	return New(cfg)
+
+	s, err := New(cfg)
+	if err != nil {
+		panic(err)
+	}
+
+	return s
 }
 
 func TestPlasmaSimple(t *testing.T) {

@@ -12,6 +12,7 @@ type Plasma struct {
 	*skiplist.Skiplist
 	*pageTable
 	wlist []*Writer
+	lss   *lsStore
 	sync.RWMutex
 }
 
@@ -75,9 +76,13 @@ type Config struct {
 	MinPageItems     int
 	Compare          skiplist.CompareFn
 	ItemSize         ItemSizeFn
+
+	MaxSize         int64
+	File            string
+	FlushBufferSize int
 }
 
-func New(cfg Config) *Plasma {
+func New(cfg Config) (*Plasma, error) {
 	sl := skiplist.New()
 	s := &Plasma{
 		Config:    cfg,
@@ -85,7 +90,9 @@ func New(cfg Config) *Plasma {
 		pageTable: newPageTable(sl, cfg.ItemSize, cfg.Compare),
 	}
 
-	return s
+	lss, err := newLSStore(cfg.File, cfg.MaxSize, cfg.FlushBufferSize, 2)
+	s.lss = lss
+	return s, err
 }
 
 type Writer struct {
@@ -148,8 +155,16 @@ func (s *Plasma) tryPageRemoval(pid PageId, pg Page, ctx *wCtx) {
 	}
 }
 
-func (s *Plasma) isRootPage(pid PageId) bool {
+func (s *Plasma) isStartPage(pid PageId) bool {
 	return pid.(*skiplist.Node) == s.Skiplist.HeadNode()
+}
+
+func (s *Plasma) StartPageId() PageId {
+	return s.Skiplist.HeadNode()
+}
+
+func (s *Plasma) EndPageId() PageId {
+	return s.Skiplist.TailNode()
 }
 
 func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
@@ -179,7 +194,7 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 				updated = s.UpdateMapping(pid, pg)
 			}
 		}
-	} else if !s.isRootPage(pid) && pg.NeedMerge(s.Config.MinPageItems) {
+	} else if !s.isStartPage(pid) && pg.NeedMerge(s.Config.MinPageItems) {
 		pg.Close()
 		if s.UpdateMapping(pid, pg) {
 			s.tryPageRemoval(pid, pg, ctx)
