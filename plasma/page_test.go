@@ -21,7 +21,7 @@ func newTestPage() (*page, *storePtr) {
 			getDeltas: func(PageId) *pageDelta {
 				return sp.p.(*pageDelta)
 			},
-			getPageId: func(unsafe.Pointer) PageId {
+			getPageId: func(unsafe.Pointer, *wCtx) PageId {
 				return nil
 			},
 
@@ -178,7 +178,7 @@ func TestPageMarshal(t *testing.T) {
 
 	encb := pg.Marshal(buf)
 	newPg, _ := newTestPage()
-	newPg.Unmarshal(encb)
+	newPg.Unmarshal(encb, nil)
 
 	x := 699
 	y := 0

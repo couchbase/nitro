@@ -36,6 +36,26 @@ func newPageTable(sl *skiplist.Skiplist, itmSize ItemSizeFn,
 		getDeltas: func(pid PageId) *pageDelta {
 			return pt.ReadPage(pid).(*page).head
 		},
+		getPageId: func(itm unsafe.Pointer, ctx *wCtx) PageId {
+			var pid PageId
+			if itm == skiplist.MinItem {
+				pid = sl.HeadNode()
+			} else if itm == skiplist.MaxItem {
+				pid = sl.TailNode()
+			}
+			_, pid, found := sl.Lookup(itm, cmp, ctx.buf, ctx.slSts)
+			if !found {
+				panic("should not happen")
+			}
+
+			return pid
+		},
+		getItem: func(pid PageId) unsafe.Pointer {
+			if pid == nil {
+				return skiplist.MaxItem
+			}
+			return pid.(*skiplist.Node).Item()
+		},
 	}
 
 	return pt

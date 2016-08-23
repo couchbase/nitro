@@ -24,6 +24,8 @@ const (
 	opFlushPageDelta
 )
 
+var inFlushingOffset = lssOffset(0xffffffffffffffff)
+
 type PageId interface{}
 
 type Page interface {
@@ -132,7 +134,7 @@ type storeCtx struct {
 	itemSize  ItemSizeFn
 	cmp       skiplist.CompareFn
 	getDeltas func(PageId) *pageDelta
-	getPageId func(unsafe.Pointer) PageId
+	getPageId func(unsafe.Pointer, *wCtx) PageId
 	getItem   func(PageId) unsafe.Pointer
 }
 
@@ -142,6 +144,15 @@ type page struct {
 	low         unsafe.Pointer
 	prevHeadPtr unsafe.Pointer
 	head        *pageDelta
+}
+
+func (pg *page) newFlushPageDelta() *flushPageDelta {
+	pd := new(flushPageDelta)
+	*(*pageDelta)(unsafe.Pointer(pd)) = *pg.head
+	pd.next = pg.head
+	pd.offset = inFlushingOffset
+	pd.op = opFlushPageDelta
+	return pd
 }
 
 func (pg *page) newRecordDelta(op pageOp, itm unsafe.Pointer) *pageDelta {
@@ -540,7 +551,7 @@ loop:
 	return buf[:woffset]
 }
 
-func (pg *page) Unmarshal(data []byte) {
+func (pg *page) Unmarshal(data []byte, ctx *wCtx) {
 	roffset := 0
 
 	chainLen := int(binary.BigEndian.Uint16(data[roffset : roffset+2]))
@@ -565,9 +576,9 @@ func (pg *page) Unmarshal(data []byte) {
 	l = int(binary.BigEndian.Uint16(data[roffset : roffset+2]))
 	roffset += 2
 	if l == 0 {
-		rightSibling = pg.getPageId(skiplist.MaxItem)
+		rightSibling = pg.getPageId(skiplist.MaxItem, ctx)
 	} else {
-		rightSibling = pg.getPageId(unsafe.Pointer(&data[roffset]))
+		rightSibling = pg.getPageId(unsafe.Pointer(&data[roffset]), ctx)
 		roffset += l
 	}
 
@@ -620,4 +631,11 @@ func (pg *page) Unmarshal(data []byte) {
 		}
 		lastPd = pd
 	}
+}
+
+func (pg *page) addFlushDelta() *lssOffset {
+	fd := pg.newFlushPageDelta()
+	pg.head = (*pageDelta)(unsafe.Pointer(fd))
+
+	return &fd.offset
 }
