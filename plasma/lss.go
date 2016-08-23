@@ -18,6 +18,7 @@ type LSS interface {
 	ReserveSpace(size int) (lssOffset, []byte, lssResource)
 	FinalizeWrite(lssResource)
 	Read(lssOffset, buf []byte) (int, error)
+	Sync()
 
 	RunCleaner(callb lssCleanerCallback, buf []byte) error
 }
@@ -99,6 +100,21 @@ func (s *lsStore) flush(fb *flushBuffer) {
 	fb.Reset()
 }
 
+func (s *lsStore) initNewBuffer(id int32, fb *flushBuffer) {
+	nextId := id + 1
+	nextFbid := int(nextId) % len(s.flushBufs)
+	nextFb := s.flushBufs[nextFbid]
+	for nextFb.IsFull() {
+		runtime.Gosched()
+	}
+
+	nextFb.Init(fb, fb.EndOffset())
+
+	if !atomic.CompareAndSwapInt32(&s.currBuf, id, nextId) {
+		panic("should not happen")
+	}
+}
+
 func (s *lsStore) ReserveSpace(size int) (lssOffset, []byte, lssResource) {
 retry:
 	id := atomic.LoadInt32(&s.currBuf)
@@ -107,18 +123,7 @@ retry:
 	success, markedFull, offset, buf := fb.Alloc(size)
 	if !success {
 		if markedFull {
-			nextId := id + 1
-			nextFbid := int(nextId) % len(s.flushBufs)
-			nextFb := s.flushBufs[nextFbid]
-			for nextFb.IsFull() {
-				runtime.Gosched()
-			}
-
-			nextFb.Init(fb, fb.EndOffset())
-
-			if !atomic.CompareAndSwapInt32(&s.currBuf, id, nextId) {
-				panic("should not happen")
-			}
+			s.initNewBuffer(id, fb)
 			goto retry
 		}
 
@@ -221,6 +226,26 @@ func (s *lsStore) RunCleaner(callb lssCleanerCallback, buf []byte) error {
 	return nil
 }
 
+func (s *lsStore) Sync() {
+	id := atomic.LoadInt32(&s.currBuf)
+	fbid := int(id) % len(s.flushBufs)
+	fb := s.flushBufs[fbid]
+	endOffset := fb.EndOffset()
+	if fb.TryClose() {
+		s.initNewBuffer(id, fb)
+	}
+
+	for {
+		tailOffset := atomic.LoadInt64(&s.tailOffset)
+		if tailOffset >= endOffset {
+			break
+		}
+		runtime.Gosched()
+	}
+
+	s.w.Sync()
+}
+
 var errFBReadFailed = errors.New("flushBuffer read failed")
 
 type flushCallback func(fb *flushBuffer)
@@ -254,6 +279,23 @@ func (fb *flushBuffer) StartOffset() int64 {
 func (fb *flushBuffer) EndOffset() int64 {
 	_, _, offset := decodeState(fb.state)
 	return fb.baseOffset + int64(offset)
+}
+
+func (fb *flushBuffer) TryClose() (markedFull bool) {
+retry:
+	state := atomic.LoadUint64(&fb.state)
+	isfull, nw, offset := decodeState(state)
+
+	if !isfull {
+		newState := encodeState(true, nw, offset)
+		if !atomic.CompareAndSwapUint64(&fb.state, state, newState) {
+			goto retry
+		}
+
+		return true
+	}
+
+	return false
 }
 
 func (fb *flushBuffer) NextBuffer() *flushBuffer {
