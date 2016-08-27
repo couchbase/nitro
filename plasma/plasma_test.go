@@ -258,3 +258,28 @@ func TestPlasmaIteratorLookupPerf(t *testing.T) {
 	fmt.Println(s.GetStats())
 	fmt.Printf("%d items iterator seek took %v -> %v items/s\n", total, dur, float64(total)/float64(dur.Seconds()))
 }
+
+func TestPlasmaPersistor(t *testing.T) {
+	s := newTestIntPlasmaStore()
+	w := s.NewWriter()
+	for i := 0; i < 18000000; i++ {
+		w.Insert(skiplist.NewIntKeyItem(i * 10))
+	}
+
+	t0 := time.Now()
+	s.PersistAll()
+	fmt.Println("took", time.Since(t0), s.lss.UsedSpace())
+	for i := 0; i < 2000000; i++ {
+		w.Insert(skiplist.NewIntKeyItem(5 + i*100))
+	}
+	t0 = time.Now()
+	s.PersistAll()
+	fmt.Println("took", time.Since(t0), s.lss.UsedSpace())
+	for i := 0; i < 2000000; i++ {
+		w.Insert(skiplist.NewIntKeyItem(6 + i*100))
+	}
+	t0 = time.Now()
+	s.PersistAll()
+	fmt.Println("took", time.Since(t0), s.lss.UsedSpace())
+	fmt.Println(s.GetStats())
+}
