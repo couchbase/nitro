@@ -75,9 +75,10 @@ func (pi *pageItem) Item() unsafe.Pointer {
 var pageDeltaHdrSize = unsafe.Sizeof(*new(pageDelta))
 
 type pageDelta struct {
-	op       pageOp
-	chainLen uint16
-	numItems uint16
+	op          pageOp
+	chainLen    uint16
+	numItems    uint16
+	pageVersion uint16
 
 	next *pageDelta
 
@@ -86,9 +87,10 @@ type pageDelta struct {
 }
 
 type basePage struct {
-	op       pageOp
-	chainLen uint16
-	numItems uint16
+	op          pageOp
+	chainLen    uint16
+	numItems    uint16
+	pageVersion uint16
 
 	data unsafe.Pointer
 
@@ -363,8 +365,14 @@ func (pg *page) Split(pid PageId) Page {
 }
 
 func (pg *page) Compact() {
+	var pageVersion uint16
+	if pg.head != nil {
+		pageVersion = pg.head.pageVersion
+	}
+
 	itms := pg.collectItems(pg.head, nil, pg.head.hiItm)
 	pg.head = pg.newBasePage(itms)
+	pg.head.pageVersion = pageVersion + 1
 }
 
 func (pg *page) Merge(sp Page) {
@@ -479,6 +487,10 @@ func (pg *page) Marshal(buf []byte) []byte {
 		binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(pd.numItems))
 		woffset += 2
 
+		// pageVersion
+		binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(pd.pageVersion))
+		woffset += 2
+
 		// hiItm
 		if pd.hiItm == skiplist.MaxItem {
 			binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(0))
@@ -560,6 +572,9 @@ func (pg *page) Unmarshal(data []byte, ctx *wCtx) {
 	numItems := int(binary.BigEndian.Uint16(data[roffset : roffset+2]))
 	roffset += 2
 
+	pageVersion := int(binary.BigEndian.Uint16(data[roffset : roffset+2]))
+	roffset += 2
+
 	l := int(binary.BigEndian.Uint16(data[roffset : roffset+2]))
 	roffset += 2
 
@@ -598,6 +613,7 @@ func (pg *page) Unmarshal(data []byte, ctx *wCtx) {
 					op:           op,
 					chainLen:     uint16(chainLen),
 					numItems:     uint16(numItems),
+					pageVersion:  uint16(pageVersion),
 					hiItm:        hiItm,
 					rightSibling: rightSibling,
 				},
@@ -620,6 +636,7 @@ func (pg *page) Unmarshal(data []byte, ctx *wCtx) {
 			}
 
 			bp := pg.newBasePage(itms)
+			bp.pageVersion = uint16(pageVersion)
 			bp.hiItm = hiItm
 			bp.rightSibling = rightSibling
 			pd = (*pageDelta)(unsafe.Pointer(bp))
