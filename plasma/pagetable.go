@@ -98,6 +98,7 @@ func (s *pageTable) ReadPage(pid PageId) Page {
 	ptr := atomic.LoadPointer(&n.DataPtr)
 	return &page{
 		storeCtx:    s.storeCtx,
+		low:         n.Item(),
 		head:        (*pageDelta)(ptr),
 		prevHeadPtr: ptr,
 	}

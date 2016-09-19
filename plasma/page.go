@@ -479,16 +479,27 @@ func (pg *page) Marshal(buf []byte) []byte {
 	woffset := 0
 	pd := pg.head
 	if pd != nil {
+		// pageVersion
+		binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(pd.pageVersion))
+		woffset += 2
+
+		if pg.low == skiplist.MinItem {
+			binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(0))
+			woffset += 2
+		} else {
+			l := int(pg.itemSize(pg.low))
+			binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(l))
+			woffset += 2
+			memcopy(unsafe.Pointer(&buf[woffset]), pd.hiItm, l)
+			woffset += l
+		}
+
 		// chainlen
 		binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(pd.chainLen))
 		woffset += 2
 
 		// numItems
 		binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(pd.numItems))
-		woffset += 2
-
-		// pageVersion
-		binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(pd.pageVersion))
 		woffset += 2
 
 		// hiItm
@@ -563,8 +574,37 @@ loop:
 	return buf[:woffset]
 }
 
+func getLSSPageMeta(data []byte) (itm unsafe.Pointer, pv uint16) {
+	roffset := 0
+	pv = binary.BigEndian.Uint16(data[roffset : roffset+2])
+	roffset += 2
+
+	l := int(binary.BigEndian.Uint16(data[roffset : roffset+2]))
+	roffset += 2
+	if l == 0 {
+		itm = skiplist.MaxItem
+	} else {
+		itm = unsafe.Pointer(&data[roffset])
+	}
+
+	return
+}
+
 func (pg *page) Unmarshal(data []byte, ctx *wCtx) {
 	roffset := 0
+
+	pageVersion := int(binary.BigEndian.Uint16(data[roffset : roffset+2]))
+	roffset += 2
+
+	l := int(binary.BigEndian.Uint16(data[roffset : roffset+2]))
+	roffset += 2
+	if l == 0 {
+		pg.low = skiplist.MinItem
+	} else {
+		pg.low = pg.alloc(uintptr(l))
+		memcopy(pg.low, unsafe.Pointer(&data[roffset]), l)
+		roffset += l
+	}
 
 	chainLen := int(binary.BigEndian.Uint16(data[roffset : roffset+2]))
 	roffset += 2
@@ -572,10 +612,7 @@ func (pg *page) Unmarshal(data []byte, ctx *wCtx) {
 	numItems := int(binary.BigEndian.Uint16(data[roffset : roffset+2]))
 	roffset += 2
 
-	pageVersion := int(binary.BigEndian.Uint16(data[roffset : roffset+2]))
-	roffset += 2
-
-	l := int(binary.BigEndian.Uint16(data[roffset : roffset+2]))
+	l = int(binary.BigEndian.Uint16(data[roffset : roffset+2]))
 	roffset += 2
 
 	var hiItm unsafe.Pointer
