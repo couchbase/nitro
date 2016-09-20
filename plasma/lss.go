@@ -16,6 +16,7 @@ type lssCleanerCallback func(lssOffset, []byte) bool
 
 type LSS interface {
 	ReserveSpace(size int) (lssOffset, []byte, lssResource)
+	ReserveSpaceMulti(sizes []int) ([]lssOffset, [][]byte, lssResource)
 	FinalizeWrite(lssResource)
 	Read(lssOffset, buf []byte) (int, error)
 	Sync()
@@ -116,11 +117,16 @@ func (s *lsStore) initNewBuffer(id int32, fb *flushBuffer) {
 }
 
 func (s *lsStore) ReserveSpace(size int) (lssOffset, []byte, lssResource) {
+	offs, bs, res := s.ReserveSpaceMulti([]int{size})
+	return offs[0], bs[0], res
+}
+
+func (s *lsStore) ReserveSpaceMulti(sizes []int) ([]lssOffset, [][]byte, lssResource) {
 retry:
 	id := atomic.LoadInt32(&s.currBuf)
 	fbid := int(id) % len(s.flushBufs)
 	fb := s.flushBufs[fbid]
-	success, markedFull, offset, buf := fb.Alloc(size)
+	success, markedFull, offsets, bufs := fb.Alloc(sizes)
 	if !success {
 		if markedFull {
 			s.initNewBuffer(id, fb)
@@ -131,7 +137,7 @@ retry:
 		goto retry
 	}
 
-	return lssOffset(offset), buf, lssResource(fb)
+	return offsets, bufs, lssResource(fb)
 }
 
 func (s *lsStore) readBlock(off int64, buf []byte) error {
@@ -341,22 +347,27 @@ func (fb *flushBuffer) Init(parent *flushBuffer, baseOffset int64) {
 
 }
 
-func (fb *flushBuffer) Alloc(size int) (status bool, markedFull bool, off int64, buf []byte) {
+func (fb *flushBuffer) Alloc(sizes []int) (status bool, markedFull bool, offs []lssOffset, bufs [][]byte) {
 retry:
 	state := atomic.LoadUint64(&fb.state)
 	isfull, nw, offset := decodeState(state)
 	if isfull {
-		return false, false, 0, nil
+		return false, false, nil, nil
 	}
 
-	newOffset := offset + headerFBSize + size
+	size := 0
+	for _, sz := range sizes {
+		size += sz + headerFBSize
+	}
+
+	newOffset := offset + size
 	if newOffset > len(fb.b) {
 		markedFull := true
 		newState := encodeState(true, nw, offset)
 		if !atomic.CompareAndSwapUint64(&fb.state, state, newState) {
 			goto retry
 		}
-		return false, markedFull, 0, nil
+		return false, markedFull, nil, nil
 	}
 
 	newState := encodeState(false, nw+1, newOffset)
@@ -364,8 +375,16 @@ retry:
 		goto retry
 	}
 
-	binary.BigEndian.PutUint32(fb.b[offset:offset+headerFBSize], uint32(size))
-	return true, false, fb.baseOffset + int64(offset), fb.b[offset+headerFBSize : newOffset]
+	bufs = make([][]byte, len(sizes))
+	offs = make([]lssOffset, len(sizes))
+	for i, bufOffset := 0, offset; i < len(sizes); i++ {
+		binary.BigEndian.PutUint32(fb.b[bufOffset:bufOffset+headerFBSize], uint32(sizes[i]))
+		bufs[i] = fb.b[bufOffset+headerFBSize : bufOffset+headerFBSize+sizes[i]]
+		offs[i] = lssOffset(fb.baseOffset + int64(bufOffset))
+		bufOffset += sizes[i] + headerFBSize
+	}
+
+	return true, false, offs, bufs
 }
 
 func (fb *flushBuffer) Done() {
