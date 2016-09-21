@@ -45,6 +45,8 @@ type Page interface {
 	Split(PageId) Page
 	Merge(Page)
 	Compact()
+
+	Marshal([]byte) []byte
 }
 
 type ItemIterator interface {
@@ -569,6 +571,10 @@ loop:
 			binary.BigEndian.PutUint64(buf[woffset:woffset+8], uint64(fpd.offset))
 			woffset += 8
 			break loop
+		case opPageRemoveDelta:
+			binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(pd.op))
+			woffset += 2
+			break loop
 		}
 	}
 
@@ -660,6 +666,7 @@ func (pg *page) Unmarshal(data []byte, ctx *wCtx) {
 
 			chainLen--
 			pd = (*pageDelta)(unsafe.Pointer(rpd))
+
 		case opBasePage:
 			nItms := int(binary.BigEndian.Uint16(data[roffset : roffset+2]))
 			roffset += 2
@@ -678,7 +685,13 @@ func (pg *page) Unmarshal(data []byte, ctx *wCtx) {
 			bp.hiItm = hiItm
 			bp.rightSibling = rightSibling
 			pd = (*pageDelta)(unsafe.Pointer(bp))
+
+		case opPageRemoveDelta:
+			pd = &pageDelta{
+				op: opPageRemoveDelta,
+			}
 		}
+
 		if pg.head == nil {
 			pg.head = pd
 		} else {

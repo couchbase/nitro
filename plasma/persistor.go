@@ -18,6 +18,16 @@ const (
 	lssDiscard
 )
 
+func discardLSSBlock(wbuf []byte) {
+	binary.BigEndian.PutUint16(wbuf[:lssBlockTypeSize], uint16(lssDiscard))
+}
+
+func writeLSSBlock(wbuf []byte, typ lssBlockType, bs []byte) {
+	copy(wbuf[lssBlockTypeSize:], bs)
+	if typ != lssPageData {
+	}
+}
+
 func (s *Plasma) PersistAll() {
 	buf := make([]byte, maxPageEncodedSize)
 
@@ -29,8 +39,7 @@ func (s *Plasma) PersistAll() {
 		offset, wbuf, res := s.lss.ReserveSpace(lssBlockTypeSize + len(bs))
 		offsetPtr := pg.addFlushDelta()
 		if !s.UpdateMapping(pid, pg) {
-			// discard lss space
-			binary.BigEndian.PutUint16(wbuf[:lssBlockTypeSize], uint16(lssDiscard))
+			discardLSSBlock(wbuf)
 			s.lss.FinalizeWrite(res)
 			goto retry
 		}

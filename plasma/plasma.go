@@ -17,9 +17,10 @@ type Plasma struct {
 }
 
 type wCtx struct {
-	buf   *skiplist.ActionBuffer
-	slSts *skiplist.Stats
-	sts   *Stats
+	buf                  *skiplist.ActionBuffer
+	pgEncBuf1, pgEncBuf2 []byte
+	slSts                *skiplist.Stats
+	sts                  *Stats
 }
 
 type Stats struct {
@@ -104,9 +105,11 @@ func (s *Plasma) NewWriter() *Writer {
 	w := &Writer{
 		Plasma: s,
 		wCtx: &wCtx{
-			buf:   s.Skiplist.MakeBuf(),
-			slSts: &s.Skiplist.Stats,
-			sts:   new(Stats),
+			buf:       s.Skiplist.MakeBuf(),
+			slSts:     &s.Skiplist.Stats,
+			sts:       new(Stats),
+			pgEncBuf1: make([]byte, maxPageEncodedSize),
+			pgEncBuf2: make([]byte, maxPageEncodedSize),
 		},
 	}
 
@@ -144,15 +147,37 @@ func (s *Plasma) tryPageRemoval(pid PageId, pg Page, ctx *wCtx) {
 	n := pid.(*skiplist.Node)
 	itm := n.Item()
 	prev, _, found := s.Skiplist.Lookup(itm, s.cmp, ctx.buf, ctx.slSts)
+	// Somebody else removed the node
 	if !found {
-		panic("should not happen")
+		return
 	}
+
 	pPid := PageId(prev)
 	pPg := s.ReadPage(pPid)
 	pPg.Merge(pg)
+
+	mergePgBuf := ctx.pgEncBuf1
+	rmPgBuf := ctx.pgEncBuf2
+	mergePgBuf = pPg.Marshal(mergePgBuf)
+	rmPgBuf = pg.Marshal(rmPgBuf)
+
+	sizes := []int{lssBlockTypeSize + len(mergePgBuf), lssBlockTypeSize + len(rmPgBuf)}
+	offsets, wbufs, res := s.lss.ReserveSpaceMulti(sizes)
+
+	pgFlushOffset := pPg.(*page).addFlushDelta()
+
 	if s.UpdateMapping(pPid, pPg) {
 		s.unindexPage(pid, ctx)
+
+		writeLSSBlock(wbufs[0], lssPageData, mergePgBuf)
+		writeLSSBlock(wbufs[1], lssPageDelete, rmPgBuf)
+		*pgFlushOffset = offsets[0]
+	} else {
+		discardLSSBlock(wbufs[0])
+		discardLSSBlock(wbufs[1])
 	}
+
+	s.lss.FinalizeWrite(res)
 }
 
 func (s *Plasma) isStartPage(pid PageId) bool {
@@ -181,19 +206,47 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 	} else if pg.NeedSplit(s.Config.MaxPageItems) {
 		splitPid := s.AllocPageId()
 		newPg := pg.Split(splitPid)
-		if newPg != nil && s.UpdateMapping(pid, pg) {
-			s.CreateMapping(splitPid, newPg)
+
+		// Skip split
+		if newPg == nil {
+			s.FreePageId(splitPid)
+			if doUpdate {
+				updated = s.UpdateMapping(pid, pg)
+			}
+			return updated
+		}
+
+		s.CreateMapping(splitPid, newPg)
+
+		// Commit split information in lss
+		splitPgBuf := ctx.pgEncBuf1
+		pgBuf := ctx.pgEncBuf2
+		pgBuf = pg.Marshal(pgBuf)
+		splitPgBuf = newPg.Marshal(splitPgBuf)
+
+		sizes := []int{lssBlockTypeSize + len(pgBuf), lssBlockTypeSize + len(splitPgBuf)}
+		offsets, wbufs, res := s.lss.ReserveSpaceMulti(sizes)
+
+		pgFlushOffset := pg.(*page).addFlushDelta()
+		splitPgFlushOffset := newPg.(*page).addFlushDelta()
+
+		if s.UpdateMapping(pid, pg) {
 			s.indexPage(splitPid, ctx)
 			ctx.sts.Splits++
+
+			writeLSSBlock(wbufs[0], lssPageData, pgBuf)
+			writeLSSBlock(wbufs[1], lssPageAlloc, splitPgBuf)
+
+			*pgFlushOffset = offsets[0]
+			*splitPgFlushOffset = offsets[1]
 		} else {
 			ctx.sts.SplitConflicts++
 			s.FreePageId(splitPid)
 
-			// Did not perform split, but perform update
-			if newPg == nil && doUpdate {
-				updated = s.UpdateMapping(pid, pg)
-			}
+			discardLSSBlock(wbufs[0])
+			discardLSSBlock(wbufs[1])
 		}
+		s.lss.FinalizeWrite(res)
 	} else if !s.isStartPage(pid) && pg.NeedMerge(s.Config.MinPageItems) {
 		pg.Close()
 		if s.UpdateMapping(pid, pg) {
