@@ -17,10 +17,10 @@ type Plasma struct {
 }
 
 type wCtx struct {
-	buf                  *skiplist.ActionBuffer
-	pgEncBuf1, pgEncBuf2 []byte
-	slSts                *skiplist.Stats
-	sts                  *Stats
+	buf                             *skiplist.ActionBuffer
+	pgEncBuf1, pgEncBuf2, pgEncBuf3 []byte
+	slSts                           *skiplist.Stats
+	sts                             *Stats
 }
 
 type Stats struct {
@@ -110,6 +110,7 @@ func (s *Plasma) NewWriter() *Writer {
 			sts:       new(Stats),
 			pgEncBuf1: make([]byte, maxPageEncodedSize),
 			pgEncBuf2: make([]byte, maxPageEncodedSize),
+			pgEncBuf3: make([]byte, maxPageEncodedSize),
 		},
 	}
 
@@ -154,27 +155,37 @@ func (s *Plasma) tryPageRemoval(pid PageId, pg Page, ctx *wCtx) {
 
 	pPid := PageId(prev)
 	pPg := s.ReadPage(pPid)
-	pPg.Merge(pg)
 
-	mergePgBuf := ctx.pgEncBuf1
-	rmPgBuf := ctx.pgEncBuf2
-	mergePgBuf = pPg.Marshal(mergePgBuf)
+	rmPgBuf := ctx.pgEncBuf1
 	rmPgBuf = pg.Marshal(rmPgBuf)
 
-	sizes := []int{lssBlockTypeSize + len(mergePgBuf), lssBlockTypeSize + len(rmPgBuf)}
-	offsets, wbufs, res := s.lss.ReserveSpaceMulti(sizes)
+	pgBuf := ctx.pgEncBuf2
+	pgBuf = pPg.Marshal(pgBuf)
 
+	metaBuf := ctx.pgEncBuf3
+	metaBuf = encodeMetaBlock(pg.(*page), metaBuf)
+
+	pPg.Merge(pg)
 	pgFlushOffset := pPg.(*page).addFlushDelta()
+
+	sizes := []int{
+		lssBlockTypeSize + len(metaBuf),
+		lssBlockTypeSize + len(rmPgBuf),
+		lssBlockTypeSize + len(pgBuf),
+	}
+	offsets, wbufs, res := s.lss.ReserveSpaceMulti(sizes)
 
 	if s.UpdateMapping(pPid, pPg) {
 		s.unindexPage(pid, ctx)
 
-		writeLSSBlock(wbufs[0], lssPageData, mergePgBuf)
-		writeLSSBlock(wbufs[1], lssPageDelete, rmPgBuf)
+		writeLSSBlock(wbufs[0], lssPageMerge, metaBuf)
+		writeLSSBlock(wbufs[1], lssPageData, rmPgBuf)
+		writeLSSBlock(wbufs[2], lssPageData, pgBuf)
 		*pgFlushOffset = offsets[0]
 	} else {
 		discardLSSBlock(wbufs[0])
 		discardLSSBlock(wbufs[1])
+		discardLSSBlock(wbufs[2])
 	}
 
 	s.lss.FinalizeWrite(res)
@@ -205,40 +216,45 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 		}
 	} else if pg.NeedSplit(s.Config.MaxPageItems) {
 		splitPid := s.AllocPageId()
+
+		pgBuf := ctx.pgEncBuf1
+		pgBuf = pg.Marshal(pgBuf)
 		newPg := pg.Split(splitPid)
+		pgFlushOffset := pg.(*page).addFlushDelta()
 
 		// Skip split
 		if newPg == nil {
 			s.FreePageId(splitPid)
 			if doUpdate {
-				updated = s.UpdateMapping(pid, pg)
+				if updated = s.UpdateMapping(pid, pg); updated {
+					offset, wbuf, res := s.lss.ReserveSpace(lssBlockTypeSize + len(pgBuf))
+					writeLSSBlock(wbuf, lssPageData, pgBuf)
+					s.lss.FinalizeWrite(res)
+					*pgFlushOffset = offset
+				}
 			}
 			return updated
 		}
 
-		s.CreateMapping(splitPid, newPg)
+		splitMetaBuf := ctx.pgEncBuf1
+		splitMetaBuf = encodeMetaBlock(newPg.(*page), splitMetaBuf)
 
 		// Commit split information in lss
-		splitPgBuf := ctx.pgEncBuf1
-		pgBuf := ctx.pgEncBuf2
-		pgBuf = pg.Marshal(pgBuf)
-		splitPgBuf = newPg.Marshal(splitPgBuf)
-
-		sizes := []int{lssBlockTypeSize + len(pgBuf), lssBlockTypeSize + len(splitPgBuf)}
+		sizes := []int{
+			lssBlockTypeSize + len(splitMetaBuf),
+			lssBlockTypeSize + len(pgBuf),
+		}
 		offsets, wbufs, res := s.lss.ReserveSpaceMulti(sizes)
 
-		pgFlushOffset := pg.(*page).addFlushDelta()
-		splitPgFlushOffset := newPg.(*page).addFlushDelta()
-
 		if s.UpdateMapping(pid, pg) {
+			s.CreateMapping(splitPid, newPg)
 			s.indexPage(splitPid, ctx)
 			ctx.sts.Splits++
 
-			writeLSSBlock(wbufs[0], lssPageData, pgBuf)
-			writeLSSBlock(wbufs[1], lssPageAlloc, splitPgBuf)
+			writeLSSBlock(wbufs[0], lssPageSplit, splitMetaBuf)
+			writeLSSBlock(wbufs[1], lssPageData, pgBuf)
 
 			*pgFlushOffset = offsets[0]
-			*splitPgFlushOffset = offsets[1]
 		} else {
 			ctx.sts.SplitConflicts++
 			s.FreePageId(splitPid)

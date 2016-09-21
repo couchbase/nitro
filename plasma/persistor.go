@@ -13,8 +13,8 @@ var lssBlockTypeSize = int(unsafe.Sizeof(*(new(lssBlockType))))
 
 const (
 	lssPageData lssBlockType = iota
-	lssPageAlloc
-	lssPageDelete
+	lssPageSplit
+	lssPageMerge
 	lssDiscard
 )
 

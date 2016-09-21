@@ -571,10 +571,6 @@ loop:
 			binary.BigEndian.PutUint64(buf[woffset:woffset+8], uint64(fpd.offset))
 			woffset += 8
 			break loop
-		case opPageRemoveDelta:
-			binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(pd.op))
-			woffset += 2
-			break loop
 		}
 	}
 
@@ -685,11 +681,6 @@ func (pg *page) Unmarshal(data []byte, ctx *wCtx) {
 			bp.hiItm = hiItm
 			bp.rightSibling = rightSibling
 			pd = (*pageDelta)(unsafe.Pointer(bp))
-
-		case opPageRemoveDelta:
-			pd = &pageDelta{
-				op: opPageRemoveDelta,
-			}
 		}
 
 		if pg.head == nil {
@@ -706,4 +697,16 @@ func (pg *page) addFlushDelta() *lssOffset {
 	pg.head = (*pageDelta)(unsafe.Pointer(fd))
 
 	return &fd.offset
+}
+
+func encodeMetaBlock(target *page, buf []byte) []byte {
+	woffset := 0
+
+	l := int(target.itemSize(target.low))
+	binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(l))
+	woffset += 2
+	memcopy(unsafe.Pointer(&buf[woffset]), target.low, l)
+	woffset += l
+
+	return buf[:woffset]
 }
