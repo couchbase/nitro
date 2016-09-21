@@ -10,6 +10,8 @@ import (
 	"unsafe"
 )
 
+const superBlockSize = 4096
+
 type lssOffset uint64
 type lssResource interface{}
 type lssCleanerCallback func(lssOffset, []byte) bool
@@ -36,6 +38,8 @@ type lsStore struct {
 	bufSize   int
 	flushBufs []*flushBuffer
 	currBuf   int32
+
+	sbBuffer [superBlockSize]byte
 
 	sync.Mutex
 }
@@ -64,7 +68,43 @@ func newLSStore(file string, maxSize int64, bufSize int, nbufs int) (*lsStore, e
 	}
 
 	s.head = s.flushBufs[0]
+	s.loadSuperBlock()
+
 	return s, nil
+}
+
+func (s *lsStore) Close() {
+	s.updateSuperBlock()
+	s.w.Close()
+	s.r.Close()
+}
+
+func (s *lsStore) updateSuperBlock() {
+	buf := s.sbBuffer[:]
+	woffset := 0
+	// version
+	binary.BigEndian.PutUint32(buf[woffset:woffset+4], uint32(0))
+	woffset += 4
+
+	// headOffset
+	binary.BigEndian.PutUint64(buf[woffset:woffset+8], uint64(atomic.LoadInt64(&s.headOffset)))
+	woffset += 8
+
+	// tailOffset
+	binary.BigEndian.PutUint64(buf[woffset:woffset+8], uint64(atomic.LoadInt64(&s.tailOffset)))
+	woffset += 8
+
+	s.w.WriteAt(buf, 0)
+}
+
+func (s *lsStore) loadSuperBlock() {
+	buf := s.sbBuffer[:]
+	roffset := 4
+
+	s.r.ReadAt(buf, 0)
+	s.headOffset = int64(binary.BigEndian.Uint64(buf[roffset : roffset+8]))
+	roffset += 8
+	s.tailOffset = int64(binary.BigEndian.Uint64(buf[roffset : roffset+8]))
 }
 
 func (s *lsStore) UsedSpace() int64 {
@@ -89,15 +129,17 @@ func (s *lsStore) flush(fb *flushBuffer) {
 	if fpos+size > s.maxSize {
 		bs := fb.Bytes()
 		tailSz := s.maxSize - fpos
-		s.w.WriteAt(bs[tailSz:], 0)
-		s.w.WriteAt(bs[:tailSz], fpos)
+		s.w.WriteAt(bs[tailSz:], superBlockSize+0)
+		s.w.WriteAt(bs[:tailSz], superBlockSize+fpos)
 	} else {
-		s.w.WriteAt(fb.Bytes(), fpos)
+		s.w.WriteAt(fb.Bytes(), superBlockSize+fpos)
 	}
+
 	atomic.StoreInt64(&s.tailOffset, fb.EndOffset())
 	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&s.head)),
 		unsafe.Pointer(fb.NextBuffer()))
 
+	s.updateSuperBlock()
 	fb.Reset()
 }
 
@@ -145,15 +187,15 @@ func (s *lsStore) readBlock(off int64, buf []byte) error {
 
 	if fpos+int64(len(buf)) > s.maxSize {
 		tailSz := s.maxSize - fpos
-		if _, err := s.r.ReadAt(buf[:tailSz], fpos); err != nil {
+		if _, err := s.r.ReadAt(buf[:tailSz], superBlockSize+fpos); err != nil {
 			return err
 		}
 
-		if _, err := s.r.ReadAt(buf[tailSz:], 0); err != nil {
+		if _, err := s.r.ReadAt(buf[tailSz:], superBlockSize+0); err != nil {
 			return err
 		}
 	} else {
-		if _, err := s.r.ReadAt(buf, fpos); err != nil {
+		if _, err := s.r.ReadAt(buf, superBlockSize+fpos); err != nil {
 			return err
 		}
 	}

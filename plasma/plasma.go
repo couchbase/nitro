@@ -96,6 +96,10 @@ func New(cfg Config) (*Plasma, error) {
 	return s, err
 }
 
+func (s *Plasma) Close() {
+	s.lss.Close()
+}
+
 type Writer struct {
 	*Plasma
 	*wCtx
