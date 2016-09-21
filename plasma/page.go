@@ -304,6 +304,7 @@ loop:
 				pd = pdm.mergeSibling
 				continue loop
 			}
+		case opFlushPageDelta:
 		default:
 			panic(fmt.Sprint("should not happen op:", pd.op))
 		}
@@ -490,7 +491,7 @@ func (pg *page) Marshal(buf []byte) []byte {
 			l := int(pg.itemSize(pg.low))
 			binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(l))
 			woffset += 2
-			memcopy(unsafe.Pointer(&buf[woffset]), pd.hiItm, l)
+			memcopy(unsafe.Pointer(&buf[woffset]), pg.low, l)
 			woffset += l
 		}
 
