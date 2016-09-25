@@ -44,7 +44,7 @@ func (s *Plasma) PersistAll() {
 			goto retry
 		}
 
-		copy(wbuf[lssBlockTypeSize:], bs)
+		writeLSSBlock(wbuf, lssPageData, bs)
 		s.lss.FinalizeWrite(res)
 		*offsetPtr = offset
 

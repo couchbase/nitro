@@ -96,10 +96,16 @@ func (s *pageTable) UpdateMapping(pid PageId, pg Page) bool {
 func (s *pageTable) ReadPage(pid PageId) Page {
 	n := pid.(*skiplist.Node)
 	ptr := atomic.LoadPointer(&n.DataPtr)
-	return &page{
+	pg := &page{
 		storeCtx:    s.storeCtx,
 		low:         n.Item(),
 		head:        (*pageDelta)(ptr),
 		prevHeadPtr: ptr,
 	}
+
+	if pg.head != nil {
+		pg.version = pg.head.pageVersion
+	}
+
+	return pg
 }

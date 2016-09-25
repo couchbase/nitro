@@ -46,6 +46,7 @@ type Page interface {
 	Merge(Page)
 	Compact()
 
+	PrependDeltas(Page)
 	Marshal([]byte) []byte
 }
 
@@ -146,8 +147,17 @@ type page struct {
 	*storeCtx
 
 	low         unsafe.Pointer
+	version     uint16
 	prevHeadPtr unsafe.Pointer
 	head        *pageDelta
+	tail        *pageDelta
+}
+
+func (pg *page) Reset() {
+	pg.low = nil
+	pg.head = nil
+	pg.tail = nil
+	pg.prevHeadPtr = nil
 }
 
 func (pg *page) newFlushPageDelta() *flushPageDelta {
@@ -386,6 +396,14 @@ func (pg *page) Merge(sp Page) {
 	pg.head.hiItm = siblPage.hiItm
 }
 
+func (pg *page) PrependDeltas(p Page) {
+	dPg := p.(*page)
+	if dPg.tail != nil {
+		dPg.tail.next = pg.head
+		pg.head = dPg.head
+	}
+}
+
 func (pg *page) newPageItemSorter(head *pageDelta) pageItemSorter {
 	chainLen := 0
 	if head != nil {
@@ -599,6 +617,8 @@ func (pg *page) Unmarshal(data []byte, ctx *wCtx) {
 	pageVersion := int(binary.BigEndian.Uint16(data[roffset : roffset+2]))
 	roffset += 2
 
+	pg.version = uint16(pageVersion)
+
 	l := int(binary.BigEndian.Uint16(data[roffset : roffset+2]))
 	roffset += 2
 	if l == 0 {
@@ -690,6 +710,8 @@ func (pg *page) Unmarshal(data []byte, ctx *wCtx) {
 		}
 		lastPd = pd
 	}
+
+	pg.tail = lastPd
 }
 
 func (pg *page) addFlushDelta() *lssOffset {
