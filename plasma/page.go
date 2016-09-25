@@ -348,34 +348,38 @@ func (pg *page) Close() {
 }
 
 func (pg *page) Split(pid PageId) Page {
-	newPage := new(page)
-	*newPage = *pg
-	newPage.prevHeadPtr = nil
-	head := pg.head
-	curr := head
+	curr := pg.head
 	for ; curr != nil && curr.op != opBasePage; curr = curr.next {
 	}
 
 	bp := (*basePage)(unsafe.Pointer(curr))
 	mid := len(bp.items) / 2
 	for mid > 0 {
-		if pg.cmp(bp.items[mid], head.hiItm) < 0 {
+		if pg.cmp(bp.items[mid], pg.head.hiItm) < 0 {
 			break
 		}
 		mid--
 	}
 
 	if mid > 0 {
-		itms := pg.collectItems(head, bp.items[mid], head.hiItm)
-		newPage.head = pg.newBasePage(itms)
-		newPage.low = (*basePage)(unsafe.Pointer(newPage.head)).items[0]
-		pg.head = pg.newSplitPageDelta(bp.items[mid], pid)
-		pg.head.hiItm = bp.items[mid]
-		pg.head.numItems = uint16(len(bp.items[:mid]))
-		return newPage
+		numItems := len(bp.items[:mid])
+		return pg.doSplit(bp.items[mid], pid, numItems)
 	}
 
 	return nil
+}
+
+func (pg *page) doSplit(itm unsafe.Pointer, pid PageId, numItems int) *page {
+	newPage := new(page)
+	*newPage = *pg
+	newPage.prevHeadPtr = nil
+	itms := pg.collectItems(pg.head, itm, pg.head.hiItm)
+	newPage.head = pg.newBasePage(itms)
+	newPage.low = (*basePage)(unsafe.Pointer(newPage.head)).items[0]
+	pg.head = pg.newSplitPageDelta(itm, pid)
+	pg.head.hiItm = itm
+	pg.head.numItems = uint16(numItems)
+	return newPage
 }
 
 func (pg *page) Compact() {
