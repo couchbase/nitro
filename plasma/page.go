@@ -425,6 +425,32 @@ func (pg *page) inRange(lo, hi unsafe.Pointer, itm unsafe.Pointer) bool {
 	return pg.cmp(itm, hi) < 0 && pg.cmp(itm, lo) >= 0
 }
 
+func (pg *page) prettyPrint(pd *pageDelta, stringify func(unsafe.Pointer) string) {
+loop:
+	for ; pd != nil; pd = pd.next {
+		switch pd.op {
+		case opInsertDelta, opDeleteDelta:
+			rec := (*recordDelta)(unsafe.Pointer(pd))
+			fmt.Printf("Delta op:%d, itm:%s\n", pd.op, stringify(rec.itm))
+		case opBasePage:
+			bp := (*basePage)(unsafe.Pointer(pd))
+			for _, itm := range bp.items {
+				fmt.Printf("Basepage itm:%s\n", stringify(itm))
+			}
+			break loop
+		case opFlushPageDelta:
+			fmt.Println("-------flush------")
+		case opPageSplitDelta:
+			fmt.Println("-------split------")
+		case opPageMergeDelta:
+			pds := (*mergePageDelta)(unsafe.Pointer(pd))
+			fmt.Printf("-------merge-siblings-------")
+			pg.prettyPrint(pds.mergeSibling, stringify)
+			fmt.Println("-----------")
+		}
+	}
+}
+
 func (pg *page) collectPageItems(head *pageDelta, loItm, hiItm unsafe.Pointer) []PageItem {
 	sorter := pg.newPageItemSorter(head)
 	for pd := head; pd != nil; pd = pd.next {
