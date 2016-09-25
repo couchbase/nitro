@@ -93,7 +93,96 @@ func New(cfg Config) (*Plasma, error) {
 
 	lss, err := newLSStore(cfg.File, cfg.MaxSize, cfg.FlushBufferSize, 2)
 	s.lss = lss
+	s.doRecovery()
 	return s, err
+}
+
+func (s *Plasma) doRecovery() error {
+	pg := &page{
+		storeCtx: s.storeCtx,
+	}
+
+	w := s.NewWriter()
+
+	var rmPg *page
+	doSplit := false
+	doRmPage := false
+	doMerge := false
+
+	buf := w.wCtx.pgEncBuf1
+
+	fn := func(offset lssOffset, bs []byte) bool {
+		typ := getLSSBlockType(bs)
+		switch typ {
+		case lssDiscard:
+		case lssPageSplit:
+			doSplit = true
+			break
+		case lssPageMerge:
+			doRmPage = true
+		case lssPageData:
+			pg.Unmarshal(bs[lssBlockTypeSize:], w.wCtx)
+
+			var pid PageId
+			if pg.low == skiplist.MinItem {
+				pid = s.StartPageId()
+			} else {
+				pid = s.getPageId(pg.low, w.wCtx)
+			}
+
+			if pid == nil {
+				pid = s.AllocPageId()
+				s.CreateMapping(pid, pg)
+				s.indexPage(pid, w.wCtx)
+			} else {
+				currPg := s.ReadPage(pid)
+				if currPg.(*page).version == pg.version || pg.head == nil {
+					currPg.PrependDeltas(pg)
+					pg = currPg.(*page)
+				}
+			}
+
+			if doSplit {
+				// TODO: Is split using exact key needed ?
+				splitPid := s.AllocPageId()
+				newPg := pg.Split(splitPid)
+				s.CreateMapping(splitPid, newPg)
+				s.indexPage(splitPid, w.wCtx)
+				doSplit = false
+			} else if doRmPage {
+				rmPg = new(page)
+				*rmPg = *pg
+				doRmPage = false
+				doMerge = true
+				s.unindexPage(pid, w.wCtx)
+			} else if doMerge {
+				doMerge = false
+				pg.Merge(rmPg)
+
+				rmPg = nil
+			}
+
+			s.CreateMapping(pid, pg)
+		}
+
+		pg.Reset()
+		return true
+	}
+
+	err := s.lss.Visitor(fn, buf)
+
+	// Fix rightSibling node pointers
+	itr := s.Skiplist.NewIterator(s.cmp, w.buf)
+	defer itr.Close()
+	pg = s.ReadPage(s.StartPageId()).(*page)
+	for itr.SeekFirst(); itr.Valid(); itr.Next() {
+		n := itr.GetNode()
+		pid := PageId(n)
+		pg.head.rightSibling = pid
+		pg = s.ReadPage(pid).(*page)
+	}
+
+	return err
 }
 
 func (s *Plasma) Close() {

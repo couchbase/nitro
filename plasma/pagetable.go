@@ -45,7 +45,7 @@ func newPageTable(sl *skiplist.Skiplist, itmSize ItemSizeFn,
 			}
 			_, pid, found := sl.Lookup(itm, cmp, ctx.buf, ctx.slSts)
 			if !found {
-				panic("should not happen")
+				return nil
 			}
 
 			return pid

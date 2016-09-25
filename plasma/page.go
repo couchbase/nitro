@@ -680,15 +680,18 @@ func (pg *page) Unmarshal(data []byte, ctx *wCtx) {
 
 	var rightSibling PageId
 	l = int(binary.BigEndian.Uint16(data[roffset : roffset+2]))
+
+	// TODO: rightSibling needs to be fixed later (help recovery now)
 	roffset += 2
 	if l == 0 {
-		rightSibling = pg.getPageId(skiplist.MaxItem, ctx)
+		// rightSibling = pg.getPageId(skiplist.MaxItem, ctx)
 	} else {
-		rightSibling = pg.getPageId(unsafe.Pointer(&data[roffset]), ctx)
+		// rightSibling = pg.getPageId(unsafe.Pointer(&data[roffset]), ctx)
 		roffset += l
 	}
 
 	var pd, lastPd *pageDelta
+loop:
 	for roffset < len(data) {
 		op := pageOp(binary.BigEndian.Uint16(data[roffset : roffset+2]))
 		roffset += 2
@@ -732,6 +735,9 @@ func (pg *page) Unmarshal(data []byte, ctx *wCtx) {
 			bp.hiItm = hiItm
 			bp.rightSibling = rightSibling
 			pd = (*pageDelta)(unsafe.Pointer(bp))
+		case opFlushPageDelta:
+			// TODO: handle later during eviction impl
+			break loop
 		}
 
 		if pg.head == nil {
