@@ -283,3 +283,44 @@ func TestPlasmaPersistor(t *testing.T) {
 	fmt.Println("took", time.Since(t0), s.lss.UsedSpace())
 	fmt.Println(s.GetStats())
 }
+
+func TestPlasmaRecovery(t *testing.T) {
+	s := newTestIntPlasmaStore()
+	w := s.NewWriter()
+	for i := 0; i < 130000; i++ {
+		w.Insert(skiplist.NewIntKeyItem(i))
+	}
+	for i := 0; i < 100000; i++ {
+		w.Delete(skiplist.NewIntKeyItem(i))
+	}
+
+	fmt.Println(s.GetStats())
+	s.PersistAll()
+
+	s.Close()
+	s = newTestIntPlasmaStore()
+	w = s.NewWriter()
+	fmt.Println(s.GetStats())
+
+	fmt.Println(s.Skiplist.GetStats())
+
+	for i := 0; i < 100000; i++ {
+		itm := skiplist.NewIntKeyItem(i)
+		got := w.Lookup(itm)
+		if got != nil {
+			t.Errorf("expected nil %v", got)
+		}
+	}
+
+	for i := 100000; i < 130000; i++ {
+		itm := skiplist.NewIntKeyItem(i)
+		got := w.Lookup(itm)
+		if got == nil {
+			t.Errorf("mismatch %d != nil", i)
+		} else if skiplist.CompareInt(itm, got) != 0 {
+			t.Errorf("mismatch %d != %d", i, skiplist.IntFromItem(got))
+		}
+	}
+
+	s.Close()
+}
