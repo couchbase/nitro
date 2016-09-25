@@ -138,6 +138,7 @@ func TestLSSSuperBlock(t *testing.T) {
 		lss.FinalizeWrite(res)
 	}
 
+	lss.Sync()
 	tail := lss.tailOffset
 	head := lss.headOffset
 	lss.Close()
@@ -148,6 +149,6 @@ func TestLSSSuperBlock(t *testing.T) {
 	}
 
 	if head != lss.headOffset {
-		t.Errorf("head: expected %d, got %d", tail, lss.tailOffset)
+		t.Errorf("head: expected %d, got %d", head, lss.headOffset)
 	}
 }

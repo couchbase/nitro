@@ -69,11 +69,13 @@ func newLSStore(file string, maxSize int64, bufSize int, nbufs int) (*lsStore, e
 
 	s.head = s.flushBufs[0]
 	s.loadSuperBlock()
+	s.head.baseOffset = s.tailOffset
 
 	return s, nil
 }
 
 func (s *lsStore) Close() {
+	s.Sync()
 	s.updateSuperBlock()
 	s.w.Close()
 	s.r.Close()
