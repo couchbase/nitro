@@ -215,8 +215,12 @@ func TestIteratorSeek(t *testing.T) {
 	itr := s.NewIterator().(*Iterator)
 	for i := 0; i < 1000000; i++ {
 		itr.Seek(skiplist.NewIntKeyItem(i))
-		if v := skiplist.IntFromItem(itr.Get()); v != i {
-			t.Errorf("expected %d, got %d", i, v)
+		if itr.Valid() {
+			if v := skiplist.IntFromItem(itr.Get()); v != i {
+				t.Errorf("expected %d, got %d", i, v)
+			}
+		} else {
+			t.Errorf("%d not found", i)
 		}
 	}
 }

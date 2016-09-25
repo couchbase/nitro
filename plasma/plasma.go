@@ -172,6 +172,8 @@ func (s *Plasma) doRecovery() error {
 	err := s.lss.Visitor(fn, buf)
 
 	// Fix rightSibling node pointers
+	// If crash occurs and we miss out some pages which are not persisted,
+	// some ranges became orphans. Hence we need to fix hiItms for the pages
 	itr := s.Skiplist.NewIterator(s.cmp, w.buf)
 	defer itr.Close()
 	pg = s.ReadPage(s.StartPageId()).(*page)
@@ -179,7 +181,12 @@ func (s *Plasma) doRecovery() error {
 		n := itr.GetNode()
 		pid := PageId(n)
 		pg.head.rightSibling = pid
+		pg.head.hiItm = n.Item()
 		pg = s.ReadPage(pid).(*page)
+	}
+
+	if pg != nil && pg.head != nil {
+		pg.head.hiItm = skiplist.MaxItem
 	}
 
 	return err
