@@ -14,7 +14,7 @@ const superBlockSize = 4096
 
 type lssOffset uint64
 type lssResource interface{}
-type lssCleanerCallback func(lssOffset, []byte) bool
+type lssBlockCallback func(lssOffset, []byte) bool
 
 type LSS interface {
 	ReserveSpace(size int) (lssOffset, []byte, lssResource)
@@ -23,7 +23,7 @@ type LSS interface {
 	Read(lssOffset, buf []byte) (int, error)
 	Sync()
 
-	RunCleaner(callb lssCleanerCallback, buf []byte) error
+	RunCleaner(callb lssBlockCallback, buf []byte) error
 }
 
 type lsStore struct {
@@ -143,7 +143,7 @@ func (s *lsStore) flush(fb *flushBuffer) {
 	fb.Reset()
 }
 
-func (s *lsStore) initNewBuffer(id int32, fb *flushBuffer) {
+func (s *lsStore) initNextBuffer(id int32, fb *flushBuffer) {
 	nextId := id + 1
 	nextFbid := int(nextId) % len(s.flushBufs)
 	nextFb := s.flushBufs[nextFbid]
@@ -171,7 +171,7 @@ retry:
 	success, markedFull, offsets, bufs := fb.Alloc(sizes)
 	if !success {
 		if markedFull {
-			s.initNewBuffer(id, fb)
+			s.initNextBuffer(id, fb)
 			goto retry
 		}
 
@@ -247,14 +247,23 @@ func (s *lsStore) FinalizeWrite(res lssResource) {
 	fb.Done()
 }
 
-func (s *lsStore) RunCleaner(callb lssCleanerCallback, buf []byte) error {
+func (s *lsStore) RunCleaner(callb lssBlockCallback, buf []byte) error {
 	s.Lock()
 	defer s.Unlock()
 
+	fn := func(offset lssOffset, b []byte) bool {
+		rv := callb(offset, b)
+		atomic.StoreInt64(&s.headOffset, int64(offset)+int64(len(b))+headerFBSize)
+		return rv
+	}
+
+	return s.Visitor(fn, buf)
+}
+
+func (s *lsStore) Visitor(callb lssBlockCallback, buf []byte) error {
 	curr := atomic.LoadInt64(&s.headOffset)
 	end := atomic.LoadInt64(&s.tailOffset)
-
-	for {
+	for curr < end {
 		n, err := s.Read(lssOffset(curr), buf)
 		if err != nil {
 			return err
@@ -265,10 +274,6 @@ func (s *lsStore) RunCleaner(callb lssCleanerCallback, buf []byte) error {
 		}
 
 		curr += int64(n + headerFBSize)
-		atomic.StoreInt64(&s.headOffset, curr)
-		if end == curr {
-			break
-		}
 	}
 
 	return nil
@@ -280,7 +285,7 @@ func (s *lsStore) Sync() {
 	fb := s.flushBufs[fbid]
 	endOffset := fb.EndOffset()
 	if fb.TryClose() {
-		s.initNewBuffer(id, fb)
+		s.initNextBuffer(id, fb)
 	}
 
 	for {
