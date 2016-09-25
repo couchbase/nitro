@@ -24,8 +24,11 @@ func discardLSSBlock(wbuf []byte) {
 
 func writeLSSBlock(wbuf []byte, typ lssBlockType, bs []byte) {
 	copy(wbuf[lssBlockTypeSize:], bs)
-	if typ != lssPageData {
-	}
+	binary.BigEndian.PutUint16(wbuf[:lssBlockTypeSize], uint16(typ))
+}
+
+func getLSSBlockType(bs []byte) lssBlockType {
+	return lssBlockType(binary.BigEndian.Uint16(bs))
 }
 
 func (s *Plasma) PersistAll() {

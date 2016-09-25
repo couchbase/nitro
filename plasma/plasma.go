@@ -240,7 +240,7 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 			return updated
 		}
 
-		splitMetaBuf := ctx.pgEncBuf1
+		splitMetaBuf := ctx.pgEncBuf2
 		splitMetaBuf = encodeMetaBlock(newPg.(*page), splitMetaBuf)
 
 		// Commit split information in lss
