@@ -317,6 +317,7 @@ loop:
 				continue loop
 			}
 		case opFlushPageDelta:
+		case opPageRemoveDelta:
 		default:
 			panic(fmt.Sprint("should not happen op:", pd.op))
 		}
@@ -389,7 +390,7 @@ func (pg *page) Compact() {
 }
 
 func (pg *page) Merge(sp Page) {
-	siblPage := (sp.(*page)).head.next
+	siblPage := (sp.(*page)).head
 	pdm := pg.newMergePageDelta(pg.head.hiItm, siblPage)
 	pdm.next = pg.head
 	pg.head = pdm
