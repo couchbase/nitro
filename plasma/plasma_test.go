@@ -3,6 +3,7 @@ package plasma
 import (
 	"fmt"
 	"github.com/t3rm1n4l/nitro/skiplist"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -32,7 +33,10 @@ func newTestIntPlasmaStore() *Plasma {
 }
 
 func TestPlasmaSimple(t *testing.T) {
+	os.Remove("teststore.data")
 	s := newTestIntPlasmaStore()
+	defer s.Close()
+
 	w := s.NewWriter()
 	for i := 0; i < 1000000; i++ {
 		w.Insert(skiplist.NewIntKeyItem(i))
@@ -102,10 +106,12 @@ func doLookup(w *Writer, wg *sync.WaitGroup, id, n int) {
 func TestPlasmaInsertPerf(t *testing.T) {
 	var wg sync.WaitGroup
 
+	os.Remove("teststore.data")
 	numThreads := 4
 	n := 10000000
 	nPerThr := n / numThreads
 	s := newTestIntPlasmaStore()
+	defer s.Close()
 	total := numThreads * nPerThr
 
 	t0 := time.Now()
@@ -125,10 +131,12 @@ func TestPlasmaInsertPerf(t *testing.T) {
 func TestPlasmaDeletePerf(t *testing.T) {
 	var wg sync.WaitGroup
 
+	os.Remove("teststore.data")
 	numThreads := 4
 	n := 10000000
 	nPerThr := n / numThreads
 	s := newTestIntPlasmaStore()
+	defer s.Close()
 	total := numThreads * nPerThr
 
 	for i := 0; i < numThreads; i++ {
@@ -155,10 +163,12 @@ func TestPlasmaDeletePerf(t *testing.T) {
 func TestPlasmaLookupPerf(t *testing.T) {
 	var wg sync.WaitGroup
 
+	os.Remove("teststore.data")
 	numThreads := 4
 	n := 10000000
 	nPerThr := n / numThreads
 	s := newTestIntPlasmaStore()
+	defer s.Close()
 	total := numThreads * nPerThr
 
 	for i := 0; i < numThreads; i++ {
@@ -183,7 +193,9 @@ func TestPlasmaLookupPerf(t *testing.T) {
 }
 
 func TestIteratorSimple(t *testing.T) {
+	os.Remove("teststore.data")
 	s := newTestIntPlasmaStore()
+	defer s.Close()
 	w := s.NewWriter()
 	for i := 0; i < 1000000; i++ {
 		w.Insert(skiplist.NewIntKeyItem(i))
@@ -206,7 +218,9 @@ func TestIteratorSimple(t *testing.T) {
 }
 
 func TestIteratorSeek(t *testing.T) {
+	os.Remove("teststore.data")
 	s := newTestIntPlasmaStore()
+	defer s.Close()
 	w := s.NewWriter()
 	for i := 0; i < 1000000; i++ {
 		w.Insert(skiplist.NewIntKeyItem(i))
@@ -228,10 +242,12 @@ func TestIteratorSeek(t *testing.T) {
 func TestPlasmaIteratorLookupPerf(t *testing.T) {
 	var wg sync.WaitGroup
 
+	os.Remove("teststore.data")
 	numThreads := 8
 	n := 10000000
 	nPerThr := n / numThreads
 	s := newTestIntPlasmaStore()
+	defer s.Close()
 	total := numThreads * nPerThr
 
 	for i := 0; i < numThreads; i++ {
@@ -264,7 +280,9 @@ func TestPlasmaIteratorLookupPerf(t *testing.T) {
 }
 
 func TestPlasmaPersistor(t *testing.T) {
+	os.Remove("teststore.data")
 	s := newTestIntPlasmaStore()
+	defer s.Close()
 	w := s.NewWriter()
 	for i := 0; i < 18000000; i++ {
 		w.Insert(skiplist.NewIntKeyItem(i * 10))
@@ -289,7 +307,9 @@ func TestPlasmaPersistor(t *testing.T) {
 }
 
 func TestPlasmaRecovery(t *testing.T) {
+	os.Remove("teststore.data")
 	s := newTestIntPlasmaStore()
+	defer s.Close()
 	w := s.NewWriter()
 	for i := 0; i < 130000; i++ {
 		w.Insert(skiplist.NewIntKeyItem(i))
@@ -325,6 +345,4 @@ func TestPlasmaRecovery(t *testing.T) {
 			t.Errorf("mismatch %d != %d", i, skiplist.IntFromItem(got))
 		}
 	}
-
-	s.Close()
 }
