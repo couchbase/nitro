@@ -148,6 +148,7 @@ func (s *Plasma) doRecovery() error {
 				newPg := pg.Split(splitPid)
 				s.CreateMapping(splitPid, newPg)
 				s.indexPage(splitPid, w.wCtx)
+				w.wCtx.sts.Splits++
 				doSplit = false
 			} else if doRmPage {
 				rmPg = new(page)
@@ -158,7 +159,7 @@ func (s *Plasma) doRecovery() error {
 			} else if doMerge {
 				doMerge = false
 				pg.Merge(rmPg)
-
+				w.wCtx.sts.Merges++
 				rmPg = nil
 			}
 
@@ -170,6 +171,9 @@ func (s *Plasma) doRecovery() error {
 	}
 
 	err := s.lss.Visitor(fn, buf)
+	if err != nil {
+		return err
+	}
 
 	// Fix rightSibling node pointers
 	// If crash occurs and we miss out some pages which are not persisted,
@@ -177,12 +181,19 @@ func (s *Plasma) doRecovery() error {
 	itr := s.Skiplist.NewIterator(s.cmp, w.buf)
 	defer itr.Close()
 	pg = s.ReadPage(s.StartPageId()).(*page)
+	if pg != nil && pg.head != nil {
+		w.wCtx.sts.Inserts += int64(len(pg.collectItems(pg.head, nil, pg.head.hiItm)))
+	}
+
 	for itr.SeekFirst(); itr.Valid(); itr.Next() {
 		n := itr.GetNode()
 		pid := PageId(n)
 		pg.head.rightSibling = pid
 		pg.head.hiItm = n.Item()
 		pg = s.ReadPage(pid).(*page)
+
+		// TODO: Avoid need for full iteration for counting
+		w.wCtx.sts.Inserts += int64(len(pg.collectItems(pg.head, nil, pg.head.hiItm)))
 	}
 
 	if pg != nil && pg.head != nil {
