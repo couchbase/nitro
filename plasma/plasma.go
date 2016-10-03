@@ -13,6 +13,7 @@ type Plasma struct {
 	*pageTable
 	wlist []*Writer
 	lss   *lsStore
+	pw    *Writer
 	sync.RWMutex
 }
 
@@ -35,6 +36,9 @@ type Stats struct {
 	MergeConflicts   int64
 	InsertConflicts  int64
 	DeleteConflicts  int64
+
+	FlushDataSz int64
+	MemSz       int64
 }
 
 func (s *Stats) Merge(o *Stats) {
@@ -49,6 +53,9 @@ func (s *Stats) Merge(o *Stats) {
 	s.MergeConflicts += o.MergeConflicts
 	s.InsertConflicts += o.InsertConflicts
 	s.DeleteConflicts += o.DeleteConflicts
+
+	s.FlushDataSz += o.FlushDataSz
+	s.MemSz += o.MemSz
 }
 
 func (s Stats) String() string {
@@ -63,12 +70,15 @@ func (s Stats) String() string {
 		"split_conflicts   = %d\n"+
 		"merge_conflicts   = %d\n"+
 		"insert_conflicts  = %d\n"+
-		"delete_conflicts  = %d\n",
+		"delete_conflicts  = %d\n"+
+		"flushdata_size    = %d\n"+
+		"memory_size       = %d\n",
 		s.Inserts-s.Deletes,
 		s.Compacts, s.Splits, s.Merges,
 		s.Inserts, s.Deletes, s.CompactConflicts,
 		s.SplitConflicts, s.MergeConflicts,
-		s.InsertConflicts, s.DeleteConflicts)
+		s.InsertConflicts, s.DeleteConflicts,
+		s.FlushDataSz, s.MemSz)
 }
 
 type Config struct {
@@ -94,6 +104,7 @@ func New(cfg Config) (*Plasma, error) {
 	lss, err := newLSStore(cfg.File, cfg.MaxSize, cfg.FlushBufferSize, 2)
 	s.lss = lss
 	s.doRecovery()
+	s.pw = s.NewWriter()
 	return s, err
 }
 
@@ -108,6 +119,7 @@ func (s *Plasma) doRecovery() error {
 	doSplit := false
 	doRmPage := false
 	doMerge := false
+	rmFdSz := 0
 
 	buf := w.wCtx.pgEncBuf1
 
@@ -122,6 +134,8 @@ func (s *Plasma) doRecovery() error {
 			doRmPage = true
 		case lssPageData:
 			pg.Unmarshal(bs[lssBlockTypeSize:], w.wCtx)
+			flushDataSz := len(bs)
+			w.sts.FlushDataSz += int64(flushDataSz)
 
 			var pid PageId
 			if pg.low == skiplist.MinItem {
@@ -135,10 +149,15 @@ func (s *Plasma) doRecovery() error {
 				s.CreateMapping(pid, pg)
 				s.indexPage(pid, w.wCtx)
 			} else {
-				currPg := s.ReadPage(pid)
-				if currPg.(*page).version == pg.version || pg.head == nil {
+				currPg := s.ReadPage(pid).(*page)
+				// If same version, do prepend, otherwise replace.
+				if currPg.version == pg.version || pg.head == nil {
 					currPg.PrependDeltas(pg)
-					pg = currPg.(*page)
+					pg = currPg
+				} else {
+					// Replace happens with a flushed page
+					// Hence, no need to keep fdsize in basepage
+					w.sts.FlushDataSz -= int64(currPg.GetFlushDataSize())
 				}
 			}
 
@@ -153,16 +172,20 @@ func (s *Plasma) doRecovery() error {
 			} else if doRmPage {
 				rmPg = new(page)
 				*rmPg = *pg
+				rmFdSz = flushDataSz
 				doRmPage = false
 				doMerge = true
 				s.unindexPage(pid, w.wCtx)
 			} else if doMerge {
 				doMerge = false
 				pg.Merge(rmPg)
+				flushDataSz += rmFdSz
 				w.wCtx.sts.Merges++
 				rmPg = nil
 			}
 
+			addr := pg.addFlushDelta(flushDataSz)
+			*addr = offset
 			s.CreateMapping(pid, pg)
 		}
 
@@ -182,7 +205,8 @@ func (s *Plasma) doRecovery() error {
 	defer itr.Close()
 	pg = s.ReadPage(s.StartPageId()).(*page)
 	if pg != nil && pg.head != nil {
-		w.wCtx.sts.Inserts += int64(len(pg.collectItems(pg.head, nil, pg.head.hiItm)))
+		itms, _ := pg.collectItems(pg.head, nil, pg.head.hiItm)
+		w.wCtx.sts.Inserts += int64(len(itms))
 	}
 
 	for itr.SeekFirst(); itr.Valid(); itr.Next() {
@@ -193,7 +217,8 @@ func (s *Plasma) doRecovery() error {
 		pg = s.ReadPage(pid).(*page)
 
 		// TODO: Avoid need for full iteration for counting
-		w.wCtx.sts.Inserts += int64(len(pg.collectItems(pg.head, nil, pg.head.hiItm)))
+		itms, _ := pg.collectItems(pg.head, nil, pg.head.hiItm)
+		w.wCtx.sts.Inserts += int64(len(itms))
 	}
 
 	if pg != nil && pg.head != nil {
@@ -268,16 +293,19 @@ func (s *Plasma) tryPageRemoval(pid PageId, pg Page, ctx *wCtx) {
 	pPg := s.ReadPage(pPid)
 
 	rmPgBuf := ctx.pgEncBuf1
-	rmPgBuf = pg.Marshal(rmPgBuf)
+	rmPgBuf, fdSzRm := pg.Marshal(rmPgBuf)
 
 	pgBuf := ctx.pgEncBuf2
-	pgBuf = pPg.Marshal(pgBuf)
+	pgBuf, fdSz := pPg.Marshal(pgBuf)
 
 	metaBuf := ctx.pgEncBuf3
 	metaBuf = encodeMetaBlock(pg.(*page), metaBuf)
 
+	// Merge flushDataSize info of deadPage to parent
+	fdSz += fdSzRm
+
 	pPg.Merge(pg)
-	pgFlushOffset := pPg.(*page).addFlushDelta()
+	pgFlushOffset := pPg.(*page).addFlushDelta(fdSz)
 
 	sizes := []int{
 		lssBlockTypeSize + len(metaBuf),
@@ -293,6 +321,8 @@ func (s *Plasma) tryPageRemoval(pid PageId, pg Page, ctx *wCtx) {
 		writeLSSBlock(wbufs[1], lssPageData, rmPgBuf)
 		writeLSSBlock(wbufs[2], lssPageData, pgBuf)
 		*pgFlushOffset = offsets[0]
+		ctx.sts.FlushDataSz += int64(fdSz)
+
 	} else {
 		discardLSSBlock(wbufs[0])
 		discardLSSBlock(wbufs[1])
@@ -329,9 +359,9 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 		splitPid := s.AllocPageId()
 
 		pgBuf := ctx.pgEncBuf1
-		pgBuf = pg.Marshal(pgBuf)
+		pgBuf, fdSz := pg.Marshal(pgBuf)
 		newPg := pg.Split(splitPid)
-		pgFlushOffset := pg.(*page).addFlushDelta()
+		pgFlushOffset := pg.(*page).addFlushDelta(fdSz)
 
 		// Skip split
 		if newPg == nil {
@@ -342,6 +372,7 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 					writeLSSBlock(wbuf, lssPageData, pgBuf)
 					s.lss.FinalizeWrite(res)
 					*pgFlushOffset = offset
+					ctx.sts.FlushDataSz += int64(fdSz)
 				}
 			}
 			return updated
@@ -366,6 +397,7 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 			writeLSSBlock(wbufs[1], lssPageData, pgBuf)
 
 			*pgFlushOffset = offsets[0]
+			ctx.sts.FlushDataSz += int64(fdSz)
 		} else {
 			ctx.sts.SplitConflicts++
 			s.FreePageId(splitPid)

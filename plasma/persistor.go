@@ -32,15 +32,15 @@ func getLSSBlockType(bs []byte) lssBlockType {
 }
 
 func (s *Plasma) PersistAll() {
-	buf := make([]byte, maxPageEncodedSize)
+	buf := s.pw.pgEncBuf1
 
 	pid := s.StartPageId()
 	for pid != nil {
 	retry:
 		pg := s.ReadPage(pid).(*page)
-		bs := pg.Marshal(buf)
+		bs, dataSz := pg.Marshal(buf)
 		offset, wbuf, res := s.lss.ReserveSpace(lssBlockTypeSize + len(bs))
-		offsetPtr := pg.addFlushDelta()
+		offsetPtr := pg.addFlushDelta(dataSz)
 		if !s.UpdateMapping(pid, pg) {
 			discardLSSBlock(wbuf)
 			s.lss.FinalizeWrite(res)
@@ -50,6 +50,7 @@ func (s *Plasma) PersistAll() {
 		writeLSSBlock(wbuf, lssPageData, bs)
 		s.lss.FinalizeWrite(res)
 		*offsetPtr = offset
+		s.pw.sts.FlushDataSz += int64(dataSz)
 
 		pid = pg.head.rightSibling
 	}

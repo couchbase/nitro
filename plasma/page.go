@@ -47,7 +47,7 @@ type Page interface {
 	Compact()
 
 	PrependDeltas(Page)
-	Marshal([]byte) []byte
+	Marshal([]byte) (bs []byte, dataSz int)
 }
 
 type ItemIterator interface {
@@ -100,6 +100,8 @@ type basePage struct {
 	hiItm        unsafe.Pointer
 	rightSibling PageId
 	items        []unsafe.Pointer
+
+	flushDataSz int32
 }
 
 type recordDelta struct {
@@ -128,7 +130,8 @@ type mergePageDelta struct {
 
 type flushPageDelta struct {
 	pageDelta
-	offset lssOffset
+	offset      lssOffset
+	flushDataSz int32
 }
 
 type removePageDelta pageDelta
@@ -160,12 +163,13 @@ func (pg *page) Reset() {
 	pg.prevHeadPtr = nil
 }
 
-func (pg *page) newFlushPageDelta() *flushPageDelta {
+func (pg *page) newFlushPageDelta(dataSz int) *flushPageDelta {
 	pd := new(flushPageDelta)
 	*(*pageDelta)(unsafe.Pointer(pd)) = *pg.head
 	pd.next = pg.head
 	pd.offset = inFlushingOffset
 	pd.op = opFlushPageDelta
+	pd.flushDataSz = int32(dataSz)
 	return pd
 }
 
@@ -225,7 +229,7 @@ func (pg *page) newRemovePageDelta() *pageDelta {
 	return (*pageDelta)(unsafe.Pointer(pd))
 }
 
-func (pg *page) newBasePage(itms []unsafe.Pointer) *pageDelta {
+func (pg *page) newBasePage(itms []unsafe.Pointer, fdataSz int) *pageDelta {
 	var sz uintptr
 	for _, itm := range itms {
 		sz += pg.itemSize(itm)
@@ -250,6 +254,7 @@ func (pg *page) newBasePage(itms []unsafe.Pointer) *pageDelta {
 		bp.hiItm = pg.head.hiItm
 	}
 
+	bp.flushDataSz = int32(fdataSz)
 	return (*pageDelta)(unsafe.Pointer(bp))
 }
 
@@ -373,8 +378,8 @@ func (pg *page) doSplit(itm unsafe.Pointer, pid PageId, numItems int) *page {
 	newPage := new(page)
 	*newPage = *pg
 	newPage.prevHeadPtr = nil
-	itms := pg.collectItems(pg.head, itm, pg.head.hiItm)
-	newPage.head = pg.newBasePage(itms)
+	itms, _ := pg.collectItems(pg.head, itm, pg.head.hiItm)
+	newPage.head = pg.newBasePage(itms, 0)
 	newPage.low = (*basePage)(unsafe.Pointer(newPage.head)).items[0]
 	pg.head = pg.newSplitPageDelta(itm, pid)
 	pg.head.hiItm = itm
@@ -388,8 +393,8 @@ func (pg *page) Compact() {
 		pageVersion = pg.head.pageVersion
 	}
 
-	itms := pg.collectItems(pg.head, nil, pg.head.hiItm)
-	pg.head = pg.newBasePage(itms)
+	itms, fdataSz := pg.collectItems(pg.head, nil, pg.head.hiItm)
+	pg.head = pg.newBasePage(itms, fdataSz)
 	pg.head.pageVersion = pageVersion + 1
 }
 
@@ -451,7 +456,8 @@ loop:
 	}
 }
 
-func (pg *page) collectPageItems(head *pageDelta, loItm, hiItm unsafe.Pointer) []PageItem {
+func (pg *page) collectPageItems(head *pageDelta,
+	loItm, hiItm unsafe.Pointer) (items []PageItem, dataSz int) {
 	sorter := pg.newPageItemSorter(head)
 	for pd := head; pd != nil; pd = pd.next {
 		switch pd.op {
@@ -463,7 +469,8 @@ func (pg *page) collectPageItems(head *pageDelta, loItm, hiItm unsafe.Pointer) [
 		case opPageSplitDelta:
 		case opPageMergeDelta:
 			pds := (*mergePageDelta)(unsafe.Pointer(pd))
-			sorter.Add(pg.collectPageItems(pds.mergeSibling, loItm, hiItm)...)
+			items, _ := pg.collectPageItems(pds.mergeSibling, loItm, hiItm)
+			sorter.Add(items...)
 		case opBasePage:
 			bp := (*basePage)(unsafe.Pointer(pd))
 			var pgItms []PageItem
@@ -475,22 +482,31 @@ func (pg *page) collectPageItems(head *pageDelta, loItm, hiItm unsafe.Pointer) [
 
 			merger := pg.newPageItemSorter(nil)
 			merger.Init(pgItms)
-			return merger.Merge(sorter.Run())
+			// No flush occured after last page compaction
+			if dataSz == 0 {
+				dataSz = int(bp.flushDataSz)
+			}
+			return merger.Merge(sorter.Run()), dataSz
+		case opFlushPageDelta:
+			fpd := (*flushPageDelta)(unsafe.Pointer(pd))
+			dataSz += int(fpd.flushDataSz)
 		}
 	}
 
-	return sorter.Run()
+	return sorter.Run(), dataSz
 }
 
-func (pg *page) collectItems(head *pageDelta, loItm, hiItm unsafe.Pointer) []unsafe.Pointer {
+func (pg *page) collectItems(head *pageDelta,
+	loItm, hiItm unsafe.Pointer) (itx []unsafe.Pointer, dataSz int) {
 	var itms []unsafe.Pointer
-	for _, itm := range pg.collectPageItems(head, loItm, hiItm) {
+	items, dataSz := pg.collectPageItems(head, loItm, hiItm)
+	for _, itm := range items {
 		if itm.IsInsert() {
 			itms = append(itms, itm.Item())
 		}
 	}
 
-	return itms
+	return itms, dataSz
 }
 
 type pageIterator struct {
@@ -521,14 +537,16 @@ func (pi *pageIterator) Seek(itm unsafe.Pointer) {
 }
 
 func (pg *page) NewIterator() ItemIterator {
+	itms, _ := pg.collectItems(pg.head, nil, pg.head.hiItm)
 	return &pageIterator{
-		itms: pg.collectItems(pg.head, nil, pg.head.hiItm),
+		itms: itms,
 		cmp:  pg.cmp,
 	}
 }
 
-func (pg *page) Marshal(buf []byte) []byte {
+func (pg *page) Marshal(buf []byte) (bs []byte, flushDataSz int) {
 	woffset := 0
+	oldDataSz := 0
 	pd := pg.head
 	if pd != nil {
 		// pageVersion
@@ -612,6 +630,7 @@ loop:
 				}
 			}
 			binary.BigEndian.PutUint16(bufnitm, uint16(nItms))
+			oldDataSz = int(bp.flushDataSz)
 			break loop
 		case opFlushPageDelta:
 			fpd := (*flushPageDelta)(unsafe.Pointer(pd))
@@ -623,7 +642,7 @@ loop:
 		}
 	}
 
-	return buf[:woffset]
+	return buf[:woffset], woffset - oldDataSz
 }
 
 func getLSSPageMeta(data []byte) (itm unsafe.Pointer, pv uint16) {
@@ -730,7 +749,7 @@ loop:
 				size += l
 			}
 
-			bp := pg.newBasePage(itms)
+			bp := pg.newBasePage(itms, 0)
 			bp.pageVersion = uint16(pageVersion)
 			bp.hiItm = hiItm
 			bp.rightSibling = rightSibling
@@ -751,8 +770,8 @@ loop:
 	pg.tail = lastPd
 }
 
-func (pg *page) addFlushDelta() *lssOffset {
-	fd := pg.newFlushPageDelta()
+func (pg *page) addFlushDelta(dataSz int) *lssOffset {
+	fd := pg.newFlushPageDelta(dataSz)
 	pg.head = (*pageDelta)(unsafe.Pointer(fd))
 
 	return &fd.offset
@@ -768,4 +787,20 @@ func encodeMetaBlock(target *page, buf []byte) []byte {
 	woffset += l
 
 	return buf[:woffset]
+}
+
+func (pg *page) GetFlushDataSize() int {
+	flushDataSz := 0
+loop:
+	for pd := pg.head; pd != nil; pd = pd.next {
+		switch pd.op {
+		case opBasePage:
+			break loop
+		case opFlushPageDelta:
+			fpd := (*flushPageDelta)(unsafe.Pointer(pd))
+			flushDataSz += int(fpd.flushDataSz)
+		}
+	}
+
+	return flushDataSz
 }

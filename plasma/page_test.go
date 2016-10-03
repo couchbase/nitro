@@ -176,7 +176,7 @@ func TestPageMarshal(t *testing.T) {
 		pg.Delete(skiplist.NewIntKeyItem(i))
 	}
 
-	encb := pg.Marshal(buf)
+	encb, _ := pg.Marshal(buf)
 	newPg, _ := newTestPage()
 	newPg.Unmarshal(encb, nil)
 
