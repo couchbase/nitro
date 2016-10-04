@@ -361,10 +361,11 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 	var updated bool
 
 	if pg.NeedCompaction(s.Config.MaxDeltaChainLen) {
-		pg.Compact()
+		staleFdSz := pg.Compact()
 		updated = s.UpdateMapping(pid, pg)
 		if updated {
 			ctx.sts.Compacts++
+			ctx.sts.FlushDataSz -= int64(staleFdSz)
 		} else {
 			ctx.sts.CompactConflicts++
 		}

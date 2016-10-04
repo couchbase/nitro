@@ -44,10 +44,10 @@ type Page interface {
 	Close()
 	Split(PageId) Page
 	Merge(Page)
-	Compact()
+	Compact() (fdSize int)
 
 	PrependDeltas(Page)
-	Marshal([]byte) (bs []byte, dataSz int)
+	Marshal([]byte) (bs []byte, fdSize int)
 }
 
 type ItemIterator interface {
@@ -100,8 +100,6 @@ type basePage struct {
 	hiItm        unsafe.Pointer
 	rightSibling PageId
 	items        []unsafe.Pointer
-
-	flushDataSz int32
 }
 
 type recordDelta struct {
@@ -229,7 +227,7 @@ func (pg *page) newRemovePageDelta() *pageDelta {
 	return (*pageDelta)(unsafe.Pointer(pd))
 }
 
-func (pg *page) newBasePage(itms []unsafe.Pointer, fdataSz int) *pageDelta {
+func (pg *page) newBasePage(itms []unsafe.Pointer) *pageDelta {
 	var sz uintptr
 	for _, itm := range itms {
 		sz += pg.itemSize(itm)
@@ -254,7 +252,6 @@ func (pg *page) newBasePage(itms []unsafe.Pointer, fdataSz int) *pageDelta {
 		bp.hiItm = pg.head.hiItm
 	}
 
-	bp.flushDataSz = int32(fdataSz)
 	return (*pageDelta)(unsafe.Pointer(bp))
 }
 
@@ -379,7 +376,7 @@ func (pg *page) doSplit(itm unsafe.Pointer, pid PageId, numItems int) *page {
 	*newPage = *pg
 	newPage.prevHeadPtr = nil
 	itms, _ := pg.collectItems(pg.head, itm, pg.head.hiItm)
-	newPage.head = pg.newBasePage(itms, 0)
+	newPage.head = pg.newBasePage(itms)
 	newPage.low = (*basePage)(unsafe.Pointer(newPage.head)).items[0]
 	pg.head = pg.newSplitPageDelta(itm, pid)
 	pg.head.hiItm = itm
@@ -387,15 +384,16 @@ func (pg *page) doSplit(itm unsafe.Pointer, pid PageId, numItems int) *page {
 	return newPage
 }
 
-func (pg *page) Compact() {
+func (pg *page) Compact() int {
 	var pageVersion uint16
 	if pg.head != nil {
 		pageVersion = pg.head.pageVersion
 	}
 
 	itms, fdataSz := pg.collectItems(pg.head, nil, pg.head.hiItm)
-	pg.head = pg.newBasePage(itms, fdataSz)
+	pg.head = pg.newBasePage(itms)
 	pg.head.pageVersion = pageVersion + 1
+	return fdataSz
 }
 
 func (pg *page) Merge(sp Page) {
@@ -482,10 +480,6 @@ func (pg *page) collectPageItems(head *pageDelta,
 
 			merger := pg.newPageItemSorter(nil)
 			merger.Init(pgItms)
-			// No flush occured after last page compaction
-			if dataSz == 0 {
-				dataSz = int(bp.flushDataSz)
-			}
 			return merger.Merge(sorter.Run()), dataSz
 		case opFlushPageDelta:
 			fpd := (*flushPageDelta)(unsafe.Pointer(pd))
@@ -546,7 +540,6 @@ func (pg *page) NewIterator() ItemIterator {
 
 func (pg *page) Marshal(buf []byte) (bs []byte, flushDataSz int) {
 	woffset := 0
-	oldDataSz := 0
 	pd := pg.head
 	if pd != nil {
 		// pageVersion
@@ -630,7 +623,6 @@ loop:
 				}
 			}
 			binary.BigEndian.PutUint16(bufnitm, uint16(nItms))
-			oldDataSz = int(bp.flushDataSz)
 			break loop
 		case opFlushPageDelta:
 			fpd := (*flushPageDelta)(unsafe.Pointer(pd))
@@ -642,7 +634,7 @@ loop:
 		}
 	}
 
-	return buf[:woffset], woffset - oldDataSz
+	return buf[:woffset], woffset
 }
 
 func getLSSPageMeta(data []byte) (itm unsafe.Pointer, pv uint16) {
@@ -749,7 +741,7 @@ loop:
 				size += l
 			}
 
-			bp := pg.newBasePage(itms, 0)
+			bp := pg.newBasePage(itms)
 			bp.pageVersion = uint16(pageVersion)
 			bp.hiItm = hiItm
 			bp.rightSibling = rightSibling
