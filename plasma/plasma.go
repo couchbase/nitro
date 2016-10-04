@@ -289,47 +289,60 @@ func (s *Plasma) tryPageRemoval(pid PageId, pg Page, ctx *wCtx) {
 		return
 	}
 
+	shouldPersist := true
+
 	pPid := PageId(prev)
 	pPg := s.ReadPage(pPid)
 
-	rmPgBuf := ctx.pgEncBuf1
-	rmPgBuf, fdSzRm := pg.Marshal(rmPgBuf)
+	var rmPgBuf = ctx.pgEncBuf1
+	var pgBuf = ctx.pgEncBuf2
+	var metaBuf = ctx.pgEncBuf3
+	var fdSzRm, fdSz int
+	var pgFlushOffset *lssOffset
 
-	pgBuf := ctx.pgEncBuf2
-	pgBuf, fdSz := pPg.Marshal(pgBuf)
-
-	metaBuf := ctx.pgEncBuf3
-	metaBuf = encodeMetaBlock(pg.(*page), metaBuf)
-
-	// Merge flushDataSize info of deadPage to parent
-	fdSz += fdSzRm
+	if shouldPersist {
+		rmPgBuf, fdSzRm = pg.Marshal(rmPgBuf)
+		pgBuf, fdSz = pPg.Marshal(pgBuf)
+		metaBuf = encodeMetaBlock(pg.(*page), metaBuf)
+		// Merge flushDataSize info of deadPage to parent
+		fdSz += fdSzRm
+	}
 
 	pPg.Merge(pg)
-	pgFlushOffset := pPg.(*page).addFlushDelta(fdSz)
 
-	sizes := []int{
-		lssBlockTypeSize + len(metaBuf),
-		lssBlockTypeSize + len(rmPgBuf),
-		lssBlockTypeSize + len(pgBuf),
+	var offsets []lssOffset
+	var wbufs [][]byte
+	var res lssResource
+
+	if shouldPersist {
+		pgFlushOffset = pPg.(*page).addFlushDelta(fdSz)
+		sizes := []int{
+			lssBlockTypeSize + len(metaBuf),
+			lssBlockTypeSize + len(rmPgBuf),
+			lssBlockTypeSize + len(pgBuf),
+		}
+
+		offsets, wbufs, res = s.lss.ReserveSpaceMulti(sizes)
 	}
-	offsets, wbufs, res := s.lss.ReserveSpaceMulti(sizes)
 
 	if s.UpdateMapping(pPid, pPg) {
 		s.unindexPage(pid, ctx)
 
-		writeLSSBlock(wbufs[0], lssPageMerge, metaBuf)
-		writeLSSBlock(wbufs[1], lssPageData, rmPgBuf)
-		writeLSSBlock(wbufs[2], lssPageData, pgBuf)
-		*pgFlushOffset = offsets[0]
-		ctx.sts.FlushDataSz += int64(fdSz)
+		if shouldPersist {
+			writeLSSBlock(wbufs[0], lssPageMerge, metaBuf)
+			writeLSSBlock(wbufs[1], lssPageData, rmPgBuf)
+			writeLSSBlock(wbufs[2], lssPageData, pgBuf)
+			*pgFlushOffset = offsets[0]
+			ctx.sts.FlushDataSz += int64(fdSz)
+			s.lss.FinalizeWrite(res)
+		}
 
-	} else {
+	} else if shouldPersist {
 		discardLSSBlock(wbufs[0])
 		discardLSSBlock(wbufs[1])
 		discardLSSBlock(wbufs[2])
+		s.lss.FinalizeWrite(res)
 	}
-
-	s.lss.FinalizeWrite(res)
 }
 
 func (s *Plasma) isStartPage(pid PageId) bool {
@@ -357,55 +370,70 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 		}
 	} else if pg.NeedSplit(s.Config.MaxPageItems) {
 		splitPid := s.AllocPageId()
+		shouldPersist := true
 
-		pgBuf := ctx.pgEncBuf1
-		pgBuf, fdSz := pg.Marshal(pgBuf)
+		var pgFlushOffset *lssOffset
+		var fdSz int
+		var pgBuf = ctx.pgEncBuf1
+		var splitMetaBuf = ctx.pgEncBuf2
+
+		if shouldPersist {
+			pgBuf, fdSz = pg.Marshal(pgBuf)
+		}
+
 		newPg := pg.Split(splitPid)
-		pgFlushOffset := pg.(*page).addFlushDelta(fdSz)
+
+		if shouldPersist {
+			pgFlushOffset = pg.(*page).addFlushDelta(fdSz)
+		}
 
 		// Skip split
 		if newPg == nil {
 			s.FreePageId(splitPid)
 			if doUpdate {
-				if updated = s.UpdateMapping(pid, pg); updated {
-					offset, wbuf, res := s.lss.ReserveSpace(lssBlockTypeSize + len(pgBuf))
-					writeLSSBlock(wbuf, lssPageData, pgBuf)
-					s.lss.FinalizeWrite(res)
-					*pgFlushOffset = offset
-					ctx.sts.FlushDataSz += int64(fdSz)
-				}
+				updated = s.UpdateMapping(pid, pg)
 			}
 			return updated
 		}
 
-		splitMetaBuf := ctx.pgEncBuf2
-		splitMetaBuf = encodeMetaBlock(newPg.(*page), splitMetaBuf)
+		var offsets []lssOffset
+		var wbufs [][]byte
+		var res lssResource
 
 		// Commit split information in lss
-		sizes := []int{
-			lssBlockTypeSize + len(splitMetaBuf),
-			lssBlockTypeSize + len(pgBuf),
+		if shouldPersist {
+			splitMetaBuf = encodeMetaBlock(newPg.(*page), splitMetaBuf)
+			sizes := []int{
+				lssBlockTypeSize + len(splitMetaBuf),
+				lssBlockTypeSize + len(pgBuf),
+			}
+			offsets, wbufs, res = s.lss.ReserveSpaceMulti(sizes)
 		}
-		offsets, wbufs, res := s.lss.ReserveSpaceMulti(sizes)
 
 		if s.UpdateMapping(pid, pg) {
 			s.CreateMapping(splitPid, newPg)
 			s.indexPage(splitPid, ctx)
 			ctx.sts.Splits++
 
-			writeLSSBlock(wbufs[0], lssPageSplit, splitMetaBuf)
-			writeLSSBlock(wbufs[1], lssPageData, pgBuf)
+			if shouldPersist {
+				writeLSSBlock(wbufs[0], lssPageSplit, splitMetaBuf)
+				writeLSSBlock(wbufs[1], lssPageData, pgBuf)
 
-			*pgFlushOffset = offsets[0]
-			ctx.sts.FlushDataSz += int64(fdSz)
+				*pgFlushOffset = offsets[0]
+				ctx.sts.FlushDataSz += int64(fdSz)
+				s.lss.FinalizeWrite(res)
+			}
 		} else {
 			ctx.sts.SplitConflicts++
 			s.FreePageId(splitPid)
 
-			discardLSSBlock(wbufs[0])
-			discardLSSBlock(wbufs[1])
+			if shouldPersist {
+				discardLSSBlock(wbufs[0])
+				discardLSSBlock(wbufs[1])
+				s.lss.FinalizeWrite(res)
+			}
 		}
-		s.lss.FinalizeWrite(res)
+
 	} else if !s.isStartPage(pid) && pg.NeedMerge(s.Config.MinPageItems) {
 		pg.Close()
 		if s.UpdateMapping(pid, pg) {
