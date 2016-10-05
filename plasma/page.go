@@ -480,7 +480,8 @@ func (pg *page) collectPageItems(head *pageDelta,
 			hiItm = pds.hiItm
 		case opPageMergeDelta:
 			pdm := (*mergePageDelta)(unsafe.Pointer(pd))
-			items, _ := pg.collectPageItems(pdm.mergeSibling, loItm, hiItm)
+			items, fdSz := pg.collectPageItems(pdm.mergeSibling, loItm, hiItm)
+			dataSz += fdSz
 			sorter.Add(items...)
 		case opBasePage:
 			bp := (*basePage)(unsafe.Pointer(pd))
@@ -556,12 +557,12 @@ func (pg *page) Marshal(buf []byte, full bool) (bs []byte, flushDataSz int) {
 	hiItm := pg.HighItm()
 	pd := pg.head
 
-	offset := pg.marshal(buf, 0, pd, hiItm, false, full)
-	return buf[:offset], offset
+	offset, oldFdSz := pg.marshal(buf, 0, pd, hiItm, false, full)
+	return buf[:offset], offset - oldFdSz
 }
 
 func (pg *page) marshal(buf []byte, woffset int, pd *pageDelta,
-	hiItm unsafe.Pointer, child bool, full bool) (offset int) {
+	hiItm unsafe.Pointer, child bool, full bool) (offset int, oldFdSz int) {
 
 	if !child {
 		if pd != nil {
@@ -634,7 +635,9 @@ loop:
 			hiItm = pds.hiItm
 		case opPageMergeDelta:
 			pdm := (*mergePageDelta)(unsafe.Pointer(pd))
-			woffset = pg.marshal(buf, woffset, pdm.mergeSibling, hiItm, true, full)
+			var fdSz int
+			woffset, fdSz = pg.marshal(buf, woffset, pdm.mergeSibling, hiItm, true, full)
+			oldFdSz += fdSz
 		case opBasePage:
 			bp := (*basePage)(unsafe.Pointer(pd))
 
@@ -671,18 +674,20 @@ loop:
 			}
 			break loop
 		case opFlushPageDelta:
+			fpd := (*flushPageDelta)(unsafe.Pointer(pd))
 			if !full {
-				fpd := (*flushPageDelta)(unsafe.Pointer(pd))
 				binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(pd.op))
 				woffset += 2
 				binary.BigEndian.PutUint64(buf[woffset:woffset+8], uint64(fpd.offset))
 				woffset += 8
 				break loop
 			}
+
+			oldFdSz += int(fpd.flushDataSz)
 		}
 	}
 
-	return woffset
+	return woffset, oldFdSz
 }
 
 func getLSSPageMeta(data []byte) (itm unsafe.Pointer, pv uint16) {
