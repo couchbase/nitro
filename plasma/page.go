@@ -263,6 +263,14 @@ func (pg *page) InRange(itm unsafe.Pointer) bool {
 	return true
 }
 
+func (pg *page) HighItm() unsafe.Pointer {
+	if pg.head == nil {
+		return skiplist.MaxItem
+	}
+
+	return pg.head.hiItm
+}
+
 func (pg *page) alloc(sz uintptr) unsafe.Pointer {
 	b := make([]byte, int(sz))
 	hdr := (*reflect.SliceHeader)(unsafe.Pointer(&b))
@@ -545,55 +553,65 @@ func (pg *page) NewIterator() ItemIterator {
 }
 
 func (pg *page) Marshal(buf []byte) (bs []byte, flushDataSz int) {
-	woffset := 0
+	hiItm := pg.HighItm()
 	pd := pg.head
-	if pd != nil {
-		// pageVersion
-		binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(pd.pageVersion))
-		woffset += 2
 
-		if pg.low == skiplist.MinItem {
-			binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(0))
-			woffset += 2
-		} else {
-			l := int(pg.itemSize(pg.low))
-			binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(l))
-			woffset += 2
-			memcopy(unsafe.Pointer(&buf[woffset]), pg.low, l)
-			woffset += l
-		}
+	offset := pg.marshal(buf, 0, pd, hiItm, false)
+	return buf[:offset], offset
+}
 
-		// chainlen
-		binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(pd.chainLen))
-		woffset += 2
+func (pg *page) marshal(buf []byte, woffset int, pd *pageDelta,
+	hiItm unsafe.Pointer, deltaOnly bool) (offset int) {
 
-		// numItems
-		binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(pd.numItems))
-		woffset += 2
+	if !deltaOnly {
+		if pd != nil {
+			// pageVersion
+			binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(pd.pageVersion))
+			woffset += 2
 
-		// hiItm
-		if pd.hiItm == skiplist.MaxItem {
-			binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(0))
-			woffset += 2
-		} else {
-			l := int(pg.itemSize(pd.hiItm))
-			binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(l))
-			woffset += 2
-			memcopy(unsafe.Pointer(&buf[woffset]), pd.hiItm, l)
-			woffset += l
-		}
+			if pg.low == skiplist.MinItem {
+				binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(0))
+				woffset += 2
+			} else {
+				l := int(pg.itemSize(pg.low))
+				binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(l))
+				woffset += 2
+				memcopy(unsafe.Pointer(&buf[woffset]), pg.low, l)
+				woffset += l
+			}
 
-		// rightSibling
-		nkey := pg.getItem(pd.rightSibling)
-		if nkey == skiplist.MaxItem {
-			binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(0))
+			// chainlen
+			binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(pd.chainLen))
 			woffset += 2
-		} else {
-			l := int(pg.itemSize(nkey))
-			binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(l))
+
+			// numItems
+			binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(pd.numItems))
 			woffset += 2
-			memcopy(unsafe.Pointer(&buf[woffset]), nkey, l)
-			woffset += l
+
+			// hiItm
+			if pd.hiItm == skiplist.MaxItem {
+				binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(0))
+				woffset += 2
+			} else {
+				l := int(pg.itemSize(pd.hiItm))
+				binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(l))
+				woffset += 2
+				memcopy(unsafe.Pointer(&buf[woffset]), pd.hiItm, l)
+				woffset += l
+			}
+
+			// rightSibling
+			nkey := pg.getItem(pd.rightSibling)
+			if nkey == skiplist.MaxItem {
+				binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(0))
+				woffset += 2
+			} else {
+				l := int(pg.itemSize(nkey))
+				binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(l))
+				woffset += 2
+				memcopy(unsafe.Pointer(&buf[woffset]), nkey, l)
+				woffset += l
+			}
 		}
 	}
 
@@ -602,7 +620,7 @@ loop:
 		switch pd.op {
 		case opInsertDelta, opDeleteDelta:
 			rpd := (*recordDelta)(unsafe.Pointer(pd))
-			if pg.InRange(rpd.itm) {
+			if pg.cmp(rpd.itm, hiItm) < 0 {
 				binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(pd.op))
 				woffset += 2
 				sz := int(pg.itemSize(rpd.itm))
@@ -611,24 +629,46 @@ loop:
 				memcopy(unsafe.Pointer(&buf[woffset]), rpd.itm, sz)
 				woffset += sz
 			}
+		case opPageSplitDelta:
+			pds := (*splitPageDelta)(unsafe.Pointer(pd))
+			hiItm = pds.hiItm
+		case opPageMergeDelta:
+			pdm := (*mergePageDelta)(unsafe.Pointer(pd))
+			woffset = pg.marshal(buf, woffset, pdm.mergeSibling, hiItm, true)
 		case opBasePage:
 			bp := (*basePage)(unsafe.Pointer(pd))
-			binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(pd.op))
-			woffset += 2
-			bufnitm := buf[woffset : woffset+2]
-			nItms := 0
-			woffset += 2
-			for _, itm := range bp.items {
-				if pg.InRange(itm) {
-					sz := int(pg.itemSize(itm))
-					binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(sz))
-					woffset += 2
-					memcopy(unsafe.Pointer(&buf[woffset]), itm, sz)
-					woffset += sz
-					nItms++
+
+			if deltaOnly {
+				// Encode items as insertDelta
+				for _, itm := range bp.items {
+					if pg.cmp(itm, hiItm) < 0 {
+						binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(opInsertDelta))
+						woffset += 2
+						sz := int(pg.itemSize(itm))
+						binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(sz))
+						woffset += 2
+						memcopy(unsafe.Pointer(&buf[woffset]), itm, sz)
+						woffset += sz
+					}
 				}
+			} else {
+				binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(pd.op))
+				woffset += 2
+				bufnitm := buf[woffset : woffset+2]
+				nItms := 0
+				woffset += 2
+				for _, itm := range bp.items {
+					if pg.cmp(itm, hiItm) < 0 {
+						sz := int(pg.itemSize(itm))
+						binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(sz))
+						woffset += 2
+						memcopy(unsafe.Pointer(&buf[woffset]), itm, sz)
+						woffset += sz
+						nItms++
+					}
+				}
+				binary.BigEndian.PutUint16(bufnitm, uint16(nItms))
 			}
-			binary.BigEndian.PutUint16(bufnitm, uint16(nItms))
 			break loop
 		case opFlushPageDelta:
 			fpd := (*flushPageDelta)(unsafe.Pointer(pd))
@@ -640,7 +680,7 @@ loop:
 		}
 	}
 
-	return buf[:woffset], woffset
+	return woffset
 }
 
 func getLSSPageMeta(data []byte) (itm unsafe.Pointer, pv uint16) {
