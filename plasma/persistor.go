@@ -38,7 +38,7 @@ func (s *Plasma) PersistAll() {
 	for pid != nil {
 	retry:
 		pg := s.ReadPage(pid).(*page)
-		bs, dataSz := pg.Marshal(buf)
+		bs, dataSz := pg.Marshal(buf, false)
 		offset, wbuf, res := s.lss.ReserveSpace(lssBlockTypeSize + len(bs))
 		offsetPtr := pg.addFlushDelta(dataSz)
 		if !s.UpdateMapping(pid, pg) {

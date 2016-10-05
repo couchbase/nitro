@@ -301,8 +301,8 @@ func (s *Plasma) tryPageRemoval(pid PageId, pg Page, ctx *wCtx) {
 	var pgFlushOffset *lssOffset
 
 	if shouldPersist {
-		rmPgBuf, fdSzRm = pg.Marshal(rmPgBuf)
-		pgBuf, fdSz = pPg.Marshal(pgBuf)
+		rmPgBuf, fdSzRm = pg.Marshal(rmPgBuf, false)
+		pgBuf, fdSz = pPg.Marshal(pgBuf, false)
 		metaBuf = encodeMetaBlock(pg.(*page), metaBuf)
 		// Merge flushDataSize info of deadPage to parent
 		fdSz += fdSzRm
@@ -379,7 +379,7 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 		var splitMetaBuf = ctx.pgEncBuf2
 
 		if shouldPersist {
-			pgBuf, fdSz = pg.Marshal(pgBuf)
+			pgBuf, fdSz = pg.Marshal(pgBuf, false)
 		}
 
 		newPg := pg.Split(splitPid)

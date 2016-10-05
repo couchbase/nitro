@@ -89,7 +89,7 @@ func TestPageMergeMarshal(t *testing.T) {
 	}
 
 	encb := make([]byte, 1024*1024)
-	encb, _ = pg1.Marshal(encb)
+	encb, _ = pg1.Marshal(encb, false)
 
 	newPg, _ := newTestPage()
 	newPg.Unmarshal(encb, nil)
@@ -255,7 +255,7 @@ func TestPageMarshal(t *testing.T) {
 		pg.Delete(skiplist.NewIntKeyItem(i))
 	}
 
-	encb, _ := pg.Marshal(buf)
+	encb, _ := pg.Marshal(buf, false)
 	newPg, _ := newTestPage()
 	newPg.Unmarshal(encb, nil)
 

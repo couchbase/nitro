@@ -47,7 +47,7 @@ type Page interface {
 	Compact() (fdSize int)
 
 	PrependDeltas(Page)
-	Marshal([]byte) (bs []byte, fdSize int)
+	Marshal([]byte, bool) (bs []byte, fdSize int)
 }
 
 type ItemIterator interface {
@@ -552,18 +552,18 @@ func (pg *page) NewIterator() ItemIterator {
 	}
 }
 
-func (pg *page) Marshal(buf []byte) (bs []byte, flushDataSz int) {
+func (pg *page) Marshal(buf []byte, full bool) (bs []byte, flushDataSz int) {
 	hiItm := pg.HighItm()
 	pd := pg.head
 
-	offset := pg.marshal(buf, 0, pd, hiItm, false)
+	offset := pg.marshal(buf, 0, pd, hiItm, false, full)
 	return buf[:offset], offset
 }
 
 func (pg *page) marshal(buf []byte, woffset int, pd *pageDelta,
-	hiItm unsafe.Pointer, deltaOnly bool) (offset int) {
+	hiItm unsafe.Pointer, child bool, full bool) (offset int) {
 
-	if !deltaOnly {
+	if !child {
 		if pd != nil {
 			// pageVersion
 			binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(pd.pageVersion))
@@ -634,11 +634,11 @@ loop:
 			hiItm = pds.hiItm
 		case opPageMergeDelta:
 			pdm := (*mergePageDelta)(unsafe.Pointer(pd))
-			woffset = pg.marshal(buf, woffset, pdm.mergeSibling, hiItm, true)
+			woffset = pg.marshal(buf, woffset, pdm.mergeSibling, hiItm, true, full)
 		case opBasePage:
 			bp := (*basePage)(unsafe.Pointer(pd))
 
-			if deltaOnly {
+			if child {
 				// Encode items as insertDelta
 				for _, itm := range bp.items {
 					if pg.cmp(itm, hiItm) < 0 {
@@ -671,12 +671,14 @@ loop:
 			}
 			break loop
 		case opFlushPageDelta:
-			fpd := (*flushPageDelta)(unsafe.Pointer(pd))
-			binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(pd.op))
-			woffset += 2
-			binary.BigEndian.PutUint64(buf[woffset:woffset+8], uint64(fpd.offset))
-			woffset += 8
-			break loop
+			if !full {
+				fpd := (*flushPageDelta)(unsafe.Pointer(pd))
+				binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(pd.op))
+				woffset += 2
+				binary.BigEndian.PutUint64(buf[woffset:woffset+8], uint64(fpd.offset))
+				woffset += 8
+				break loop
+			}
 		}
 	}
 
