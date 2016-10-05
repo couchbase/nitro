@@ -354,13 +354,16 @@ func (pg *page) Split(pid PageId) Page {
 	for ; curr != nil && curr.op != opBasePage; curr = curr.next {
 	}
 
+	var mid int
 	bp := (*basePage)(unsafe.Pointer(curr))
-	mid := len(bp.items) / 2
-	for mid > 0 {
-		if pg.cmp(bp.items[mid], pg.head.hiItm) < 0 {
-			break
+	if bp != nil {
+		mid = len(bp.items) / 2
+		for mid > 0 {
+			if pg.cmp(bp.items[mid], pg.head.hiItm) < 0 {
+				break
+			}
+			mid--
 		}
-		mid--
 	}
 
 	if mid > 0 {
