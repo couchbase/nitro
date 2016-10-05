@@ -388,11 +388,12 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 			pgFlushOffset = pg.(*page).addFlushDelta(fdSz)
 		}
 
-		// Skip split
+		// Skip split, but compact
 		if newPg == nil {
 			s.FreePageId(splitPid)
-			if doUpdate {
-				updated = s.UpdateMapping(pid, pg)
+			staleFdSz := pg.Compact()
+			if updated = s.UpdateMapping(pid, pg); updated {
+				ctx.sts.FlushDataSz -= int64(staleFdSz)
 			}
 			return updated
 		}
