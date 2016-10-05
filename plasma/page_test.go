@@ -41,7 +41,7 @@ func TestPageMergeCorrectness(t *testing.T) {
 
 	pg.Compact()
 
-	split := pg.Split(sp).(*page)
+	split := pg.Split(sp)
 
 	for i := 500; i < 1000; i++ {
 		bk := skiplist.NewIntKeyItem(i)
@@ -56,6 +56,58 @@ func TestPageMergeCorrectness(t *testing.T) {
 		if itm != nil {
 			t.Errorf("expected missing, found %d", skiplist.IntFromItem(itm))
 		}
+	}
+}
+
+func TestPageMergeMarshal(t *testing.T) {
+	pg1, sp := newTestPage()
+	for i := 0; i < 1000; i++ {
+		bk := skiplist.NewIntKeyItem(i)
+		pg1.Insert(bk)
+	}
+
+	pg1.Compact()
+	pg2 := pg1.Split(sp)
+	pg3 := pg2.Split(sp)
+
+	pg2.Delete(skiplist.NewIntKeyItem(501))
+	pg2.Delete(skiplist.NewIntKeyItem(502))
+
+	pg3.Delete(skiplist.NewIntKeyItem(900))
+	pg3.Delete(skiplist.NewIntKeyItem(901))
+
+	pg2.Merge(pg3)
+	pg1.Merge(pg2)
+
+	var itmsE, itmsG []unsafe.Pointer
+	for itr := pg1.NewIterator(); itr.Valid(); itr.Next() {
+		itmsE = append(itmsE, itr.Get())
+	}
+
+	if len(itmsE) != 996 {
+		t.Errorf("expected 996 items, got %d", len(itmsE))
+	}
+
+	encb := make([]byte, 1024*1024)
+	encb, _ = pg1.Marshal(encb)
+
+	newPg, _ := newTestPage()
+	newPg.Unmarshal(encb, nil)
+
+	i := 0
+	for itr := newPg.NewIterator(); itr.Valid(); itr.Next() {
+		itmsG = append(itmsG, itr.Get())
+
+		e := skiplist.IntFromItem(itmsE[i])
+		g := skiplist.IntFromItem(itmsG[i])
+		if e != g {
+			t.Errorf("expected %d, got %d", e, g)
+		}
+		i++
+	}
+
+	if len(itmsE) != len(itmsG) {
+		t.Errorf("expected %d, got %d", len(itmsE), len(itmsG))
 	}
 }
 
