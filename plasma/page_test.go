@@ -48,10 +48,7 @@ func TestPageMergeCorrectness(t *testing.T) {
 		split.Delete(bk)
 	}
 
-	split.Compact()
-
 	pg.Merge(split)
-	pg.Compact()
 
 	for i := 500; i < 1000; i++ {
 		bk := skiplist.NewIntKeyItem(i)

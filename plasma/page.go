@@ -465,13 +465,16 @@ func (pg *page) collectPageItems(head *pageDelta,
 				sorter.Add(rec)
 			}
 		case opPageSplitDelta:
+			pds := (*splitPageDelta)(unsafe.Pointer(pd))
+			hiItm = pds.hiItm
 		case opPageMergeDelta:
-			pds := (*mergePageDelta)(unsafe.Pointer(pd))
-			items, _ := pg.collectPageItems(pds.mergeSibling, loItm, hiItm)
+			pdm := (*mergePageDelta)(unsafe.Pointer(pd))
+			items, _ := pg.collectPageItems(pdm.mergeSibling, loItm, hiItm)
 			sorter.Add(items...)
 		case opBasePage:
 			bp := (*basePage)(unsafe.Pointer(pd))
 			var pgItms []PageItem
+
 			for _, itm := range bp.items {
 				if pg.inRange(loItm, hiItm, itm) {
 					pgItms = append(pgItms, &pageItem{itm: itm})
