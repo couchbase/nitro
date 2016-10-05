@@ -32,6 +32,36 @@ func newTestPage() (*page, *storePtr) {
 	}, sp
 }
 
+func TestPageMergeCorrectness(t *testing.T) {
+	pg, sp := newTestPage()
+	for i := 0; i < 1000; i++ {
+		bk := skiplist.NewIntKeyItem(i)
+		pg.Insert(bk)
+	}
+
+	pg.Compact()
+
+	split := pg.Split(sp).(*page)
+
+	for i := 500; i < 1000; i++ {
+		bk := skiplist.NewIntKeyItem(i)
+		split.Delete(bk)
+	}
+
+	split.Compact()
+
+	pg.Merge(split)
+	pg.Compact()
+
+	for i := 500; i < 1000; i++ {
+		bk := skiplist.NewIntKeyItem(i)
+		itm := pg.Lookup(bk)
+		if itm != nil {
+			t.Errorf("expected missing, found %d", skiplist.IntFromItem(itm))
+		}
+	}
+}
+
 func TestPageOperations(t *testing.T) {
 	pg, sp := newTestPage()
 	for i := 0; i < 1000; i++ {
