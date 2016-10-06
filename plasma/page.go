@@ -22,6 +22,7 @@ const (
 	opPageMergeDelta
 
 	opFlushPageDelta
+	opRelocPageDelta
 )
 
 var inFlushingOffset = lssOffset(0xffffffffffffffff)
@@ -47,7 +48,8 @@ type Page interface {
 	Compact() (fdSize int)
 
 	PrependDeltas(Page)
-	Marshal([]byte, bool) (bs []byte, fdSize int)
+	MarshalFull([]byte) (bs []byte, fdSz int, staleFdSz int)
+	Marshal([]byte) (bs []byte, fdSz int)
 }
 
 type ItemIterator interface {
@@ -161,12 +163,16 @@ func (pg *page) Reset() {
 	pg.prevHeadPtr = nil
 }
 
-func (pg *page) newFlushPageDelta(dataSz int) *flushPageDelta {
+func (pg *page) newFlushPageDelta(dataSz int, reloc bool) *flushPageDelta {
 	pd := new(flushPageDelta)
 	*(*pageDelta)(unsafe.Pointer(pd)) = *pg.head
 	pd.next = pg.head
 	pd.offset = inFlushingOffset
-	pd.op = opFlushPageDelta
+	if reloc {
+		pd.op = opRelocPageDelta
+	} else {
+		pd.op = opFlushPageDelta
+	}
 	pd.flushDataSz = int32(dataSz)
 	return pd
 }
@@ -468,6 +474,8 @@ loop:
 func (pg *page) collectPageItems(head *pageDelta,
 	loItm, hiItm unsafe.Pointer) (items []PageItem, dataSz int) {
 	sorter := pg.newPageItemSorter(head)
+
+	hasReloc := false
 	for pd := head; pd != nil; pd = pd.next {
 		switch pd.op {
 		case opInsertDelta, opDeleteDelta:
@@ -497,8 +505,14 @@ func (pg *page) collectPageItems(head *pageDelta,
 			merger.Init(pgItms)
 			return merger.Merge(sorter.Run()), dataSz
 		case opFlushPageDelta:
+			if !hasReloc {
+				fpd := (*flushPageDelta)(unsafe.Pointer(pd))
+				dataSz += int(fpd.flushDataSz)
+			}
+		case opRelocPageDelta:
 			fpd := (*flushPageDelta)(unsafe.Pointer(pd))
 			dataSz += int(fpd.flushDataSz)
+			hasReloc = true
 		}
 	}
 
@@ -553,21 +567,31 @@ func (pg *page) NewIterator() ItemIterator {
 	}
 }
 
-func (pg *page) Marshal(buf []byte, full bool) (bs []byte, flushDataSz int) {
+func (pg *page) MarshalFull(buf []byte) (bs []byte, dataSz, staleSz int) {
 	hiItm := pg.HighItm()
 	pd := pg.head
 
-	offset, oldFdSz := pg.marshal(buf, 0, pd, hiItm, false, full)
-	return buf[:offset], offset - oldFdSz
+	offset, staleSz := pg.marshal(buf, 0, pd, hiItm, false, true)
+	return buf[:offset], offset, staleSz
+}
+
+func (pg *page) Marshal(buf []byte) (bs []byte, dataSz int) {
+	hiItm := pg.HighItm()
+	pd := pg.head
+
+	offset, _ := pg.marshal(buf, 0, pd, hiItm, false, false)
+	return buf[:offset], offset
 }
 
 func (pg *page) marshal(buf []byte, woffset int, pd *pageDelta,
-	hiItm unsafe.Pointer, child bool, full bool) (offset int, oldFdSz int) {
+	hiItm unsafe.Pointer, child bool, full bool) (offset int, staleFdSz int) {
 
+	hasReloc := false
 	if !child {
 		if pd != nil {
 			// pageVersion
-			binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(pd.pageVersion))
+			version := uint16(pd.pageVersion)
+			binary.BigEndian.PutUint16(buf[woffset:woffset+2], version)
 			woffset += 2
 
 			if pg.low == skiplist.MinItem {
@@ -632,12 +656,14 @@ loop:
 			}
 		case opPageSplitDelta:
 			pds := (*splitPageDelta)(unsafe.Pointer(pd))
-			hiItm = pds.hiItm
+			hiItm = pds.itm
 		case opPageMergeDelta:
 			pdm := (*mergePageDelta)(unsafe.Pointer(pd))
 			var fdSz int
 			woffset, fdSz = pg.marshal(buf, woffset, pdm.mergeSibling, hiItm, true, full)
-			oldFdSz += fdSz
+			if !hasReloc {
+				staleFdSz += fdSz
+			}
 		case opBasePage:
 			bp := (*basePage)(unsafe.Pointer(pd))
 
@@ -673,7 +699,7 @@ loop:
 				binary.BigEndian.PutUint16(bufnitm, uint16(nItms))
 			}
 			break loop
-		case opFlushPageDelta:
+		case opFlushPageDelta, opRelocPageDelta:
 			fpd := (*flushPageDelta)(unsafe.Pointer(pd))
 			if !full {
 				binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(pd.op))
@@ -683,11 +709,17 @@ loop:
 				break loop
 			}
 
-			oldFdSz += int(fpd.flushDataSz)
+			if !hasReloc {
+				staleFdSz += int(fpd.flushDataSz)
+			}
+
+			if pd.op == opRelocPageDelta {
+				hasReloc = true
+			}
 		}
 	}
 
-	return woffset, oldFdSz
+	return woffset, staleFdSz
 }
 
 func getLSSPageMeta(data []byte) (itm unsafe.Pointer, pv uint16) {
@@ -815,8 +847,8 @@ loop:
 	pg.tail = lastPd
 }
 
-func (pg *page) addFlushDelta(dataSz int) *lssOffset {
-	fd := pg.newFlushPageDelta(dataSz)
+func (pg *page) addFlushDelta(dataSz int, reloc bool) *lssOffset {
+	fd := pg.newFlushPageDelta(dataSz, reloc)
 	pg.head = (*pageDelta)(unsafe.Pointer(fd))
 
 	return &fd.offset
@@ -848,4 +880,20 @@ loop:
 	}
 
 	return flushDataSz
+}
+
+func decodeBlockMeta(data []byte) (version uint16, key unsafe.Pointer) {
+	roffset := 0
+	version = binary.BigEndian.Uint16(data[roffset : roffset+2])
+	roffset += 2
+
+	l := int(binary.BigEndian.Uint16(data[roffset : roffset+2]))
+	roffset += 2
+	if l == 0 {
+		key = skiplist.MinItem
+	} else {
+		key = unsafe.Pointer(&data[roffset])
+	}
+
+	return
 }

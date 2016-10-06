@@ -13,6 +13,7 @@ var lssBlockTypeSize = int(unsafe.Sizeof(*(new(lssBlockType))))
 
 const (
 	lssPageData lssBlockType = iota
+	lssPageReloc
 	lssPageSplit
 	lssPageMerge
 	lssDiscard
@@ -38,9 +39,9 @@ func (s *Plasma) PersistAll() {
 	for pid != nil {
 	retry:
 		pg := s.ReadPage(pid).(*page)
-		bs, dataSz := pg.Marshal(buf, false)
+		bs, dataSz := pg.Marshal(buf)
 		offset, wbuf, res := s.lss.ReserveSpace(lssBlockTypeSize + len(bs))
-		offsetPtr := pg.addFlushDelta(dataSz)
+		offsetPtr := pg.addFlushDelta(dataSz, false)
 		if !s.UpdateMapping(pid, pg) {
 			discardLSSBlock(wbuf)
 			s.lss.FinalizeWrite(res)

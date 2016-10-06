@@ -11,9 +11,10 @@ type Plasma struct {
 	Config
 	*skiplist.Skiplist
 	*pageTable
-	wlist []*Writer
-	lss   *lsStore
-	pw    *Writer
+	wlist     []*Writer
+	lss       *lsStore
+	pw, lsscw *Writer
+	stoplssgc chan struct{}
 	sync.RWMutex
 }
 
@@ -91,6 +92,9 @@ type Config struct {
 	MaxSize         int64
 	File            string
 	FlushBufferSize int
+
+	LSSCleanerThreshold int
+	AutoLSSCleaning     bool
 }
 
 func New(cfg Config) (*Plasma, error) {
@@ -105,6 +109,11 @@ func New(cfg Config) (*Plasma, error) {
 	s.lss = lss
 	s.doRecovery()
 	s.pw = s.NewWriter()
+	s.lsscw = s.NewWriter()
+	s.stoplssgc = make(chan struct{})
+	if cfg.AutoLSSCleaning {
+		go s.lssCleanerDaemon()
+	}
 	return s, err
 }
 
@@ -132,7 +141,7 @@ func (s *Plasma) doRecovery() error {
 			break
 		case lssPageMerge:
 			doRmPage = true
-		case lssPageData:
+		case lssPageData, lssPageReloc:
 			pg.Unmarshal(bs[lssBlockTypeSize:], w.wCtx)
 			flushDataSz := len(bs)
 			w.sts.FlushDataSz += int64(flushDataSz)
@@ -151,7 +160,7 @@ func (s *Plasma) doRecovery() error {
 			} else {
 				currPg := s.ReadPage(pid).(*page)
 				// If same version, do prepend, otherwise replace.
-				if currPg.version == pg.version || pg.head == nil {
+				if (typ == lssPageData && currPg.version == pg.version) || pg.head == nil {
 					currPg.PrependDeltas(pg)
 					pg = currPg
 				} else {
@@ -184,7 +193,7 @@ func (s *Plasma) doRecovery() error {
 				rmPg = nil
 			}
 
-			addr := pg.addFlushDelta(flushDataSz)
+			addr := pg.addFlushDelta(flushDataSz, false)
 			*addr = offset
 			s.CreateMapping(pid, pg)
 		}
@@ -229,6 +238,11 @@ func (s *Plasma) doRecovery() error {
 }
 
 func (s *Plasma) Close() {
+	if s.Config.AutoLSSCleaning {
+		s.stoplssgc <- struct{}{}
+		<-s.stoplssgc
+	}
+
 	s.lss.Close()
 }
 
@@ -270,6 +284,19 @@ func (s *Plasma) GetStats() Stats {
 	return sts
 }
 
+func (s *Plasma) LSSDataSize() int64 {
+	var sz int64
+
+	s.RLock()
+	defer s.RUnlock()
+
+	for _, w := range s.wlist {
+		sz += w.sts.FlushDataSz
+	}
+
+	return sz
+}
+
 func (s *Plasma) indexPage(pid PageId, ctx *wCtx) {
 	n := pid.(*skiplist.Node)
 	s.Skiplist.Insert4(n, s.cmp, s.cmp, ctx.buf, n.Level(), false, ctx.slSts)
@@ -297,15 +324,15 @@ func (s *Plasma) tryPageRemoval(pid PageId, pg Page, ctx *wCtx) {
 	var rmPgBuf = ctx.pgEncBuf1
 	var pgBuf = ctx.pgEncBuf2
 	var metaBuf = ctx.pgEncBuf3
-	var fdSzRm, fdSz int
+	var fdSz, rmFdSz int
 	var pgFlushOffset *lssOffset
 
 	if shouldPersist {
-		rmPgBuf, fdSzRm = pg.Marshal(rmPgBuf, false)
-		pgBuf, fdSz = pPg.Marshal(pgBuf, false)
+		rmPgBuf, fdSz = pg.Marshal(rmPgBuf)
+		pgBuf, rmFdSz = pPg.Marshal(pgBuf)
 		metaBuf = encodeMetaBlock(pg.(*page), metaBuf)
 		// Merge flushDataSize info of deadPage to parent
-		fdSz += fdSzRm
+		fdSz += rmFdSz
 	}
 
 	pPg.Merge(pg)
@@ -315,7 +342,7 @@ func (s *Plasma) tryPageRemoval(pid PageId, pg Page, ctx *wCtx) {
 	var res lssResource
 
 	if shouldPersist {
-		pgFlushOffset = pPg.(*page).addFlushDelta(fdSz)
+		pgFlushOffset = pPg.(*page).addFlushDelta(fdSz, false)
 		sizes := []int{
 			lssBlockTypeSize + len(metaBuf),
 			lssBlockTypeSize + len(rmPgBuf),
@@ -379,14 +406,11 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 		var splitMetaBuf = ctx.pgEncBuf2
 
 		if shouldPersist {
-			pgBuf, fdSz = pg.Marshal(pgBuf, false)
+			pgBuf, fdSz = pg.Marshal(pgBuf)
+			pgFlushOffset = pg.(*page).addFlushDelta(fdSz, false)
 		}
 
 		newPg := pg.Split(splitPid)
-
-		if shouldPersist {
-			pgFlushOffset = pg.(*page).addFlushDelta(fdSz)
-		}
 
 		// Skip split, but compact
 		if newPg == nil {
