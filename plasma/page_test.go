@@ -59,6 +59,42 @@ func TestPageMergeCorrectness(t *testing.T) {
 	}
 }
 
+func TestPageMarshalFull(t *testing.T) {
+	pg1, sp := newTestPage()
+	for i := 0; i < 1000; i++ {
+		bk := skiplist.NewIntKeyItem(i)
+		pg1.Insert(bk)
+	}
+
+	pg1.Compact()
+
+	buf := make([]byte, 1024*1024)
+	_, l1 := pg1.Marshal(buf)
+	pg1.Split(sp)
+	pg1.addFlushDelta(l1, false)
+
+	_, l2 := pg1.Marshal(buf)
+	pg1.addFlushDelta(l2, false)
+
+	_, l3, old := pg1.MarshalFull(buf)
+
+	if old != l1+l2 || l3 > old {
+		t.Errorf("expected %d == %d+%d", old, l1, l2)
+	}
+
+	pg1.addFlushDelta(l3, true)
+	bk := skiplist.NewIntKeyItem(1)
+	pg1.Delete(bk)
+	_, l4 := pg1.Marshal(buf)
+	pg1.addFlushDelta(l4, false)
+
+	_, _, old2 := pg1.MarshalFull(buf)
+
+	if old2 != l3+l4 {
+		t.Errorf("expected %d == %d+%d", old2, l3, l4)
+	}
+}
+
 func TestPageMergeMarshal(t *testing.T) {
 	pg1, sp := newTestPage()
 	for i := 0; i < 1000; i++ {
@@ -89,7 +125,7 @@ func TestPageMergeMarshal(t *testing.T) {
 	}
 
 	encb := make([]byte, 1024*1024)
-	encb, _ = pg1.Marshal(encb, false)
+	encb, _ = pg1.Marshal(encb)
 
 	newPg, _ := newTestPage()
 	newPg.Unmarshal(encb, nil)
@@ -255,7 +291,7 @@ func TestPageMarshal(t *testing.T) {
 		pg.Delete(skiplist.NewIntKeyItem(i))
 	}
 
-	encb, _ := pg.Marshal(buf, false)
+	encb, _ := pg.Marshal(buf)
 	newPg, _ := newTestPage()
 	newPg.Unmarshal(encb, nil)
 
