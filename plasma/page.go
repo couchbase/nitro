@@ -170,6 +170,7 @@ func (pg *page) newFlushPageDelta(dataSz int, reloc bool) *flushPageDelta {
 	pd.offset = inFlushingOffset
 	if reloc {
 		pd.op = opRelocPageDelta
+		pd.pageVersion++
 	} else {
 		pd.op = opFlushPageDelta
 	}
@@ -591,6 +592,9 @@ func (pg *page) marshal(buf []byte, woffset int, pd *pageDelta,
 		if pd != nil {
 			// pageVersion
 			version := uint16(pd.pageVersion)
+			if full {
+				version++
+			}
 			binary.BigEndian.PutUint16(buf[woffset:woffset+2], version)
 			woffset += 2
 
