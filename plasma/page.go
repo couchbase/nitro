@@ -490,7 +490,9 @@ func (pg *page) collectPageItems(head *pageDelta,
 		case opPageMergeDelta:
 			pdm := (*mergePageDelta)(unsafe.Pointer(pd))
 			items, fdSz := pg.collectPageItems(pdm.mergeSibling, loItm, hiItm)
-			dataSz += fdSz
+			if !hasReloc {
+				dataSz += fdSz
+			}
 			sorter.Add(items...)
 		case opBasePage:
 			bp := (*basePage)(unsafe.Pointer(pd))
@@ -512,8 +514,10 @@ func (pg *page) collectPageItems(head *pageDelta,
 			}
 		case opRelocPageDelta:
 			fpd := (*flushPageDelta)(unsafe.Pointer(pd))
-			dataSz += int(fpd.flushDataSz)
-			hasReloc = true
+			if !hasReloc {
+				dataSz += int(fpd.flushDataSz)
+				hasReloc = true
+			}
 		}
 	}
 
