@@ -10,19 +10,22 @@ import (
 	"unsafe"
 )
 
-func newTestIntPlasmaStore() *Plasma {
-	cfg := Config{
-		MaxDeltaChainLen: 200,
-		MaxPageItems:     400,
-		MinPageItems:     25,
-		Compare:          skiplist.CompareInt,
-		ItemSize: func(unsafe.Pointer) uintptr {
-			return unsafe.Sizeof(new(skiplist.IntKeyItem))
-		},
-		File:            "teststore.data",
-		MaxSize:         1024 * 1024 * 1024 * 10,
-		FlushBufferSize: 1024 * 1024,
-	}
+var testCfg = Config{
+	MaxDeltaChainLen: 200,
+	MaxPageItems:     400,
+	MinPageItems:     25,
+	Compare:          skiplist.CompareInt,
+	ItemSize: func(unsafe.Pointer) uintptr {
+		return unsafe.Sizeof(new(skiplist.IntKeyItem))
+	},
+	File:                "teststore.data",
+	MaxSize:             1024 * 1024 * 1024 * 5,
+	FlushBufferSize:     1024 * 1024,
+	LSSCleanerThreshold: 10,
+	AutoLSSCleaning:     false,
+}
+
+func newTestIntPlasmaStore(cfg Config) *Plasma {
 
 	s, err := New(cfg)
 	if err != nil {
@@ -34,7 +37,7 @@ func newTestIntPlasmaStore() *Plasma {
 
 func TestPlasmaSimple(t *testing.T) {
 	os.Remove("teststore.data")
-	s := newTestIntPlasmaStore()
+	s := newTestIntPlasmaStore(testCfg)
 	defer s.Close()
 
 	w := s.NewWriter()
@@ -110,7 +113,7 @@ func TestPlasmaInsertPerf(t *testing.T) {
 	numThreads := 4
 	n := 10000000
 	nPerThr := n / numThreads
-	s := newTestIntPlasmaStore()
+	s := newTestIntPlasmaStore(testCfg)
 	defer s.Close()
 	total := numThreads * nPerThr
 
@@ -135,7 +138,7 @@ func TestPlasmaDeletePerf(t *testing.T) {
 	numThreads := 4
 	n := 10000000
 	nPerThr := n / numThreads
-	s := newTestIntPlasmaStore()
+	s := newTestIntPlasmaStore(testCfg)
 	defer s.Close()
 	total := numThreads * nPerThr
 
@@ -167,7 +170,7 @@ func TestPlasmaLookupPerf(t *testing.T) {
 	numThreads := 4
 	n := 10000000
 	nPerThr := n / numThreads
-	s := newTestIntPlasmaStore()
+	s := newTestIntPlasmaStore(testCfg)
 	defer s.Close()
 	total := numThreads * nPerThr
 
@@ -194,7 +197,7 @@ func TestPlasmaLookupPerf(t *testing.T) {
 
 func TestIteratorSimple(t *testing.T) {
 	os.Remove("teststore.data")
-	s := newTestIntPlasmaStore()
+	s := newTestIntPlasmaStore(testCfg)
 	defer s.Close()
 	w := s.NewWriter()
 	for i := 0; i < 1000000; i++ {
@@ -219,7 +222,7 @@ func TestIteratorSimple(t *testing.T) {
 
 func TestIteratorSeek(t *testing.T) {
 	os.Remove("teststore.data")
-	s := newTestIntPlasmaStore()
+	s := newTestIntPlasmaStore(testCfg)
 	defer s.Close()
 	w := s.NewWriter()
 	for i := 0; i < 1000000; i++ {
@@ -246,7 +249,7 @@ func TestPlasmaIteratorLookupPerf(t *testing.T) {
 	numThreads := 8
 	n := 10000000
 	nPerThr := n / numThreads
-	s := newTestIntPlasmaStore()
+	s := newTestIntPlasmaStore(testCfg)
 	defer s.Close()
 	total := numThreads * nPerThr
 
@@ -281,7 +284,7 @@ func TestPlasmaIteratorLookupPerf(t *testing.T) {
 
 func TestPlasmaPersistor(t *testing.T) {
 	os.Remove("teststore.data")
-	s := newTestIntPlasmaStore()
+	s := newTestIntPlasmaStore(testCfg)
 	defer s.Close()
 	w := s.NewWriter()
 	for i := 0; i < 18000000; i++ {
@@ -308,7 +311,7 @@ func TestPlasmaPersistor(t *testing.T) {
 
 func TestPlasmaRecovery(t *testing.T) {
 	os.Remove("teststore.data")
-	s := newTestIntPlasmaStore()
+	s := newTestIntPlasmaStore(testCfg)
 	defer s.Close()
 	w := s.NewWriter()
 	for i := 0; i < 130000; i++ {
@@ -322,7 +325,7 @@ func TestPlasmaRecovery(t *testing.T) {
 	s.PersistAll()
 
 	s.Close()
-	s = newTestIntPlasmaStore()
+	s = newTestIntPlasmaStore(testCfg)
 	w = s.NewWriter()
 	fmt.Println(s.GetStats())
 
@@ -344,5 +347,50 @@ func TestPlasmaRecovery(t *testing.T) {
 		} else if skiplist.CompareInt(itm, got) != 0 {
 			t.Errorf("mismatch %d != %d", i, skiplist.IntFromItem(got))
 		}
+	}
+}
+
+func TestPlasmaLSSCleaner(t *testing.T) {
+	os.Remove("teststore.data")
+	cfg := testCfg
+	cfg.LSSCleanerThreshold = 10
+	s := newTestIntPlasmaStore(cfg)
+	defer s.Close()
+
+	w := s.NewWriter()
+
+	for i := 0; i < 10000000; i++ {
+		w.Insert(skiplist.NewIntKeyItem(i))
+	}
+
+	_, ds0, used0 := s.GetLSSInfo()
+	s.PersistAll()
+	fmt.Println(s.GetStats(), "\n")
+
+	go func() {
+		for {
+			s.PersistAll()
+			time.Sleep(time.Second * time.Duration(5))
+		}
+	}()
+
+	go s.lssCleanerDaemon()
+	for x := 0; x < 20; x++ {
+		fmt.Println("Running iteration..", x)
+		for i := 0; i < 1000000; i++ {
+			itm := skiplist.NewIntKeyItem(i)
+			w.Delete(itm)
+			w.Insert(itm)
+		}
+
+		fmt.Println(s.GetStats())
+	}
+
+	time.Sleep(time.Second)
+	frag, ds, used := s.GetLSSInfo()
+
+	fmt.Printf("LSSInfo: frag:%d, ds:%d, used:%d\n", frag, ds, used)
+	if used > used0*110/100 || ds > ds0*110/100 {
+		t.Errorf("Expected better cleaning with frag ~ 10%")
 	}
 }
