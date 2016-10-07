@@ -313,6 +313,10 @@ func (pg *page) Delete(itm unsafe.Pointer) {
 	pg.head = pg.newRecordDelta(opDeleteDelta, itm)
 }
 
+func (pg *page) equal(itm0, itm1, hi unsafe.Pointer) bool {
+	return pg.cmp(itm0, itm1) == 0 && pg.cmp(itm0, hi) < 0
+}
+
 func (pg *page) Lookup(itm unsafe.Pointer) unsafe.Pointer {
 	pd := pg.head
 
@@ -322,17 +326,22 @@ func (pg *page) Lookup(itm unsafe.Pointer) unsafe.Pointer {
 		pd = pg.getDeltas(pd.rightSibling)
 	}
 
+	var hiItm = skiplist.MaxItem
+	if pd != nil {
+		hiItm = pd.hiItm
+	}
+
 loop:
 	for pd != nil {
 		switch pd.op {
 		case opInsertDelta:
 			pdr := (*recordDelta)(unsafe.Pointer(pd))
-			if pg.cmp(pdr.itm, itm) == 0 {
+			if pg.equal(pdr.itm, itm, hiItm) {
 				return pdr.itm
 			}
 		case opDeleteDelta:
 			pdr := (*recordDelta)(unsafe.Pointer(pd))
-			if pg.cmp(pdr.itm, itm) == 0 {
+			if pg.equal(pdr.itm, itm, hiItm) {
 				return nil
 			}
 		case opBasePage:
@@ -342,12 +351,14 @@ loop:
 				return pg.cmp(bp.items[i], itm) >= 0
 			})
 
-			if index < n && pg.cmp(bp.items[index], itm) == 0 {
+			if index < n && pg.equal(bp.items[index], itm, hiItm) {
 				return bp.items[index]
 			}
 
 			return nil
 		case opPageSplitDelta:
+			pds := (*splitPageDelta)(unsafe.Pointer(pd))
+			hiItm = pds.itm
 		case opPageMergeDelta:
 			pdm := (*mergePageDelta)(unsafe.Pointer(pd))
 			if pg.cmp(itm, pdm.itm) >= 0 {
@@ -355,6 +366,7 @@ loop:
 				continue loop
 			}
 		case opFlushPageDelta:
+		case opRelocPageDelta:
 		case opPageRemoveDelta:
 		default:
 			panic(fmt.Sprint("should not happen op:", pd.op))
