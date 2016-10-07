@@ -27,19 +27,29 @@ func (s *Plasma) cleanLSS(proceed func() bool) error {
 	w := s.lsscw
 	buf := w.wCtx.pgEncBuf1
 
+	relocated := 0
+	retries := 0
+	skipped := 0
+
 	callb := func(_ lssOffset, bs []byte) bool {
 		typ := getLSSBlockType(bs)
 		if typ == lssPageData || typ == lssPageReloc {
 			version, key := decodeBlockMeta(bs[lssBlockTypeSize:])
 		retry:
-			node, _, found := s.Skiplist.Lookup(key, s.cmp, w.wCtx.buf, w.wCtx.slSts)
+			_, node, found := s.Skiplist.Lookup(key, s.cmp, w.wCtx.buf, w.wCtx.slSts)
 			if found {
 				pid := PageId(node)
 				pg := s.ReadPage(pid).(*page)
-				if pg.version == version {
+
+				if pg.state.GetVersion() == version || !pg.state.IsFlushed() {
 					if !s.tryPageRelocation(pid, pg, buf) {
+						retries++
 						goto retry
 					}
+
+					relocated++
+				} else {
+					skipped++
 				}
 			}
 
@@ -59,7 +69,7 @@ func (s *Plasma) cleanLSS(proceed func() bool) error {
 	frag, ds, used = s.GetLSSInfo()
 	start = atomic.LoadInt64(&s.lss.headOffset)
 	end = atomic.LoadInt64(&s.lss.tailOffset)
-	fmt.Printf("logCleaner: completed... frag %d, data: %d, used: %d log:(%d - %d)\n", frag, ds, used, start, end)
+	fmt.Printf("logCleaner: completed... frag %d, data: %d, used: %d, relocated: %d, retries: %d, skipped: %d log:(%d - %d)\n", frag, ds, used, relocated, retries, skipped, start, end)
 	return err
 }
 

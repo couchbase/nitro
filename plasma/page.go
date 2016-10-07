@@ -79,11 +79,30 @@ func (pi *pageItem) Item() unsafe.Pointer {
 
 var pageDeltaHdrSize = unsafe.Sizeof(*new(pageDelta))
 
+type pageState uint16
+
+func (ps *pageState) GetVersion() uint16 {
+	return uint16(*ps & 0x7fff)
+}
+
+func (ps *pageState) IsFlushed() bool {
+	return *ps&0x8000 == 0x8000
+}
+
+func (ps *pageState) SetFlushed() {
+	*ps |= 0x8000
+}
+
+func (ps *pageState) IncrVersion() {
+	v := uint16(*ps & 0x7fff)
+	*ps = pageState((v + 1) & 0x7fff)
+}
+
 type pageDelta struct {
-	op          pageOp
-	chainLen    uint16
-	numItems    uint16
-	pageVersion uint16
+	op       pageOp
+	chainLen uint16
+	numItems uint16
+	state    pageState
 
 	next *pageDelta
 
@@ -92,10 +111,10 @@ type pageDelta struct {
 }
 
 type basePage struct {
-	op          pageOp
-	chainLen    uint16
-	numItems    uint16
-	pageVersion uint16
+	op       pageOp
+	chainLen uint16
+	numItems uint16
+	state    pageState
 
 	data unsafe.Pointer
 
@@ -150,7 +169,7 @@ type page struct {
 	*storeCtx
 
 	low         unsafe.Pointer
-	version     uint16
+	state       pageState
 	prevHeadPtr unsafe.Pointer
 	head        *pageDelta
 	tail        *pageDelta
@@ -170,10 +189,12 @@ func (pg *page) newFlushPageDelta(dataSz int, reloc bool) *flushPageDelta {
 	pd.offset = inFlushingOffset
 	if reloc {
 		pd.op = opRelocPageDelta
-		pd.pageVersion++
+		pd.state.IncrVersion()
 	} else {
 		pd.op = opFlushPageDelta
 	}
+
+	pd.state.SetFlushed()
 	pd.flushDataSz = int32(dataSz)
 	return pd
 }
@@ -403,14 +424,15 @@ func (pg *page) doSplit(itm unsafe.Pointer, pid PageId, numItems int) *page {
 }
 
 func (pg *page) Compact() int {
-	var pageVersion uint16
+	var state pageState
 	if pg.head != nil {
-		pageVersion = pg.head.pageVersion
+		state = pg.head.state
 	}
 
 	itms, fdataSz := pg.collectItems(pg.head, nil, pg.head.hiItm)
 	pg.head = pg.newBasePage(itms)
-	pg.head.pageVersion = pageVersion + 1
+	state.IncrVersion()
+	pg.head.state = state
 	return fdataSz
 }
 
@@ -595,11 +617,12 @@ func (pg *page) marshal(buf []byte, woffset int, pd *pageDelta,
 	if !child {
 		if pd != nil {
 			// pageVersion
-			version := uint16(pd.pageVersion)
+			state := pd.state
 			if full {
-				version++
+				state.IncrVersion()
 			}
-			binary.BigEndian.PutUint16(buf[woffset:woffset+2], version)
+
+			binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(state))
 			woffset += 2
 
 			if pg.low == skiplist.MinItem {
@@ -749,10 +772,11 @@ func getLSSPageMeta(data []byte) (itm unsafe.Pointer, pv uint16) {
 func (pg *page) Unmarshal(data []byte, ctx *wCtx) {
 	roffset := 0
 
-	pageVersion := int(binary.BigEndian.Uint16(data[roffset : roffset+2]))
-	roffset += 2
+	state := pageState(binary.BigEndian.Uint16(data[roffset : roffset+2]))
+	state.SetFlushed()
 
-	pg.version = uint16(pageVersion)
+	roffset += 2
+	pg.state = state
 
 	l := int(binary.BigEndian.Uint16(data[roffset : roffset+2]))
 	roffset += 2
@@ -811,7 +835,7 @@ loop:
 					op:           op,
 					chainLen:     uint16(chainLen),
 					numItems:     uint16(numItems),
-					pageVersion:  uint16(pageVersion),
+					state:        state,
 					hiItm:        hiItm,
 					rightSibling: rightSibling,
 				},
@@ -835,7 +859,7 @@ loop:
 			}
 
 			bp := pg.newBasePage(itms)
-			bp.pageVersion = uint16(pageVersion)
+			bp.state = state
 			bp.hiItm = hiItm
 			bp.rightSibling = rightSibling
 			pd = (*pageDelta)(unsafe.Pointer(bp))

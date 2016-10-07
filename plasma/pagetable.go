@@ -104,7 +104,7 @@ func (s *pageTable) ReadPage(pid PageId) Page {
 	}
 
 	if pg.head != nil {
-		pg.version = pg.head.pageVersion
+		pg.state = pg.head.state
 	}
 
 	return pg

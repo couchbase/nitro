@@ -160,7 +160,7 @@ func (s *Plasma) doRecovery() error {
 			} else {
 				currPg := s.ReadPage(pid).(*page)
 				// If same version, do prepend, otherwise replace.
-				if (typ == lssPageData && currPg.version == pg.version) || pg.head == nil {
+				if currPg.state.GetVersion() == pg.state.GetVersion() || pg.head == nil {
 					currPg.PrependDeltas(pg)
 					pg = currPg
 				} else {
