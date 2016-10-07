@@ -171,7 +171,7 @@ func (s *Plasma) doRecovery() error {
 			}
 
 			if doSplit {
-				// TODO: Is split using exact key needed ?
+				// TODO: Is split using exact key needed (yes)?
 				splitPid := s.AllocPageId()
 				newPg := pg.Split(splitPid)
 				s.CreateMapping(splitPid, newPg)

@@ -11,10 +11,12 @@ import (
 )
 
 const superBlockSize = 4096
+const lssReclaimBlockSize = 1024 * 1024 * 8
 
 type lssOffset uint64
 type lssResource interface{}
 type lssBlockCallback func(lssOffset, []byte) bool
+type lssCleanerCallback func(start, end lssOffset, bs []byte) (cont bool, cleanOff, relocEnd lssOffset)
 
 type LSS interface {
 	ReserveSpace(size int) (lssOffset, []byte, lssResource)
@@ -23,7 +25,7 @@ type LSS interface {
 	Read(lssOffset, buf []byte) (int, error)
 	Sync()
 
-	RunCleaner(callb lssBlockCallback, buf []byte) error
+	RunCleaner(callb lssCleanerCallback, buf []byte) error
 }
 
 type lsStore struct {
@@ -32,6 +34,9 @@ type lsStore struct {
 	maxSize    int64
 	headOffset int64
 	tailOffset int64
+
+	// Cleaner updates this pair during relocation
+	cleanerHeadOffset, cleanerRelocEnd int64
 
 	head *flushBuffer
 
@@ -141,6 +146,13 @@ func (s *lsStore) flush(fb *flushBuffer) {
 	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&s.head)),
 		unsafe.Pointer(fb.NextBuffer()))
 
+	// This may read old headOffset, newReloc - which is safe
+	headOffset := atomic.LoadInt64(&s.cleanerHeadOffset)
+	relocEndOffset := atomic.LoadInt64(&s.cleanerRelocEnd)
+	if relocEndOffset > 0 && relocEndOffset <= fb.EndOffset() {
+		atomic.StoreInt64(&s.headOffset, headOffset)
+	}
+
 	s.updateSuperBlock()
 	fb.Reset()
 }
@@ -249,14 +261,31 @@ func (s *lsStore) FinalizeWrite(res lssResource) {
 	fb.Done()
 }
 
-func (s *lsStore) RunCleaner(callb lssBlockCallback, buf []byte) error {
+func (s *lsStore) RunCleaner(callb lssCleanerCallback, buf []byte) error {
 	s.Lock()
 	defer s.Unlock()
 
+	tailOff := atomic.LoadInt64(&s.tailOffset)
+
 	fn := func(offset lssOffset, b []byte) bool {
-		rv := callb(offset, b)
-		atomic.StoreInt64(&s.headOffset, int64(offset)+int64(len(b))+headerFBSize)
-		return rv
+		// The lss writer asynchronously updates headOffset when tail >= relocEnd
+		cont, headOff, relocOff := callb(offset, lssBlockEndOffset(offset, b), b)
+
+		// No relocation, hence update immediately
+		if relocOff == 0 {
+			atomic.StoreInt64(&s.headOffset, int64(headOff))
+		} else {
+			// We cannot set relocOffset to 0
+			// It should be always monotonic to avoid race condition
+			tailOff = int64(relocOff)
+		}
+
+		// It is safe for writer to update latest reloc, but old headOffset
+		// But, new headOffset for old reloc is dangerous
+		atomic.StoreInt64(&s.cleanerRelocEnd, int64(tailOff))
+		atomic.StoreInt64(&s.cleanerHeadOffset, int64(headOff))
+
+		return cont
 	}
 
 	return s.Visitor(fn, buf)
@@ -486,4 +515,8 @@ func encodeState(isfull bool, nwriters int, offset int) uint64 {
 
 	state := isfullbits | nwritersbits | offsetbits
 	return state
+}
+
+func lssBlockEndOffset(off lssOffset, b []byte) lssOffset {
+	return headerFBSize + off + lssOffset(len(b))
 }
