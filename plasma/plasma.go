@@ -125,6 +125,7 @@ func (s *Plasma) doRecovery() error {
 	w := s.NewWriter()
 
 	var rmPg *page
+	var splitKey unsafe.Pointer
 	doSplit := false
 	doRmPage := false
 	doMerge := false
@@ -138,6 +139,7 @@ func (s *Plasma) doRecovery() error {
 		case lssDiscard:
 		case lssPageSplit:
 			doSplit = true
+			splitKey = decodeMetaBlock(pg, bs[lssBlockTypeSize:])
 			break
 		case lssPageMerge:
 			doRmPage = true
@@ -171,9 +173,8 @@ func (s *Plasma) doRecovery() error {
 			}
 
 			if doSplit {
-				// TODO: Is split using exact key needed (yes)?
 				splitPid := s.AllocPageId()
-				newPg := pg.Split(splitPid)
+				newPg := pg.doSplit(splitKey, splitPid, -1)
 				s.CreateMapping(splitPid, newPg)
 				s.indexPage(splitPid, w.wCtx)
 				w.wCtx.sts.Splits++

@@ -431,7 +431,9 @@ func (pg *page) doSplit(itm unsafe.Pointer, pid PageId, numItems int) *page {
 	newPage.low = (*basePage)(unsafe.Pointer(newPage.head)).items[0]
 	pg.head = pg.newSplitPageDelta(itm, pid)
 	pg.head.hiItm = itm
-	pg.head.numItems = uint16(numItems)
+	if numItems >= 0 {
+		pg.head.numItems = uint16(numItems)
+	}
 	return newPage
 }
 
@@ -908,6 +910,16 @@ func encodeMetaBlock(target *page, buf []byte) []byte {
 	woffset += l
 
 	return buf[:woffset]
+}
+
+func decodeMetaBlock(pg *page, data []byte) unsafe.Pointer {
+	roffset := 0
+	l := int(binary.BigEndian.Uint16(data[roffset : roffset+2]))
+	roffset += 2
+
+	ptr := pg.alloc(uintptr(l))
+	memcopy(ptr, unsafe.Pointer(&data[roffset]), l)
+	return ptr
 }
 
 func (pg *page) GetFlushDataSize() int {
