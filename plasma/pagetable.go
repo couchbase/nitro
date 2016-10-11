@@ -19,7 +19,6 @@ type PageTable interface {
 type pageTable struct {
 	*storeCtx
 	*skiplist.Skiplist
-	randFn func() float32
 }
 
 func newPageTable(sl *skiplist.Skiplist, itmSize ItemSizeFn,
@@ -27,7 +26,6 @@ func newPageTable(sl *skiplist.Skiplist, itmSize ItemSizeFn,
 
 	pt := &pageTable{
 		Skiplist: sl,
-		randFn:   rand.New(rand.NewSource(int64(rand.Int()))).Float32,
 	}
 
 	pt.storeCtx = &storeCtx{
@@ -62,7 +60,7 @@ func newPageTable(sl *skiplist.Skiplist, itmSize ItemSizeFn,
 }
 
 func (s *pageTable) AllocPageId() PageId {
-	itemLevel := s.Skiplist.NewLevel(s.randFn)
+	itemLevel := s.Skiplist.NewLevel(rand.Float32)
 	return s.Skiplist.NewNode(itemLevel)
 }
 
