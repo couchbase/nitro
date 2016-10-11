@@ -110,6 +110,14 @@ type pageDelta struct {
 	rightSibling PageId
 }
 
+func (pd *pageDelta) IsInsert() bool {
+	return pd.op == opInsertDelta
+}
+
+func (pd *pageDelta) Item() unsafe.Pointer {
+	return (*recordDelta)(unsafe.Pointer(pd)).itm
+}
+
 type basePage struct {
 	op       pageOp
 	chainLen uint16
@@ -508,69 +516,17 @@ loop:
 	}
 }
 
-func (pg *page) collectPageItems(head *pageDelta,
-	loItm, hiItm unsafe.Pointer) (items []PageItem, dataSz int) {
-	sorter := pg.newPageItemSorter(head)
-
-	hasReloc := false
-	for pd := head; pd != nil; pd = pd.next {
-		switch pd.op {
-		case opInsertDelta, opDeleteDelta:
-			rec := (*recordDelta)(unsafe.Pointer(pd))
-			if pg.inRange(loItm, hiItm, rec.itm) {
-				sorter.Add(rec)
-			}
-		case opPageSplitDelta:
-			pds := (*splitPageDelta)(unsafe.Pointer(pd))
-			hiItm = pds.hiItm
-		case opPageMergeDelta:
-			pdm := (*mergePageDelta)(unsafe.Pointer(pd))
-			items, fdSz := pg.collectPageItems(pdm.mergeSibling, loItm, hiItm)
-			if !hasReloc {
-				dataSz += fdSz
-			}
-			sorter.Add(items...)
-		case opBasePage:
-			bp := (*basePage)(unsafe.Pointer(pd))
-			var pgItms []PageItem
-
-			for _, itm := range bp.items {
-				if pg.inRange(loItm, hiItm, itm) {
-					pgItms = append(pgItms, &pageItem{itm: itm})
-				}
-			}
-
-			merger := pg.newPageItemSorter(nil)
-			merger.Init(pgItms)
-			return merger.Merge(sorter.Run()), dataSz
-		case opFlushPageDelta:
-			if !hasReloc {
-				fpd := (*flushPageDelta)(unsafe.Pointer(pd))
-				dataSz += int(fpd.flushDataSz)
-			}
-		case opRelocPageDelta:
-			fpd := (*flushPageDelta)(unsafe.Pointer(pd))
-			if !hasReloc {
-				dataSz += int(fpd.flushDataSz)
-				hasReloc = true
-			}
-		}
-	}
-
-	return sorter.Run(), dataSz
-}
-
 func (pg *page) collectItems(head *pageDelta,
 	loItm, hiItm unsafe.Pointer) (itx []unsafe.Pointer, dataSz int) {
+
+	it, fdSz := newPgOpIterator(pg.head, pg.cmp, loItm, hiItm, true)
 	var itms []unsafe.Pointer
-	items, dataSz := pg.collectPageItems(head, loItm, hiItm)
-	for _, itm := range items {
-		if itm.IsInsert() {
-			itms = append(itms, itm.Item())
-		}
+	for it.Init(); it.Valid(); it.Next() {
+		itm, _ := it.Get()
+		itms = append(itms, itm)
 	}
 
-	return itms, dataSz
+	return itms, fdSz
 }
 
 type pageIterator struct {
