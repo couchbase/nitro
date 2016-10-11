@@ -84,6 +84,17 @@ func doInsert(w *Writer, wg *sync.WaitGroup, id, n int) {
 	}
 }
 
+func doUpdate(w *Writer, wg *sync.WaitGroup, id, n int) {
+	defer wg.Done()
+
+	for i := 0; i < n; i++ {
+		val := i + id*n
+		itm := skiplist.NewIntKeyItem(val)
+		w.Delete(itm)
+		w.Insert(itm)
+	}
+}
+
 func doDelete(w *Writer, wg *sync.WaitGroup, id, n int) {
 	defer wg.Done()
 
@@ -393,4 +404,48 @@ func TestPlasmaLSSCleaner(t *testing.T) {
 	if used > used0*110/100 || ds > ds0*110/100 {
 		t.Errorf("Expected better cleaning with frag ~ 10%")
 	}
+}
+
+func TestPlasmaCleanerPerf(t *testing.T) {
+	var wg sync.WaitGroup
+
+	os.Remove("teststore.data")
+	numThreads := 8
+	n := 100000000
+	nPerThr := n / numThreads
+	cfg := testCfg
+	cfg.LSSCleanerThreshold = 10
+	cfg.AutoLSSCleaning = true
+	s := newTestIntPlasmaStore(cfg)
+	defer s.Close()
+	total := numThreads * nPerThr
+
+	t0 := time.Now()
+	for i := 0; i < numThreads; i++ {
+		wg.Add(1)
+		w := s.NewWriter()
+		go doInsert(w, &wg, i, nPerThr)
+	}
+	wg.Wait()
+
+	dur := time.Since(t0)
+	fmt.Printf("%d items insert took %v -> %v items/s\n", total, dur, float64(total)/float64(dur.Seconds()))
+	s.PersistAll()
+
+	t0 = time.Now()
+	for i := 0; i < numThreads; i++ {
+		wg.Add(1)
+		w := s.NewWriter()
+		go doUpdate(w, &wg, i, nPerThr)
+	}
+	wg.Wait()
+	dur = time.Since(t0)
+	fmt.Printf("%d items update took %v -> %v items/s\n", total, dur, float64(total)/float64(dur.Seconds()))
+
+	fmt.Println(s.GetStats())
+
+	frag, ds, used := s.GetLSSInfo()
+
+	fmt.Printf("LSSInfo: frag:%d, ds:%d, used:%d\n", frag, ds, used)
+
 }
