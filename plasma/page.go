@@ -905,9 +905,9 @@ loop:
 	return flushDataSz
 }
 
-func decodeBlockMeta(data []byte) (version uint16, key unsafe.Pointer) {
+func decodePageState(data []byte) (state pageState, key unsafe.Pointer) {
 	roffset := 0
-	version = binary.BigEndian.Uint16(data[roffset : roffset+2])
+	state = pageState(binary.BigEndian.Uint16(data[roffset : roffset+2]))
 	roffset += 2
 
 	l := int(binary.BigEndian.Uint16(data[roffset : roffset+2]))

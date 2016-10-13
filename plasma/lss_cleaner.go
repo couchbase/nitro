@@ -40,14 +40,14 @@ func (s *Plasma) cleanLSS(proceed func() bool) error {
 
 		typ := getLSSBlockType(bs)
 		if typ == lssPageData || typ == lssPageReloc {
-			version, key := decodeBlockMeta(bs[lssBlockTypeSize:])
+			state, key := decodePageState(bs[lssBlockTypeSize:])
 		retry:
 			_, node, found := s.Skiplist.Lookup(key, s.cmp, w.wCtx.buf, w.wCtx.slSts)
 			if found {
 				pid := PageId(node)
 				pg := s.ReadPage(pid).(*page)
 
-				if pg.state.GetVersion() == version || !pg.state.IsFlushed() {
+				if pg.state.GetVersion() == state.GetVersion() || !pg.state.IsFlushed() {
 					var ok bool
 					if ok, relocOff = s.tryPageRelocation(pid, pg, buf); !ok {
 						retries++
