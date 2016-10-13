@@ -285,7 +285,7 @@ func (pg *page) newBasePage(itms []unsafe.Pointer) *pageDelta {
 	bp.numItems = uint16(len(itms))
 	if pg.head != nil {
 		bp.rightSibling = pg.head.rightSibling
-		bp.hiItm = pg.head.hiItm
+		bp.hiItm = pg.dup(pg.head.hiItm)
 	}
 
 	return (*pageDelta)(unsafe.Pointer(bp))
@@ -311,6 +311,17 @@ func (pg *page) alloc(sz uintptr) unsafe.Pointer {
 	b := make([]byte, int(sz))
 	hdr := (*reflect.SliceHeader)(unsafe.Pointer(&b))
 	return unsafe.Pointer(hdr.Data)
+}
+
+func (pg *page) dup(itm unsafe.Pointer) unsafe.Pointer {
+	if itm == skiplist.MinItem || itm == skiplist.MaxItem {
+		return itm
+	}
+
+	l := pg.itemSize(itm)
+	p := pg.alloc(l)
+	memcopy(p, itm, int(l))
+	return p
 }
 
 func (pg *page) Insert(itm unsafe.Pointer) {
@@ -438,7 +449,7 @@ func (pg *page) doSplit(itm unsafe.Pointer, pid PageId, numItems int) *page {
 	newPage.head = pg.newBasePage(itms)
 	newPage.low = (*basePage)(unsafe.Pointer(newPage.head)).items[0]
 	pg.head = pg.newSplitPageDelta(itm, pid)
-	pg.head.hiItm = itm
+	pg.head.hiItm = pg.dup(itm)
 	if numItems >= 0 {
 		pg.head.numItems = uint16(numItems)
 	}
@@ -463,7 +474,7 @@ func (pg *page) Merge(sp Page) {
 	pdm := pg.newMergePageDelta(pg.head.hiItm, siblPage)
 	pdm.next = pg.head
 	pg.head = pdm
-	pg.head.hiItm = siblPage.hiItm
+	pg.head.hiItm = pg.dup(siblPage.hiItm)
 }
 
 func (pg *page) PrependDeltas(p Page) {
