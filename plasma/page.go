@@ -25,8 +25,6 @@ const (
 	opRelocPageDelta
 )
 
-var inFlushingOffset = lssOffset(0xffffffffffffffff)
-
 type PageId interface{}
 
 type Page interface {
@@ -190,11 +188,10 @@ func (pg *page) Reset() {
 	pg.prevHeadPtr = nil
 }
 
-func (pg *page) newFlushPageDelta(dataSz int, reloc bool) *flushPageDelta {
+func (pg *page) newFlushPageDelta(offset lssOffset, dataSz int, reloc bool) *flushPageDelta {
 	pd := new(flushPageDelta)
 	*(*pageDelta)(unsafe.Pointer(pd)) = *pg.head
 	pd.next = pg.head
-	pd.offset = inFlushingOffset
 	if reloc {
 		pd.op = opRelocPageDelta
 		pd.state.IncrVersion()
@@ -202,6 +199,7 @@ func (pg *page) newFlushPageDelta(dataSz int, reloc bool) *flushPageDelta {
 		pd.op = opFlushPageDelta
 	}
 
+	pd.offset = offset
 	pd.state.SetFlushed()
 	pd.flushDataSz = int32(dataSz)
 	return pd
@@ -860,11 +858,9 @@ loop:
 	pg.tail = lastPd
 }
 
-func (pg *page) addFlushDelta(dataSz int, reloc bool) *lssOffset {
-	fd := pg.newFlushPageDelta(dataSz, reloc)
+func (pg *page) addFlushDelta(offset lssOffset, dataSz int, reloc bool) {
+	fd := pg.newFlushPageDelta(offset, dataSz, reloc)
 	pg.head = (*pageDelta)(unsafe.Pointer(fd))
-
-	return &fd.offset
 }
 
 func encodeMetaBlock(target *page, buf []byte) []byte {

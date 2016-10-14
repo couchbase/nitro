@@ -71,10 +71,10 @@ func TestPageMarshalFull(t *testing.T) {
 	buf := make([]byte, 1024*1024)
 	_, l1 := pg1.Marshal(buf)
 	pg1.Split(sp)
-	pg1.addFlushDelta(l1, false)
+	pg1.addFlushDelta(0, l1, false)
 
 	_, l2 := pg1.Marshal(buf)
-	pg1.addFlushDelta(l2, false)
+	pg1.addFlushDelta(0, l2, false)
 
 	_, l3, old := pg1.MarshalFull(buf)
 
@@ -82,11 +82,11 @@ func TestPageMarshalFull(t *testing.T) {
 		t.Errorf("expected %d == %d+%d", old, l1, l2)
 	}
 
-	pg1.addFlushDelta(l3, true)
+	pg1.addFlushDelta(0, l3, true)
 	bk := skiplist.NewIntKeyItem(1)
 	pg1.Delete(bk)
 	_, l4 := pg1.Marshal(buf)
-	pg1.addFlushDelta(l4, false)
+	pg1.addFlushDelta(0, l4, false)
 
 	_, _, old2 := pg1.MarshalFull(buf)
 

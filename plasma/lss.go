@@ -13,7 +13,7 @@ import (
 const superBlockSize = 4096
 const lssReclaimBlockSize = 1024 * 1024 * 8
 
-type lssOffset uint64
+type lssOffset int64
 type lssResource interface{}
 type lssBlockCallback func(lssOffset, []byte) bool
 type lssCleanerCallback func(start, end lssOffset, bs []byte) (cont bool, cleanOff, relocEnd lssOffset)

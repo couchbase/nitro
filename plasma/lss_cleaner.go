@@ -9,16 +9,15 @@ import (
 func (s *Plasma) tryPageRelocation(pid PageId, pg Page, buf []byte) (bool, lssOffset) {
 	bs, dataSz, staleSz := pg.MarshalFull(buf)
 	offset, wbuf, res := s.lss.ReserveSpace(lssBlockTypeSize + len(bs))
-	offsetPtr := pg.(*page).addFlushDelta(dataSz, true)
+	pg.(*page).addFlushDelta(offset, dataSz, true)
+	writeLSSBlock(wbuf, lssPageReloc, bs)
 	if !s.UpdateMapping(pid, pg) {
 		discardLSSBlock(wbuf)
 		s.lss.FinalizeWrite(res)
 		return false, 0
 	}
 
-	writeLSSBlock(wbuf, lssPageReloc, bs)
 	s.lss.FinalizeWrite(res)
-	*offsetPtr = offset
 	s.lsscw.sts.FlushDataSz += int64(dataSz) - int64(staleSz)
 	relocEnd := lssBlockEndOffset(offset, wbuf)
 	return true, relocEnd

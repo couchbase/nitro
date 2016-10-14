@@ -194,8 +194,7 @@ func (s *Plasma) doRecovery() error {
 				rmPg = nil
 			}
 
-			addr := pg.addFlushDelta(flushDataSz, false)
-			*addr = offset
+			pg.addFlushDelta(offset, flushDataSz, false)
 			s.CreateMapping(pid, pg)
 		}
 
@@ -326,13 +325,12 @@ func (s *Plasma) tryPageRemoval(pid PageId, pg Page, ctx *wCtx) {
 	var pgBuf = ctx.pgEncBuf2
 	var metaBuf = ctx.pgEncBuf3
 	var fdSz, rmFdSz int
-	var pgFlushOffset *lssOffset
 
 	if shouldPersist {
 		rmPgBuf, fdSz = pg.Marshal(rmPgBuf)
 		pgBuf, rmFdSz = pPg.Marshal(pgBuf)
 		metaBuf = encodeMetaBlock(pg.(*page), metaBuf)
-		// Merge flushDataSize info of deadPage to parent
+		// Merge flushDataSize info of dead page to parent
 		fdSz += rmFdSz
 	}
 
@@ -343,7 +341,6 @@ func (s *Plasma) tryPageRemoval(pid PageId, pg Page, ctx *wCtx) {
 	var res lssResource
 
 	if shouldPersist {
-		pgFlushOffset = pPg.(*page).addFlushDelta(fdSz, false)
 		sizes := []int{
 			lssBlockTypeSize + len(metaBuf),
 			lssBlockTypeSize + len(rmPgBuf),
@@ -351,16 +348,18 @@ func (s *Plasma) tryPageRemoval(pid PageId, pg Page, ctx *wCtx) {
 		}
 
 		offsets, wbufs, res = s.lss.ReserveSpaceMulti(sizes)
+		pPg.(*page).addFlushDelta(offsets[0], fdSz, false)
+
+		writeLSSBlock(wbufs[0], lssPageMerge, metaBuf)
+		writeLSSBlock(wbufs[1], lssPageData, rmPgBuf)
+		writeLSSBlock(wbufs[2], lssPageData, pgBuf)
 	}
 
 	if s.UpdateMapping(pPid, pPg) {
 		s.unindexPage(pid, ctx)
 
 		if shouldPersist {
-			writeLSSBlock(wbufs[0], lssPageMerge, metaBuf)
-			writeLSSBlock(wbufs[1], lssPageData, rmPgBuf)
-			writeLSSBlock(wbufs[2], lssPageData, pgBuf)
-			*pgFlushOffset = offsets[0]
+
 			ctx.sts.FlushDataSz += int64(fdSz)
 			s.lss.FinalizeWrite(res)
 		}
@@ -401,14 +400,12 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 		splitPid := s.AllocPageId()
 		shouldPersist := true
 
-		var pgFlushOffset *lssOffset
 		var fdSz int
 		var pgBuf = ctx.pgEncBuf1
 		var splitMetaBuf = ctx.pgEncBuf2
 
 		if shouldPersist {
 			pgBuf, fdSz = pg.Marshal(pgBuf)
-			pgFlushOffset = pg.(*page).addFlushDelta(fdSz, false)
 		}
 
 		newPg := pg.Split(splitPid)
@@ -434,7 +431,11 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 				lssBlockTypeSize + len(splitMetaBuf),
 				lssBlockTypeSize + len(pgBuf),
 			}
+
 			offsets, wbufs, res = s.lss.ReserveSpaceMulti(sizes)
+			pg.(*page).addFlushDelta(offsets[0], fdSz, false)
+			writeLSSBlock(wbufs[0], lssPageSplit, splitMetaBuf)
+			writeLSSBlock(wbufs[1], lssPageData, pgBuf)
 		}
 
 		if s.UpdateMapping(pid, pg) {
@@ -443,10 +444,6 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 			ctx.sts.Splits++
 
 			if shouldPersist {
-				writeLSSBlock(wbufs[0], lssPageSplit, splitMetaBuf)
-				writeLSSBlock(wbufs[1], lssPageData, pgBuf)
-
-				*pgFlushOffset = offsets[0]
 				ctx.sts.FlushDataSz += int64(fdSz)
 				s.lss.FinalizeWrite(res)
 			}
