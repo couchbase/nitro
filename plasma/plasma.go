@@ -163,8 +163,7 @@ func (s *Plasma) doRecovery() error {
 				currPg := s.ReadPage(pid).(*page)
 				// If same version, do prepend, otherwise replace.
 				if currPg.state.GetVersion() == pg.state.GetVersion() || pg.head == nil {
-					currPg.PrependDeltas(pg)
-					pg = currPg
+					pg.Append(currPg)
 				} else {
 					// Replace happens with a flushed page
 					// Hence, no need to keep fdsize in basepage

@@ -45,7 +45,7 @@ type Page interface {
 	Merge(Page)
 	Compact() (fdSize int)
 
-	PrependDeltas(Page)
+	Append(Page)
 	MarshalFull([]byte) (bs []byte, fdSz int, staleFdSz int)
 	Marshal([]byte) (bs []byte, fdSz int)
 }
@@ -229,9 +229,12 @@ func (pg *page) newSplitPageDelta(itm unsafe.Pointer, pid PageId) *pageDelta {
 	if pg.head != nil {
 		*(*pageDelta)(unsafe.Pointer(pd)) = *pg.head
 	}
+
+	itm = pg.dup(itm)
 	pd.next = pg.head
 	pd.op = opPageSplitDelta
 	pd.itm = itm
+	pd.hiItm = itm
 	pd.chainLen++
 	pd.rightSibling = pid
 	return (*pageDelta)(unsafe.Pointer(pd))
@@ -250,6 +253,7 @@ func (pg *page) newMergePageDelta(itm unsafe.Pointer, sibl *pageDelta) *pageDelt
 	pd.chainLen += sibl.chainLen + 1
 	pd.numItems += sibl.numItems
 	pd.rightSibling = sibl.rightSibling
+	pd.hiItm = pg.dup(sibl.hiItm)
 	return (*pageDelta)(unsafe.Pointer(pd))
 }
 
@@ -447,7 +451,6 @@ func (pg *page) doSplit(itm unsafe.Pointer, pid PageId, numItems int) *page {
 	newPage.head = pg.newBasePage(itms)
 	newPage.low = (*basePage)(unsafe.Pointer(newPage.head)).items[0]
 	pg.head = pg.newSplitPageDelta(itm, pid)
-	pg.head.hiItm = pg.dup(itm)
 	if numItems >= 0 {
 		pg.head.numItems = uint16(numItems)
 	}
@@ -472,14 +475,15 @@ func (pg *page) Merge(sp Page) {
 	pdm := pg.newMergePageDelta(pg.head.hiItm, siblPage)
 	pdm.next = pg.head
 	pg.head = pdm
-	pg.head.hiItm = pg.dup(siblPage.hiItm)
 }
 
-func (pg *page) PrependDeltas(p Page) {
-	dPg := p.(*page)
-	if dPg.tail != nil {
-		dPg.tail.next = pg.head
-		pg.head = dPg.head
+func (pg *page) Append(p Page) {
+	aPg := p.(*page)
+	if pg.tail == nil {
+		pg.head = aPg.head
+		pg.tail = aPg.tail
+	} else {
+		pg.tail.next = aPg.head
 	}
 }
 
