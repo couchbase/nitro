@@ -166,7 +166,6 @@ type ItemSizeFn func(unsafe.Pointer) uintptr
 type storeCtx struct {
 	itemSize  ItemSizeFn
 	cmp       skiplist.CompareFn
-	getDeltas func(PageId) *pageDelta
 	getPageId func(unsafe.Pointer, *wCtx) PageId
 	getItem   func(PageId) unsafe.Pointer
 }
@@ -340,12 +339,6 @@ func (pg *page) equal(itm0, itm1, hi unsafe.Pointer) bool {
 
 func (pg *page) Lookup(itm unsafe.Pointer) unsafe.Pointer {
 	pd := pg.head
-
-	if pd == nil {
-		return nil
-	} else if pg.cmp(itm, pd.hiItm) >= 0 {
-		pd = pg.getDeltas(pd.rightSibling)
-	}
 
 	var hiItm = skiplist.MaxItem
 	if pd != nil {

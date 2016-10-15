@@ -18,9 +18,6 @@ func newTestPage() (*page, *storePtr) {
 				return unsafe.Sizeof(new(skiplist.IntKeyItem))
 			},
 			cmp: skiplist.CompareInt,
-			getDeltas: func(PageId) *pageDelta {
-				return sp.p.(*pageDelta)
-			},
 			getPageId: func(unsafe.Pointer, *wCtx) PageId {
 				return nil
 			},

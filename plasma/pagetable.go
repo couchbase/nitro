@@ -31,9 +31,6 @@ func newPageTable(sl *skiplist.Skiplist, itmSize ItemSizeFn,
 	pt.storeCtx = &storeCtx{
 		cmp:      cmp,
 		itemSize: itmSize,
-		getDeltas: func(pid PageId) *pageDelta {
-			return pt.ReadPage(pid).(*page).head
-		},
 		getPageId: func(itm unsafe.Pointer, ctx *wCtx) PageId {
 			var pid PageId
 			if itm == skiplist.MinItem {
