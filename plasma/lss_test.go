@@ -43,6 +43,42 @@ func TestLSSBasic(t *testing.T) {
 	}
 }
 
+func TestLSSConcurrent(t *testing.T) {
+	maxSize := int64(1024 * 1024 * 100)
+	BufSize := 1024 * 1024
+	nbuffers := 2
+
+	var mu sync.Mutex
+	m := make(map[lssOffset]int)
+
+	os.Remove("test.data")
+	lss, _ := newLSStore("test.data", maxSize, BufSize, nbuffers)
+
+	n := 10000
+	var wg sync.WaitGroup
+	for x := 0; x < 8; x++ {
+		wg.Add(1)
+
+		go func(x int) {
+			defer wg.Done()
+			for i := 0; i < n; i++ {
+				offset, _, res := lss.ReserveSpace(1024)
+				lss.FinalizeWrite(res)
+				mu.Lock()
+				if thr, ok := m[offset]; ok {
+					t.Errorf("(%d lss offset %d was allocated earlier by thr %d", x, offset, thr)
+				} else {
+					m[offset] = x
+				}
+				mu.Unlock()
+			}
+		}(x)
+	}
+
+	wg.Wait()
+
+}
+
 func TestLSSCleaner(t *testing.T) {
 	maxSize := int64(1024 * 1024 * 20)
 	BufSize := 1024 * 1024
