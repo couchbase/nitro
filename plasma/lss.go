@@ -161,7 +161,8 @@ func (s *lsStore) initNextBuffer(id int32, fb *flushBuffer) {
 	nextId := id + 1
 	nextFbid := int(nextId) % len(s.flushBufs)
 	nextFb := s.flushBufs[nextFbid]
-	for nextFb.IsFull() {
+
+	for !nextFb.IsReset() {
 		runtime.Gosched()
 	}
 
@@ -346,6 +347,7 @@ type flushBuffer struct {
 
 func newFlushBuffer(sz int, callb flushCallback) *flushBuffer {
 	return &flushBuffer{
+		state: encodeState(false, 1, 0),
 		b:     make([]byte, sz),
 		callb: callb,
 	}
@@ -489,16 +491,24 @@ func (fb *flushBuffer) IsFull() bool {
 	return isfull
 }
 
-func (fb *flushBuffer) Reset() {
-	fb.baseOffset = 0
-	fb.state = encodeState(false, 1, 0)
-	fb.child = nil
+func (fb *flushBuffer) IsReset() bool {
+	state := atomic.LoadUint64(&fb.state)
+	return isResetState(state)
 }
 
+func (fb *flushBuffer) Reset() {
+	fb.baseOffset = 0
+	fb.child = nil
+	state := resetState(atomic.LoadUint64(&fb.state))
+	atomic.StoreUint64(&fb.state, state)
+}
+
+// State encoding
+// [32 bit offset][14 bit void][16 bit nwriters][1 bit reset][1 bit full]
 func decodeState(state uint64) (bool, int, int) {
-	isfull := state&0x1 == 0x1           // 1 bit
-	nwriters := int(state >> 1 & 0xffff) // 32 bit
-	offset := int(state >> 33)           // remaining bits
+	isfull := state&0x1 == 0x1           // 1 bit full
+	nwriters := int(state >> 2 & 0xffff) // 16 bits
+	offset := int(state >> 32)           // remaining bits
 
 	return isfull, nwriters, offset
 }
@@ -510,11 +520,19 @@ func encodeState(isfull bool, nwriters int, offset int) uint64 {
 		isfullbits = 1
 	}
 
-	nwritersbits = uint64(nwriters) << 1
-	offsetbits = uint64(offset) << 33
+	nwritersbits = uint64(nwriters) << 2
+	offsetbits = uint64(offset) << 32
 
 	state := isfullbits | nwritersbits | offsetbits
 	return state
+}
+
+func resetState(state uint64) uint64 {
+	return state | 0x2
+}
+
+func isResetState(state uint64) bool {
+	return state&0x2 > 0
 }
 
 func lssBlockEndOffset(off lssOffset, b []byte) lssOffset {
