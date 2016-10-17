@@ -72,3 +72,13 @@ func (s *Plasma) PersistAll() {
 
 	s.lss.Sync()
 }
+
+func (s *Plasma) EvictAll() {
+	pid := s.StartPageId()
+	for pid != nil {
+		pg := s.Persist(pid, true, s.pw)
+		pid = pg.Next()
+	}
+
+	s.lss.Sync()
+}

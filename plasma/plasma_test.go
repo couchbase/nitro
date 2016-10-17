@@ -450,3 +450,46 @@ func TestPlasmaCleanerPerf(t *testing.T) {
 	fmt.Printf("LSSInfo: frag:%d, ds:%d, used:%d\n", frag, ds, used)
 
 }
+
+func TestPlasmaEvictionPerf(t *testing.T) {
+	var wg sync.WaitGroup
+
+	os.Remove("teststore.data")
+	numThreads := 8
+	n := 100000000
+	nPerThr := n / numThreads
+	cfg := testCfg
+	cfg.LSSCleanerThreshold = 10
+	cfg.AutoLSSCleaning = false
+	s := newTestIntPlasmaStore(cfg)
+	defer s.Close()
+	total := numThreads * nPerThr
+
+	t0 := time.Now()
+	for i := 0; i < numThreads; i++ {
+		wg.Add(1)
+		w := s.NewWriter()
+		go doInsert(w, &wg, i, nPerThr)
+	}
+	wg.Wait()
+
+	dur := time.Since(t0)
+	fmt.Printf("%d items insert took %v -> %v items/s\n", total, dur, float64(total)/float64(dur.Seconds()))
+	s.PersistAll()
+
+	s.EvictAll()
+	runtime.GC()
+	debug.FreeOSMemory()
+
+	fmt.Println("Evicted items...")
+
+	t0 = time.Now()
+	for i := 0; i < numThreads; i++ {
+		wg.Add(1)
+		w := s.NewWriter()
+		go doLookup(w, &wg, i, nPerThr)
+	}
+	wg.Wait()
+	dur = time.Since(t0)
+	fmt.Printf("%d items swapin took %v -> %v items/s\n", total, dur, float64(total)/float64(dur.Seconds()))
+}
