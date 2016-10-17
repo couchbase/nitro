@@ -12,6 +12,8 @@ type Iterator struct {
 	currPid   PageId
 	nextPid   PageId
 	currPgItr pgOpIterator
+
+	err error
 }
 
 func (s *Plasma) NewIterator() ItemIterator {
@@ -28,20 +30,25 @@ func (s *Plasma) NewIterator() ItemIterator {
 
 func (itr *Iterator) initPgIterator(pid PageId, seekItm unsafe.Pointer) {
 	itr.currPid = pid
-	pg := itr.store.ReadPage(pid).(*page)
-	if pg.head != nil {
-		itr.nextPid = pg.head.rightSibling
-		itr.currPgItr, _ = newPgOpIterator(pg.head, pg.cmp, seekItm, pg.head.hiItm, true)
-		itr.currPgItr.Init()
+	if pgPtr, err := itr.store.ReadPage(pid, itr.wCtx.pgRdrFn, true); err == nil {
+		pg := pgPtr.(*page)
+		if !pg.IsEmpty() {
+			itr.nextPid = pg.Next()
+			itr.currPgItr, _ = newPgOpIterator(pg.head, pg.cmp, seekItm, pg.head.hiItm, true)
+			itr.currPgItr.Init()
+		} else {
+			itr.err = err
+		}
 	}
 }
 
-func (itr *Iterator) SeekFirst() {
+func (itr *Iterator) SeekFirst() error {
 	itr.initPgIterator(itr.store.Skiplist.HeadNode(), nil)
+	return itr.err
 
 }
 
-func (itr *Iterator) Seek(itm unsafe.Pointer) {
+func (itr *Iterator) Seek(itm unsafe.Pointer) error {
 	var pid PageId
 	if prev, curr, found := itr.store.Skiplist.Lookup(itm, itr.store.cmp, itr.wCtx.buf, itr.wCtx.slSts); found {
 		pid = curr
@@ -49,6 +56,7 @@ func (itr *Iterator) Seek(itm unsafe.Pointer) {
 		pid = prev
 	}
 	itr.initPgIterator(pid, itm)
+	return itr.err
 }
 
 func (itr *Iterator) Get() unsafe.Pointer {
@@ -60,13 +68,15 @@ func (itr *Iterator) Valid() bool {
 	return itr.currPgItr.Valid()
 }
 
-func (itr *Iterator) Next() {
+func (itr *Iterator) Next() error {
 	itr.currPgItr.Next()
 	if !itr.currPgItr.Valid() {
 		if itr.nextPid != nil {
 			itr.initPgIterator(itr.nextPid, nil)
 		}
 	}
+
+	return itr.err
 }
 
 // Delta chain sorted iterator
@@ -226,6 +236,7 @@ func newPgOpIterator(pd *pageDelta, cmp skiplist.CompareFn,
 	startPd := pd
 	pdCount := 0
 
+	pdi := &pdIterator{}
 loop:
 	for pd != nil {
 		switch pd.op {
@@ -272,7 +283,6 @@ loop:
 		pd = pd.next
 	}
 
-	pdi := &pdIterator{}
 	if pdCount > 0 {
 		pdi.deltas = make([]PageItem, 0, pdCount)
 		for x := startPd; x != pd; x = x.next {

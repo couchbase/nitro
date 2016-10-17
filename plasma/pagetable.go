@@ -7,13 +7,17 @@ import (
 	"unsafe"
 )
 
+const evictMask = uint64(0x8000000000000000)
+
 type PageTable interface {
 	AllocPageId() PageId
 	FreePageId(PageId)
 
 	CreateMapping(PageId, Page)
 	UpdateMapping(PageId, Page) bool
-	ReadPage(PageId) Page
+	ReadPage(PageId, PageReader, swapin bool) (Page, error)
+
+	EvictPage(PageId, Page, lssOffset) bool
 }
 
 type pageTable struct {
@@ -37,10 +41,12 @@ func newPageTable(sl *skiplist.Skiplist, itmSize ItemSizeFn,
 				pid = sl.HeadNode()
 			} else if itm == skiplist.MaxItem {
 				pid = sl.TailNode()
-			}
-			_, pid, found := sl.Lookup(itm, cmp, ctx.buf, ctx.slSts)
-			if !found {
-				return nil
+			} else {
+				var found bool
+				_, pid, found = sl.Lookup(itm, cmp, ctx.buf, ctx.slSts)
+				if !found {
+					return nil
+				}
 			}
 
 			return pid
@@ -88,19 +94,45 @@ func (s *pageTable) UpdateMapping(pid PageId, pg Page) bool {
 	return false
 }
 
-func (s *pageTable) ReadPage(pid PageId) Page {
+func (s *pageTable) ReadPage(pid PageId, pgRdr PageReader, swapin bool) (Page, error) {
+	var pg Page
 	n := pid.(*skiplist.Node)
+
+retry:
 	ptr := atomic.LoadPointer(&n.DataPtr)
-	pg := &page{
-		storeCtx:    s.storeCtx,
-		low:         n.Item(),
-		head:        (*pageDelta)(ptr),
-		prevHeadPtr: ptr,
+
+	if offset := uint64(uintptr(ptr)); offset&evictMask > 0 {
+		if pgRdr == nil {
+			pg = newPage(s.storeCtx, n.Item(), nil)
+			pg.SetNext(NextPid(pid))
+			return pg, nil
+		}
+
+		off := lssOffset(offset & ^evictMask)
+		pg, err := pgRdr(off)
+		if err != nil {
+			return nil, err
+		}
+
+		if swapin && !s.UpdateMapping(pid, pg) {
+			goto retry
+		}
+	} else {
+		pg = newPage(s.storeCtx, n.Item(), ptr)
 	}
 
-	if pg.head != nil {
-		pg.state = pg.head.state
+	return pg, nil
+}
+
+func (s *pageTable) EvictPage(pid PageId, pg Page, offset lssOffset) bool {
+	n := pid.(*skiplist.Node)
+	pgi := pg.(*page)
+
+	newPtr := unsafe.Pointer(uintptr(uint64(offset) | evictMask))
+	if atomic.CompareAndSwapPointer(&n.DataPtr, pgi.prevHeadPtr, newPtr) {
+		pgi.prevHeadPtr = newPtr
+		return true
 	}
 
-	return pg
+	return false
 }

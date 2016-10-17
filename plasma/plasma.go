@@ -7,6 +7,8 @@ import (
 	"unsafe"
 )
 
+type PageReader func(offset lssOffset) (Page, error)
+
 type Plasma struct {
 	Config
 	*skiplist.Skiplist
@@ -23,6 +25,8 @@ type wCtx struct {
 	pgEncBuf1, pgEncBuf2, pgEncBuf3 []byte
 	slSts                           *skiplist.Stats
 	sts                             *Stats
+
+	pgRdrFn PageReader
 }
 
 type Stats struct {
@@ -133,13 +137,13 @@ func (s *Plasma) doRecovery() error {
 
 	buf := w.wCtx.pgEncBuf1
 
-	fn := func(offset lssOffset, bs []byte) bool {
+	fn := func(offset lssOffset, bs []byte) (bool, error) {
 		typ := getLSSBlockType(bs)
 		switch typ {
 		case lssDiscard:
 		case lssPageSplit:
 			doSplit = true
-			splitKey = decodeMetaBlock(pg, bs[lssBlockTypeSize:])
+			splitKey = unmarshalPageSMO(pg, bs[lssBlockTypeSize:])
 			break
 		case lssPageMerge:
 			doRmPage = true
@@ -160,9 +164,12 @@ func (s *Plasma) doRecovery() error {
 				s.CreateMapping(pid, pg)
 				s.indexPage(pid, w.wCtx)
 			} else {
-				currPg := s.ReadPage(pid).(*page)
+				currPg, err := s.ReadPage(pid, w.wCtx.pgRdrFn, true)
+				if err != nil {
+					return false, err
+				}
 				// If same version, do prepend, otherwise replace.
-				if currPg.state.GetVersion() == pg.state.GetVersion() || pg.head == nil {
+				if currPg.GetVersion() == pg.GetVersion() || pg.IsEmpty() {
 					pg.Append(currPg)
 				} else {
 					// Replace happens with a flushed page
@@ -193,12 +200,12 @@ func (s *Plasma) doRecovery() error {
 				rmPg = nil
 			}
 
-			pg.addFlushDelta(offset, flushDataSz, false)
+			pg.AddFlushRecord(offset, flushDataSz, false)
 			s.CreateMapping(pid, pg)
 		}
 
 		pg.Reset()
-		return true
+		return true, nil
 	}
 
 	err := s.lss.Visitor(fn, buf)
@@ -206,12 +213,14 @@ func (s *Plasma) doRecovery() error {
 		return err
 	}
 
+	// TODO: Cleanup and fix error handling, rightsibling
 	// Fix rightSibling node pointers
 	// If crash occurs and we miss out some pages which are not persisted,
 	// some ranges became orphans. Hence we need to fix hiItms for the pages
 	itr := s.Skiplist.NewIterator(s.cmp, w.buf)
 	defer itr.Close()
-	pg = s.ReadPage(s.StartPageId()).(*page)
+	p, _ := s.ReadPage(s.StartPageId(), w.wCtx.pgRdrFn, true)
+	pg = p.(*page)
 	if pg != nil && pg.head != nil {
 		itms, _ := pg.collectItems(pg.head, nil, pg.head.hiItm)
 		w.wCtx.sts.Inserts += int64(len(itms))
@@ -222,7 +231,8 @@ func (s *Plasma) doRecovery() error {
 		pid := PageId(n)
 		pg.head.rightSibling = pid
 		pg.head.hiItm = n.Item()
-		pg = s.ReadPage(pid).(*page)
+		p, _ := s.ReadPage(pid, w.wCtx.pgRdrFn, true)
+		pg = p.(*page)
 
 		// TODO: Avoid need for full iteration for counting
 		itms, _ := pg.collectItems(pg.head, nil, pg.head.hiItm)
@@ -251,16 +261,22 @@ type Writer struct {
 }
 
 func (s *Plasma) NewWriter() *Writer {
+	ctx := &wCtx{
+		buf:       s.Skiplist.MakeBuf(),
+		slSts:     &s.Skiplist.Stats,
+		sts:       new(Stats),
+		pgEncBuf1: make([]byte, maxPageEncodedSize),
+		pgEncBuf2: make([]byte, maxPageEncodedSize),
+		pgEncBuf3: make([]byte, maxPageEncodedSize),
+	}
+
+	ctx.pgRdrFn = func(offset lssOffset) (Page, error) {
+		return s.fetchPageFromLSS(offset, ctx)
+	}
+
 	w := &Writer{
 		Plasma: s,
-		wCtx: &wCtx{
-			buf:       s.Skiplist.MakeBuf(),
-			slSts:     &s.Skiplist.Stats,
-			sts:       new(Stats),
-			pgEncBuf1: make([]byte, maxPageEncodedSize),
-			pgEncBuf2: make([]byte, maxPageEncodedSize),
-			pgEncBuf3: make([]byte, maxPageEncodedSize),
-		},
+		wCtx:   ctx,
 	}
 
 	s.Lock()
@@ -318,7 +334,11 @@ func (s *Plasma) tryPageRemoval(pid PageId, pg Page, ctx *wCtx) {
 	shouldPersist := true
 
 	pPid := PageId(prev)
-	pPg := s.ReadPage(pPid)
+	pPg, err := s.ReadPage(pPid, ctx.pgRdrFn, true)
+	if err != nil {
+		s.logError(fmt.Sprintf("tryPageRemove: err=%v", err))
+		return
+	}
 
 	var rmPgBuf = ctx.pgEncBuf1
 	var pgBuf = ctx.pgEncBuf2
@@ -328,7 +348,7 @@ func (s *Plasma) tryPageRemoval(pid PageId, pg Page, ctx *wCtx) {
 	if shouldPersist {
 		rmPgBuf, fdSz = pg.Marshal(rmPgBuf)
 		pgBuf, rmFdSz = pPg.Marshal(pgBuf)
-		metaBuf = encodeMetaBlock(pg.(*page), metaBuf)
+		metaBuf = marshalPageSMO(pg, metaBuf)
 		// Merge flushDataSize info of dead page to parent
 		fdSz += rmFdSz
 	}
@@ -347,7 +367,7 @@ func (s *Plasma) tryPageRemoval(pid PageId, pg Page, ctx *wCtx) {
 		}
 
 		offsets, wbufs, res = s.lss.ReserveSpaceMulti(sizes)
-		pPg.(*page).addFlushDelta(offsets[0], fdSz, false)
+		pPg.AddFlushRecord(offsets[0], fdSz, false)
 
 		writeLSSBlock(wbufs[0], lssPageMerge, metaBuf)
 		writeLSSBlock(wbufs[1], lssPageData, rmPgBuf)
@@ -425,14 +445,14 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 
 		// Commit split information in lss
 		if shouldPersist {
-			splitMetaBuf = encodeMetaBlock(newPg.(*page), splitMetaBuf)
+			splitMetaBuf = marshalPageSMO(newPg, splitMetaBuf)
 			sizes := []int{
 				lssBlockTypeSize + len(splitMetaBuf),
 				lssBlockTypeSize + len(pgBuf),
 			}
 
 			offsets, wbufs, res = s.lss.ReserveSpaceMulti(sizes)
-			pg.(*page).addFlushDelta(offsets[0], fdSz, false)
+			pg.AddFlushRecord(offsets[0], fdSz, false)
 			writeLSSBlock(wbufs[0], lssPageSplit, splitMetaBuf)
 			writeLSSBlock(wbufs[1], lssPageData, pgBuf)
 		}
@@ -473,7 +493,7 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 	return updated
 }
 
-func (s *Plasma) fetchPage(itm unsafe.Pointer, ctx *wCtx) (pid PageId, pg Page) {
+func (s *Plasma) fetchPage(itm unsafe.Pointer, ctx *wCtx) (pid PageId, pg Page, err error) {
 retry:
 	if prev, curr, found := s.Skiplist.Lookup(itm, s.cmp, ctx.buf, ctx.slSts); found {
 		pid = curr
@@ -482,9 +502,12 @@ retry:
 	}
 
 refresh:
-	pg = s.ReadPage(pid)
+	if pg, err = s.ReadPage(pid, ctx.pgRdrFn, true); err != nil {
+		return nil, nil, err
+	}
+
 	if !pg.InRange(itm) {
-		pid = pg.(*page).head.rightSibling
+		pid = pg.Next()
 		goto refresh
 	}
 
@@ -496,9 +519,13 @@ refresh:
 	return
 }
 
-func (w *Writer) Insert(itm unsafe.Pointer) {
+func (w *Writer) Insert(itm unsafe.Pointer) error {
 retry:
-	pid, pg := w.fetchPage(itm, w.wCtx)
+	pid, pg, err := w.fetchPage(itm, w.wCtx)
+	if err != nil {
+		return err
+	}
+
 	pg.Insert(itm)
 
 	if !w.trySMOs(pid, pg, w.wCtx, true) {
@@ -506,11 +533,17 @@ retry:
 		goto retry
 	}
 	w.sts.Inserts++
+
+	return nil
 }
 
-func (w *Writer) Delete(itm unsafe.Pointer) {
+func (w *Writer) Delete(itm unsafe.Pointer) error {
 retry:
-	pid, pg := w.fetchPage(itm, w.wCtx)
+	pid, pg, err := w.fetchPage(itm, w.wCtx)
+	if err != nil {
+		return err
+	}
+
 	pg.Delete(itm)
 
 	if !w.trySMOs(pid, pg, w.wCtx, true) {
@@ -518,11 +551,92 @@ retry:
 		goto retry
 	}
 	w.sts.Deletes++
+
+	return nil
 }
 
-func (w *Writer) Lookup(itm unsafe.Pointer) unsafe.Pointer {
-	pid, pg := w.fetchPage(itm, w.wCtx)
+func (w *Writer) Lookup(itm unsafe.Pointer) (unsafe.Pointer, error) {
+	pid, pg, err := w.fetchPage(itm, w.wCtx)
+	if err != nil {
+		return nil, err
+	}
+
 	ret := pg.Lookup(itm)
 	w.trySMOs(pid, pg, w.wCtx, false)
-	return ret
+	return ret, nil
+}
+
+func (s *Plasma) fetchPageFromLSS(offset lssOffset, ctx *wCtx) (*page, error) {
+	pg := &page{
+		storeCtx: s.storeCtx,
+	}
+
+loop:
+	for {
+		l, err := s.lss.Read(offset, ctx.pgEncBuf1)
+		if err != nil {
+			return nil, err
+		}
+
+		typ := getLSSBlockType(ctx.pgEncBuf1)
+		switch typ {
+		case lssPageSplit:
+			splitKey := unmarshalPageSMO(pg, ctx.pgEncBuf1[lssBlockTypeSize:])
+			dataOffset := lssBlockEndOffset(offset, ctx.pgEncBuf1[:l])
+			if dataPg, err := s.fetchPageFromLSS(dataOffset, ctx); err == nil {
+				dataPg.head = dataPg.newSplitPageDelta(splitKey, nil)
+				dataPg.AddFlushRecord(offset, 0, false)
+				pg.Append(dataPg)
+			} else {
+				return nil, err
+			}
+			break loop
+		case lssPageMerge:
+			mergeKey := unmarshalPageSMO(pg, ctx.pgEncBuf1[lssBlockTypeSize:])
+			rmPgDataOffset := lssBlockEndOffset(offset, ctx.pgEncBuf1[:l])
+			if rmPg, err := s.fetchPageFromLSS(rmPgDataOffset, ctx); err == nil {
+				l, err := s.lss.Read(rmPgDataOffset, ctx.pgEncBuf1)
+				if err != nil {
+					return nil, err
+				}
+
+				dataOffset := lssBlockEndOffset(rmPgDataOffset, ctx.pgEncBuf1[:l])
+				if dataPg, err := s.fetchPageFromLSS(dataOffset, ctx); err == nil {
+					dataPg.head = dataPg.newMergePageDelta(mergeKey, rmPg.head)
+					dataPg.AddFlushRecord(offset, 0, false)
+					pg.Append(dataPg)
+				} else {
+					return nil, err
+				}
+			} else {
+				return nil, err
+			}
+			break loop
+		case lssPageData:
+			currPgDelta := &page{
+				storeCtx: s.storeCtx,
+			}
+			data := ctx.pgEncBuf1[lssBlockTypeSize:l]
+			nextOffset, hasChain := currPgDelta.unmarshalDelta(data, ctx)
+			currPgDelta.AddFlushRecord(offset, len(data), false)
+			pg.Append(currPgDelta)
+			offset = nextOffset
+
+			if !hasChain {
+				break loop
+			}
+		}
+	}
+
+	if pg.head != nil {
+		pg.head.rightSibling = pg.getPageId(pg.head.hiItm, ctx)
+	}
+
+	pg.prevHeadPtr = unsafe.Pointer(uintptr(uint64(offset) | evictMask))
+
+	return pg, nil
+}
+
+func (s *Plasma) logError(err string) {
+	fmt.Printf("Plasma: (fatal error - %s)\n", err)
 }

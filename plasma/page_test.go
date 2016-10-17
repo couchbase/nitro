@@ -12,21 +12,21 @@ type storePtr struct {
 
 func newTestPage() (*page, *storePtr) {
 	sp := new(storePtr)
-	return &page{
-		storeCtx: &storeCtx{
-			itemSize: func(unsafe.Pointer) uintptr {
-				return unsafe.Sizeof(new(skiplist.IntKeyItem))
-			},
-			cmp: skiplist.CompareInt,
-			getPageId: func(unsafe.Pointer, *wCtx) PageId {
-				return nil
-			},
-
-			getItem: func(PageId) unsafe.Pointer {
-				return skiplist.MaxItem
-			},
+	storeCtx := &storeCtx{
+		itemSize: func(unsafe.Pointer) uintptr {
+			return unsafe.Sizeof(new(skiplist.IntKeyItem))
 		},
-	}, sp
+		cmp: skiplist.CompareInt,
+		getPageId: func(unsafe.Pointer, *wCtx) PageId {
+			return nil
+		},
+
+		getItem: func(PageId) unsafe.Pointer {
+			return skiplist.MaxItem
+		},
+	}
+
+	return newPage(storeCtx, nil, nil).(*page), sp
 }
 
 func TestPageMergeCorrectness(t *testing.T) {
@@ -68,10 +68,10 @@ func TestPageMarshalFull(t *testing.T) {
 	buf := make([]byte, 1024*1024)
 	_, l1 := pg1.Marshal(buf)
 	pg1.Split(sp)
-	pg1.addFlushDelta(0, l1, false)
+	pg1.AddFlushRecord(0, l1, false)
 
 	_, l2 := pg1.Marshal(buf)
-	pg1.addFlushDelta(0, l2, false)
+	pg1.AddFlushRecord(0, l2, false)
 
 	_, l3, old := pg1.MarshalFull(buf)
 
@@ -79,11 +79,11 @@ func TestPageMarshalFull(t *testing.T) {
 		t.Errorf("expected %d == %d+%d", old, l1, l2)
 	}
 
-	pg1.addFlushDelta(0, l3, true)
+	pg1.AddFlushRecord(0, l3, true)
 	bk := skiplist.NewIntKeyItem(1)
 	pg1.Delete(bk)
 	_, l4 := pg1.Marshal(buf)
-	pg1.addFlushDelta(0, l4, false)
+	pg1.AddFlushRecord(0, l4, false)
 
 	_, _, old2 := pg1.MarshalFull(buf)
 
@@ -113,7 +113,8 @@ func TestPageMergeMarshal(t *testing.T) {
 	pg1.Merge(pg2)
 
 	var itmsE, itmsG []unsafe.Pointer
-	for itr := pg1.NewIterator(); itr.Valid(); itr.Next() {
+	itr := pg1.NewIterator()
+	for itr.SeekFirst(); itr.Valid(); itr.Next() {
 		itmsE = append(itmsE, itr.Get())
 	}
 
@@ -128,7 +129,8 @@ func TestPageMergeMarshal(t *testing.T) {
 	newPg.Unmarshal(encb, nil)
 
 	i := 0
-	for itr := newPg.NewIterator(); itr.Valid(); itr.Next() {
+	itr = newPg.NewIterator()
+	for itr.SeekFirst(); itr.Valid(); itr.Next() {
 		itmsG = append(itmsG, itr.Get())
 
 		e := skiplist.IntFromItem(itmsE[i])
@@ -240,7 +242,8 @@ func TestPageIterator(t *testing.T) {
 	}
 
 	i := 0
-	for itr := pg.NewIterator(); itr.Valid(); itr.Next() {
+	itr := pg.NewIterator()
+	for itr.SeekFirst(); itr.Valid(); itr.Next() {
 		v := skiplist.IntFromItem(itr.Get())
 		if v != i {
 			t.Errorf("expected %d, got %d", i, v)
@@ -252,7 +255,7 @@ func TestPageIterator(t *testing.T) {
 	}
 
 	i = 550
-	itr := pg.NewIterator()
+	itr = pg.NewIterator()
 	for itr.Seek(skiplist.NewIntKeyItem(i)); itr.Valid(); itr.Next() {
 		v := skiplist.IntFromItem(itr.Get())
 		if v != i {

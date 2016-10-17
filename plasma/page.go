@@ -14,6 +14,8 @@ type pageOp uint16
 const (
 	opBasePage pageOp = iota
 
+	opMetaDelta
+
 	opInsertDelta
 	opDeleteDelta
 
@@ -26,6 +28,11 @@ const (
 )
 
 type PageId interface{}
+
+// TODO: Identify corner cases
+func NextPid(pid PageId) PageId {
+	return PageId(pid.(*skiplist.Node).GetNext())
+}
 
 type Page interface {
 	Insert(itm unsafe.Pointer)
@@ -48,14 +55,28 @@ type Page interface {
 	Append(Page)
 	MarshalFull([]byte) (bs []byte, fdSz int, staleFdSz int)
 	Marshal([]byte) (bs []byte, fdSz int)
+
+	GetVersion() uint16
+	IsFlushed() bool
+	NeedsFlush() bool
+	MaxItem() unsafe.Pointer
+	MinItem() unsafe.Pointer
+	SetNext(PageId)
+	Next() PageId
+
+	GetFlushDataSize() int
+	AddFlushRecord(off lssOffset, dataSz int, reloc bool)
+
+	// TODO: Clean up later
+	IsEmpty() bool
 }
 
 type ItemIterator interface {
-	SeekFirst()
-	Seek(unsafe.Pointer)
+	SeekFirst() error
+	Seek(unsafe.Pointer) error
 	Get() unsafe.Pointer
 	Valid() bool
-	Next()
+	Next() error
 }
 
 type PageItem interface {
@@ -173,6 +194,7 @@ type storeCtx struct {
 type page struct {
 	*storeCtx
 
+	nextPid     PageId
 	low         unsafe.Pointer
 	state       pageState
 	prevHeadPtr unsafe.Pointer
@@ -180,7 +202,12 @@ type page struct {
 	tail        *pageDelta
 }
 
+func (pg *page) SetNext(pid PageId) {
+	pg.nextPid = pid
+}
+
 func (pg *page) Reset() {
+	pg.nextPid = nil
 	pg.low = nil
 	pg.head = nil
 	pg.tail = nil
@@ -206,31 +233,22 @@ func (pg *page) newFlushPageDelta(offset lssOffset, dataSz int, reloc bool) *flu
 
 func (pg *page) newRecordDelta(op pageOp, itm unsafe.Pointer) *pageDelta {
 	pd := new(recordDelta)
-	var hiItm unsafe.Pointer
-	if pg.head == nil {
-		hiItm = skiplist.MaxItem
-	} else {
-		*(*pageDelta)(unsafe.Pointer(pd)) = *pg.head
-		hiItm = pg.head.hiItm
-	}
-
+	*(*pageDelta)(unsafe.Pointer(pd)) = *pg.head
 	pd.next = pg.head
+
 	pd.chainLen++
 
 	pd.op = op
 	pd.itm = itm
-	pd.hiItm = hiItm
 	return (*pageDelta)(unsafe.Pointer(pd))
 }
 
 func (pg *page) newSplitPageDelta(itm unsafe.Pointer, pid PageId) *pageDelta {
 	pd := new(splitPageDelta)
-	if pg.head != nil {
-		*(*pageDelta)(unsafe.Pointer(pd)) = *pg.head
-	}
+	*(*pageDelta)(unsafe.Pointer(pd)) = *pg.head
+	pd.next = pg.head
 
 	itm = pg.dup(itm)
-	pd.next = pg.head
 	pd.op = opPageSplitDelta
 	pd.itm = itm
 	pd.hiItm = itm
@@ -241,14 +259,12 @@ func (pg *page) newSplitPageDelta(itm unsafe.Pointer, pid PageId) *pageDelta {
 
 func (pg *page) newMergePageDelta(itm unsafe.Pointer, sibl *pageDelta) *pageDelta {
 	pd := new(mergePageDelta)
+	*(*pageDelta)(unsafe.Pointer(pd)) = *pg.head
+	pd.next = pg.head
+
 	pd.op = opPageMergeDelta
 	pd.itm = itm
-	pd.next = pg.head
 	pd.mergeSibling = sibl
-	if pg.head != nil {
-		pd.chainLen = pg.head.chainLen
-		pd.numItems = pg.head.numItems
-	}
 	pd.chainLen += sibl.chainLen + 1
 	pd.numItems += sibl.numItems
 	pd.rightSibling = sibl.rightSibling
@@ -259,8 +275,9 @@ func (pg *page) newMergePageDelta(itm unsafe.Pointer, sibl *pageDelta) *pageDelt
 func (pg *page) newRemovePageDelta() *pageDelta {
 	pd := new(removePageDelta)
 	*(*pageDelta)(unsafe.Pointer(pd)) = *pg.head
-	pd.op = opPageRemoveDelta
 	pd.next = pg.head
+
+	pd.op = opPageRemoveDelta
 	return (*pageDelta)(unsafe.Pointer(pd))
 }
 
@@ -292,20 +309,13 @@ func (pg *page) newBasePage(itms []unsafe.Pointer) *pageDelta {
 	return (*pageDelta)(unsafe.Pointer(bp))
 }
 
+// TODO: Fix the low bound check ?
 func (pg *page) InRange(itm unsafe.Pointer) bool {
-	if pg.head != nil && pg.cmp(itm, pg.head.hiItm) >= 0 {
+	if pg.cmp(itm, pg.head.hiItm) >= 0 {
 		return false
 	}
 
 	return true
-}
-
-func (pg *page) HighItm() unsafe.Pointer {
-	if pg.head == nil {
-		return skiplist.MaxItem
-	}
-
-	return pg.head.hiItm
 }
 
 func (pg *page) alloc(sz uintptr) unsafe.Pointer {
@@ -339,11 +349,7 @@ func (pg *page) equal(itm0, itm1, hi unsafe.Pointer) bool {
 
 func (pg *page) Lookup(itm unsafe.Pointer) unsafe.Pointer {
 	pd := pg.head
-
-	var hiItm = skiplist.MaxItem
-	if pd != nil {
-		hiItm = pd.hiItm
-	}
+	hiItm := pg.MaxItem()
 
 loop:
 	for pd != nil {
@@ -382,6 +388,7 @@ loop:
 		case opFlushPageDelta:
 		case opRelocPageDelta:
 		case opPageRemoveDelta:
+		case opMetaDelta:
 		default:
 			panic(fmt.Sprint("should not happen op:", pd.op))
 		}
@@ -392,19 +399,19 @@ loop:
 }
 
 func (pg *page) NeedCompaction(threshold int) bool {
-	return pg.head != nil && int(pg.head.chainLen) > threshold
+	return int(pg.head.chainLen) > threshold
 }
 
 func (pg *page) NeedSplit(threshold int) bool {
-	return pg.head != nil && int(pg.head.numItems) > threshold
+	return int(pg.head.numItems) > threshold
 }
 
 func (pg *page) NeedMerge(threshold int) bool {
-	return pg.head != nil && int(pg.head.numItems) < threshold
+	return int(pg.head.numItems) < threshold
 }
 
 func (pg *page) NeedRemoval() bool {
-	return pg.head != nil && pg.head.op == opPageRemoveDelta
+	return pg.head.op == opPageRemoveDelta
 }
 
 func (pg *page) Close() {
@@ -437,24 +444,21 @@ func (pg *page) Split(pid PageId) Page {
 }
 
 func (pg *page) doSplit(itm unsafe.Pointer, pid PageId, numItems int) *page {
-	newPage := new(page)
-	*newPage = *pg
-	newPage.prevHeadPtr = nil
+	splitPage := new(page)
+	*splitPage = *pg
+	splitPage.prevHeadPtr = nil
 	itms, _ := pg.collectItems(pg.head, itm, pg.head.hiItm)
-	newPage.head = pg.newBasePage(itms)
-	newPage.low = (*basePage)(unsafe.Pointer(newPage.head)).items[0]
+	splitPage.head = pg.newBasePage(itms)
+	splitPage.low = (*basePage)(unsafe.Pointer(splitPage.head)).items[0]
 	pg.head = pg.newSplitPageDelta(itm, pid)
 	if numItems >= 0 {
 		pg.head.numItems = uint16(numItems)
 	}
-	return newPage
+	return splitPage
 }
 
 func (pg *page) Compact() int {
-	var state pageState
-	if pg.head != nil {
-		state = pg.head.state
-	}
+	state := pg.head.state
 
 	itms, fdataSz := pg.collectItems(pg.head, nil, pg.head.hiItm)
 	pg.head = pg.newBasePage(itms)
@@ -473,22 +477,9 @@ func (pg *page) Merge(sp Page) {
 func (pg *page) Append(p Page) {
 	aPg := p.(*page)
 	if pg.tail == nil {
-		pg.head = aPg.head
-		pg.tail = aPg.tail
+		*pg = *aPg
 	} else {
 		pg.tail.next = aPg.head
-	}
-}
-
-func (pg *page) newPageItemSorter(head *pageDelta) pageItemSorter {
-	chainLen := 0
-	if head != nil {
-		chainLen = int(head.chainLen)
-	}
-
-	return pageItemSorter{
-		cmp:  pg.cmp,
-		itms: make([]PageItem, 0, chainLen),
 	}
 }
 
@@ -496,7 +487,7 @@ func (pg *page) inRange(lo, hi unsafe.Pointer, itm unsafe.Pointer) bool {
 	return pg.cmp(itm, hi) < 0 && pg.cmp(itm, lo) >= 0
 }
 
-func (pg *page) prettyPrint(pd *pageDelta, stringify func(unsafe.Pointer) string) {
+func prettyPrint(pd *pageDelta, stringify func(unsafe.Pointer) string) {
 loop:
 	for ; pd != nil; pd = pd.next {
 		switch pd.op {
@@ -510,13 +501,15 @@ loop:
 			}
 			break loop
 		case opFlushPageDelta:
-			fmt.Println("-------flush------")
+			fpd := (*flushPageDelta)(unsafe.Pointer(pd))
+			fmt.Printf("-------flush------ max:%s, offset:%d\n", stringify(pd.hiItm), fpd.offset)
 		case opPageSplitDelta:
-			fmt.Println("-------split------")
+			pds := (*splitPageDelta)(unsafe.Pointer(pd))
+			fmt.Println("-------split------ ", stringify(pds.itm))
 		case opPageMergeDelta:
-			pds := (*mergePageDelta)(unsafe.Pointer(pd))
-			fmt.Printf("-------merge-siblings-------")
-			pg.prettyPrint(pds.mergeSibling, stringify)
+			pdm := (*mergePageDelta)(unsafe.Pointer(pd))
+			fmt.Println("-------merge-siblings------- ", stringify(pdm.itm))
+			prettyPrint(pdm.mergeSibling, stringify)
 			fmt.Println("-----------")
 		}
 	}
@@ -536,7 +529,7 @@ func (pg *page) collectItems(head *pageDelta,
 }
 
 type pageIterator struct {
-	cmp  skiplist.CompareFn
+	pg   *page
 	itms []unsafe.Pointer
 	i    int
 }
@@ -549,29 +542,30 @@ func (pi *pageIterator) Valid() bool {
 	return pi.i < len(pi.itms)
 }
 
-func (pi *pageIterator) Next() {
+func (pi *pageIterator) Next() error {
 	pi.i++
+	return nil
 }
 
-func (pi *pageIterator) SeekFirst() {}
+func (pi *pageIterator) SeekFirst() error {
+	pi.itms, _ = pi.pg.collectItems(pi.pg.head, nil, pi.pg.head.hiItm)
+	return nil
+}
 
-func (pi *pageIterator) Seek(itm unsafe.Pointer) {
-	pi.i = sort.Search(len(pi.itms), func(i int) bool {
-		return pi.cmp(pi.itms[i], itm) >= 0
-	})
+func (pi *pageIterator) Seek(itm unsafe.Pointer) error {
+	pi.itms, _ = pi.pg.collectItems(pi.pg.head, itm, pi.pg.head.hiItm)
+	return nil
 
 }
 
 func (pg *page) NewIterator() ItemIterator {
-	itms, _ := pg.collectItems(pg.head, nil, pg.head.hiItm)
 	return &pageIterator{
-		itms: itms,
-		cmp:  pg.cmp,
+		pg: pg,
 	}
 }
 
 func (pg *page) MarshalFull(buf []byte) (bs []byte, dataSz, staleSz int) {
-	hiItm := pg.HighItm()
+	hiItm := pg.MaxItem()
 	pd := pg.head
 
 	offset, staleSz := pg.marshal(buf, 0, pd, hiItm, false, true)
@@ -579,7 +573,7 @@ func (pg *page) MarshalFull(buf []byte) (bs []byte, dataSz, staleSz int) {
 }
 
 func (pg *page) Marshal(buf []byte) (bs []byte, dataSz int) {
-	hiItm := pg.HighItm()
+	hiItm := pg.MaxItem()
 	pd := pg.head
 
 	offset, _ := pg.marshal(buf, 0, pd, hiItm, false, false)
@@ -746,8 +740,11 @@ func getLSSPageMeta(data []byte) (itm unsafe.Pointer, pv uint16) {
 }
 
 func (pg *page) Unmarshal(data []byte, ctx *wCtx) {
-	roffset := 0
+	pg.unmarshalDelta(data, ctx)
+}
 
+func (pg *page) unmarshalDelta(data []byte, ctx *wCtx) (offset lssOffset, hasChain bool) {
+	roffset := 0
 	state := pageState(binary.BigEndian.Uint16(data[roffset : roffset+2]))
 	state.SetFlushed()
 
@@ -839,30 +836,48 @@ loop:
 			bp.hiItm = hiItm
 			bp.rightSibling = rightSibling
 			pd = (*pageDelta)(unsafe.Pointer(bp))
-		case opFlushPageDelta:
-			// TODO: handle later during eviction impl
+		case opFlushPageDelta, opRelocPageDelta:
+			offset = lssOffset(binary.BigEndian.Uint64(data[roffset : roffset+8]))
+			hasChain = true
 			break loop
 		}
 
-		if pg.head == nil {
+		if lastPd == nil {
 			pg.head = pd
 		} else {
 			lastPd.next = pd
 		}
+
 		lastPd = pd
 	}
 
 	pg.tail = lastPd
+
+	if lastPd == nil {
+		pg.head = &pageDelta{
+			op:           opMetaDelta,
+			chainLen:     uint16(chainLen),
+			numItems:     uint16(numItems),
+			state:        state,
+			hiItm:        hiItm,
+			rightSibling: rightSibling,
+		}
+
+		pg.tail = pg.head
+	}
+
+	return
 }
 
-func (pg *page) addFlushDelta(offset lssOffset, dataSz int, reloc bool) {
+func (pg *page) AddFlushRecord(offset lssOffset, dataSz int, reloc bool) {
 	fd := pg.newFlushPageDelta(offset, dataSz, reloc)
 	pg.head = (*pageDelta)(unsafe.Pointer(fd))
 }
 
-func encodeMetaBlock(target *page, buf []byte) []byte {
+func marshalPageSMO(pg Page, buf []byte) []byte {
 	woffset := 0
 
+	target := pg.(*page)
 	l := int(target.itemSize(target.low))
 	binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(l))
 	woffset += 2
@@ -872,7 +887,8 @@ func encodeMetaBlock(target *page, buf []byte) []byte {
 	return buf[:woffset]
 }
 
-func decodeMetaBlock(pg *page, data []byte) unsafe.Pointer {
+func unmarshalPageSMO(p Page, data []byte) unsafe.Pointer {
+	pg := p.(*page)
 	roffset := 0
 	l := int(binary.BigEndian.Uint16(data[roffset : roffset+2]))
 	roffset += 2
@@ -912,4 +928,76 @@ func decodePageState(data []byte) (state pageState, key unsafe.Pointer) {
 	}
 
 	return
+}
+
+func (pg *page) GetVersion() uint16 {
+	if pg.head == nil {
+		return 0
+	}
+
+	return pg.head.state.GetVersion()
+}
+
+func (pg *page) IsFlushed() bool {
+	if pg.head == nil {
+		return false
+	}
+
+	return pg.head.state.IsFlushed()
+}
+
+func (pg *page) MaxItem() unsafe.Pointer {
+	if pg.head == nil {
+		return skiplist.MaxItem
+	}
+
+	return pg.head.hiItm
+}
+
+func (pg *page) MinItem() unsafe.Pointer {
+	return pg.low
+}
+
+func (pg *page) Next() PageId {
+	if pg.head == nil {
+		return pg.nextPid
+	}
+
+	return pg.head.rightSibling
+}
+
+func newPage(ctx *storeCtx, low unsafe.Pointer, ptr unsafe.Pointer) Page {
+	pg := &page{
+		storeCtx:    ctx,
+		head:        (*pageDelta)(ptr),
+		low:         low,
+		prevHeadPtr: ptr,
+	}
+
+	if ptr == nil {
+		pg.head = &pageDelta{
+			op:           opMetaDelta,
+			hiItm:        skiplist.MaxItem,
+			rightSibling: nil,
+		}
+	}
+
+	return pg
+}
+
+func (pg *page) IsEmpty() bool {
+	return pg.head == nil
+}
+
+func (pg *page) NeedsFlush() bool {
+	if pg.head == nil {
+		return false
+	}
+
+	switch pg.head.op {
+	case opFlushPageDelta, opRelocPageDelta, opPageRemoveDelta:
+		return false
+	}
+
+	return true
 }

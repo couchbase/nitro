@@ -9,7 +9,7 @@ import (
 func (s *Plasma) tryPageRelocation(pid PageId, pg Page, buf []byte) (bool, lssOffset) {
 	bs, dataSz, staleSz := pg.MarshalFull(buf)
 	offset, wbuf, res := s.lss.ReserveSpace(lssBlockTypeSize + len(bs))
-	pg.(*page).addFlushDelta(offset, dataSz, true)
+	pg.AddFlushRecord(offset, dataSz, true)
 	writeLSSBlock(wbuf, lssPageReloc, bs)
 	if !s.UpdateMapping(pid, pg) {
 		discardLSSBlock(wbuf)
@@ -24,6 +24,7 @@ func (s *Plasma) tryPageRelocation(pid PageId, pg Page, buf []byte) (bool, lssOf
 }
 
 func (s *Plasma) cleanLSS(proceed func() bool) error {
+	var pg Page
 	w := s.lsscw
 	buf := w.wCtx.pgEncBuf1
 
@@ -31,8 +32,7 @@ func (s *Plasma) cleanLSS(proceed func() bool) error {
 	retries := 0
 	skipped := 0
 
-	callb := func(startOff, endOff lssOffset, bs []byte) (cont bool, headOff lssOffset, relocOff lssOffset) {
-
+	callb := func(startOff, endOff lssOffset, bs []byte) (cont bool, headOff lssOffset, relocOff lssOffset, err error) {
 		var isMultiBlockTransaction bool
 		var multiBlockStartOffset lssOffset
 		var numBlocks int
@@ -44,9 +44,11 @@ func (s *Plasma) cleanLSS(proceed func() bool) error {
 			_, node, found := s.Skiplist.Lookup(key, s.cmp, w.wCtx.buf, w.wCtx.slSts)
 			if found {
 				pid := PageId(node)
-				pg := s.ReadPage(pid).(*page)
+				if pg, err = s.ReadPage(pid, w.wCtx.pgRdrFn, false); err != nil {
+					return false, 0, 0, err
+				}
 
-				if pg.state.GetVersion() == state.GetVersion() || !pg.state.IsFlushed() {
+				if pg.GetVersion() == state.GetVersion() || !pg.IsFlushed() {
 					var ok bool
 					if ok, relocOff = s.tryPageRelocation(pid, pg, buf); !ok {
 						retries++
@@ -64,24 +66,24 @@ func (s *Plasma) cleanLSS(proceed func() bool) error {
 				if numBlocks == 0 {
 					isMultiBlockTransaction = false
 				} else {
-					return true, multiBlockStartOffset, 0
+					return true, multiBlockStartOffset, 0, nil
 				}
 			}
 
-			return proceed(), endOff, relocOff
+			return proceed(), endOff, relocOff, nil
 		} else if typ == lssPageSplit {
 			isMultiBlockTransaction = true
 			multiBlockStartOffset = startOff
 			numBlocks = 1
-			return true, multiBlockStartOffset, 0
+			return true, multiBlockStartOffset, 0, nil
 		} else if typ == lssPageMerge {
 			isMultiBlockTransaction = true
 			multiBlockStartOffset = startOff
 			numBlocks = 2
-			return true, multiBlockStartOffset, 0
+			return true, multiBlockStartOffset, 0, nil
 		}
 
-		return true, endOff, relocOff
+		return true, endOff, relocOff, nil
 	}
 
 	frag, ds, used := s.GetLSSInfo()

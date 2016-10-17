@@ -47,7 +47,7 @@ func TestPlasmaSimple(t *testing.T) {
 
 	for i := 0; i < 1000000; i++ {
 		itm := skiplist.NewIntKeyItem(i)
-		got := w.Lookup(itm)
+		got, _ := w.Lookup(itm)
 		if skiplist.CompareInt(itm, got) != 0 {
 			t.Errorf("mismatch %d != %d", i, skiplist.IntFromItem(got))
 		}
@@ -59,7 +59,7 @@ func TestPlasmaSimple(t *testing.T) {
 
 	for i := 0; i < 1000000; i++ {
 		itm := skiplist.NewIntKeyItem(i)
-		got := w.Lookup(itm)
+		got, _ := w.Lookup(itm)
 		if i < 800000 {
 			if got != nil {
 				t.Errorf("Expected missing %d", i)
@@ -111,7 +111,7 @@ func doLookup(w *Writer, wg *sync.WaitGroup, id, n int) {
 	for i := 0; i < n; i++ {
 		val := i + id*n
 		itm := skiplist.NewIntKeyItem(val)
-		if w.Lookup(itm) == nil {
+		if x, _ := w.Lookup(itm); x == nil {
 			panic(i)
 		}
 	}
@@ -121,8 +121,8 @@ func TestPlasmaInsertPerf(t *testing.T) {
 	var wg sync.WaitGroup
 
 	os.Remove("teststore.data")
-	numThreads := 4
-	n := 10000000
+	numThreads := 8
+	n := 20000000
 	nPerThr := n / numThreads
 	s := newTestIntPlasmaStore(testCfg)
 	defer s.Close()
@@ -146,8 +146,8 @@ func TestPlasmaDeletePerf(t *testing.T) {
 	var wg sync.WaitGroup
 
 	os.Remove("teststore.data")
-	numThreads := 4
-	n := 10000000
+	numThreads := 8
+	n := 20000000
 	nPerThr := n / numThreads
 	s := newTestIntPlasmaStore(testCfg)
 	defer s.Close()
@@ -159,6 +159,7 @@ func TestPlasmaDeletePerf(t *testing.T) {
 		go doInsert(w, &wg, i, nPerThr)
 	}
 	wg.Wait()
+	fmt.Println(s.GetStats())
 
 	t0 := time.Now()
 	for i := 0; i < numThreads; i++ {
@@ -178,8 +179,8 @@ func TestPlasmaLookupPerf(t *testing.T) {
 	var wg sync.WaitGroup
 
 	os.Remove("teststore.data")
-	numThreads := 4
-	n := 10000000
+	numThreads := 8
+	n := 20000000
 	nPerThr := n / numThreads
 	s := newTestIntPlasmaStore(testCfg)
 	defer s.Close()
@@ -258,7 +259,7 @@ func TestPlasmaIteratorLookupPerf(t *testing.T) {
 
 	os.Remove("teststore.data")
 	numThreads := 8
-	n := 10000000
+	n := 20000000
 	nPerThr := n / numThreads
 	s := newTestIntPlasmaStore(testCfg)
 	defer s.Close()
@@ -344,7 +345,7 @@ func TestPlasmaRecovery(t *testing.T) {
 
 	for i := 0; i < 100000; i++ {
 		itm := skiplist.NewIntKeyItem(i)
-		got := w.Lookup(itm)
+		got, _ := w.Lookup(itm)
 		if got != nil {
 			t.Errorf("expected nil %v", got)
 		}
@@ -352,7 +353,7 @@ func TestPlasmaRecovery(t *testing.T) {
 
 	for i := 100000; i < 130000; i++ {
 		itm := skiplist.NewIntKeyItem(i)
-		got := w.Lookup(itm)
+		got, _ := w.Lookup(itm)
 		if got == nil {
 			t.Errorf("mismatch %d != nil", i)
 		} else if skiplist.CompareInt(itm, got) != 0 {

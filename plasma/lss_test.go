@@ -96,17 +96,17 @@ func TestLSSCleaner(t *testing.T) {
 		buf := make([]byte, 1024*1024)
 		for {
 			if lss.AvailableSpace() < freeSpace {
-				lss.RunCleaner(func(off, endOff lssOffset, bs []byte) (bool, lssOffset, lssOffset) {
+				lss.RunCleaner(func(off, endOff lssOffset, bs []byte) (bool, lssOffset, lssOffset, error) {
 					lock.Lock()
 					got := int(binary.BigEndian.Uint64(bs[:8]))
 					delete(offs, got)
 					lock.Unlock()
 
 					if lss.AvailableSpace() >= freeSpace {
-						return false, endOff, 0
+						return false, endOff, 0, nil
 					}
 
-					return true, endOff, 0
+					return true, endOff, 0, nil
 				}, buf)
 			} else {
 				time.Sleep(time.Second)
@@ -155,12 +155,12 @@ func TestLSSSuperBlock(t *testing.T) {
 		buf := make([]byte, 1024*1024)
 		for {
 			if lss.AvailableSpace() < freeSpace {
-				lss.RunCleaner(func(off, endOff lssOffset, bs []byte) (bool, lssOffset, lssOffset) {
+				lss.RunCleaner(func(off, endOff lssOffset, bs []byte) (bool, lssOffset, lssOffset, error) {
 					if lss.AvailableSpace() >= freeSpace {
-						return false, endOff, 0
+						return false, endOff, 0, nil
 					}
 
-					return true, endOff, 0
+					return true, endOff, 0, nil
 				}, buf)
 			} else {
 				time.Sleep(time.Second)

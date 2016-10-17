@@ -13,10 +13,10 @@ import (
 const superBlockSize = 4096
 const lssReclaimBlockSize = 1024 * 1024 * 8
 
-type lssOffset int64
+type lssOffset uint64
 type lssResource interface{}
-type lssBlockCallback func(lssOffset, []byte) bool
-type lssCleanerCallback func(start, end lssOffset, bs []byte) (cont bool, cleanOff, relocEnd lssOffset)
+type lssBlockCallback func(lssOffset, []byte) (bool, error)
+type lssCleanerCallback func(start, end lssOffset, bs []byte) (cont bool, cleanOff, relocEnd lssOffset, err error)
 
 type LSS interface {
 	ReserveSpace(size int) (lssOffset, []byte, lssResource)
@@ -268,9 +268,12 @@ func (s *lsStore) RunCleaner(callb lssCleanerCallback, buf []byte) error {
 
 	tailOff := atomic.LoadInt64(&s.tailOffset)
 
-	fn := func(offset lssOffset, b []byte) bool {
+	fn := func(offset lssOffset, b []byte) (bool, error) {
 		// The lss writer asynchronously updates headOffset when tail >= relocEnd
-		cont, headOff, relocOff := callb(offset, lssBlockEndOffset(offset, b), b)
+		cont, headOff, relocOff, err := callb(offset, lssBlockEndOffset(offset, b), b)
+		if err != nil {
+			return false, err
+		}
 
 		// No relocation, hence update immediately
 		if relocOff == 0 {
@@ -286,7 +289,7 @@ func (s *lsStore) RunCleaner(callb lssCleanerCallback, buf []byte) error {
 		atomic.StoreInt64(&s.cleanerRelocEnd, int64(tailOff))
 		atomic.StoreInt64(&s.cleanerHeadOffset, int64(headOff))
 
-		return cont
+		return cont, nil
 	}
 
 	return s.Visitor(fn, buf)
@@ -301,8 +304,10 @@ func (s *lsStore) Visitor(callb lssBlockCallback, buf []byte) error {
 			return err
 		}
 
-		if !callb(lssOffset(curr), buf[:n]) {
+		if cont, err := callb(lssOffset(curr), buf[:n]); err == nil && !cont {
 			break
+		} else if err != nil {
+			return err
 		}
 
 		curr += int64(n + headerFBSize)

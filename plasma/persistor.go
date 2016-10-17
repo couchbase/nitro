@@ -32,28 +32,42 @@ func getLSSBlockType(bs []byte) lssBlockType {
 	return lssBlockType(binary.BigEndian.Uint16(bs))
 }
 
-func (s *Plasma) PersistAll() {
-	buf := s.pw.pgEncBuf1
+func (s *Plasma) Persist(pid PageId, evict bool, w *Writer) Page {
+	buf := w.pgEncBuf1
+retry:
 
-	pid := s.StartPageId()
-	for pid != nil {
-	retry:
-		pg := s.ReadPage(pid).(*page)
+	// Never read from lss
+	pg, _ := s.ReadPage(pid, nil, false)
+	if pg.NeedsFlush() {
 		bs, dataSz := pg.Marshal(buf)
 		offset, wbuf, res := s.lss.ReserveSpace(lssBlockTypeSize + len(bs))
-		offsetPtr := pg.addFlushDelta(dataSz, false)
-		if !s.UpdateMapping(pid, pg) {
-			discardLSSBlock(wbuf)
-			s.lss.FinalizeWrite(res)
-			goto retry
+		writeLSSBlock(wbuf, lssPageData, bs)
+		if evict {
+			if !s.EvictPage(pid, pg, offset) {
+				discardLSSBlock(wbuf)
+				s.lss.FinalizeWrite(res)
+				goto retry
+			}
+		} else {
+			pg.AddFlushRecord(offset, dataSz, false)
+			if !s.UpdateMapping(pid, pg) {
+				discardLSSBlock(wbuf)
+				s.lss.FinalizeWrite(res)
+				goto retry
+			}
 		}
 
-		writeLSSBlock(wbuf, lssPageData, bs)
 		s.lss.FinalizeWrite(res)
-		*offsetPtr = offset
-		s.pw.sts.FlushDataSz += int64(dataSz)
+		w.sts.FlushDataSz += int64(dataSz)
+	}
+	return pg
+}
 
-		pid = pg.head.rightSibling
+func (s *Plasma) PersistAll() {
+	pid := s.StartPageId()
+	for pid != nil {
+		pg := s.Persist(pid, false, s.pw)
+		pid = pg.Next()
 	}
 
 	s.lss.Sync()

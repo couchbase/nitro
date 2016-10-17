@@ -73,6 +73,17 @@ func (n *Node) GetLink() *Node {
 	return n.GClink
 }
 
+// GetNext returns next node in level 0
+func (n *Node) GetNext() *Node {
+	var next *Node
+	var del bool
+
+	for next, del = n.getNext(0); del; next, del = next.getNext(0) {
+	}
+
+	return next
+}
+
 // NodeRef is a wrapper for node pointer
 type NodeRef struct {
 	flag uint64
