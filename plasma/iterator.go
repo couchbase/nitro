@@ -120,6 +120,34 @@ func (bpi *basePgIterator) Next() {
 	bpi.i++
 }
 
+// Merge two disjoint sorted sets
+type pdJoinIterator struct {
+	itrs [2]pgOpIterator
+	i    int
+
+	currIt pgOpIterator
+}
+
+func (pdj *pdJoinIterator) Init() {
+	pdj.itrs[0].Init()
+	pdj.itrs[1].Init()
+}
+
+func (pdj *pdJoinIterator) Valid() bool {
+	return pdj.itrs[pdj.i].Valid()
+}
+
+func (pdj *pdJoinIterator) Next() {
+	pdj.itrs[pdj.i].Next()
+	if pdj.i == 0 && !pdj.itrs[pdj.i].Valid() {
+		pdj.i++
+	}
+}
+
+func (pdj *pdJoinIterator) Get() (unsafe.Pointer, bool) {
+	return pdj.itrs[pdj.i].Get()
+}
+
 // Iterator merger
 type pdMergeIterator struct {
 	itrs    [2]pgOpIterator
@@ -128,48 +156,46 @@ type pdMergeIterator struct {
 	doDedup bool
 }
 
-func (pdm *pdMergeIterator) valid(x int) bool {
-	return pdm.itrs[x] != nil && pdm.itrs[x].Valid()
-}
-
 func (pdm *pdMergeIterator) Init() {
-	if pdm.itrs[0] != nil {
-		pdm.itrs[0].Init()
-	}
-
-	if pdm.itrs[1] != nil {
-		pdm.itrs[1].Init()
-	}
-	pdm.Next()
+	pdm.itrs[0].Init()
+	pdm.itrs[1].Init()
+	pdm.fetchMin()
 }
 
 func (pdm *pdMergeIterator) Next() {
-	var lastItm unsafe.Pointer
-skip:
-	if pdm.lastIt != nil {
-		lastItm, _ = pdm.lastIt.Get()
+	if pdm.Valid() {
 		pdm.lastIt.Next()
+		pdm.fetchMin()
 	}
+}
 
-	if pdm.valid(0) && pdm.valid(1) {
+func (pdm *pdMergeIterator) fetchMin() {
+	valid1 := pdm.itrs[0].Valid()
+	valid2 := pdm.itrs[1].Valid()
+
+	if valid1 && valid2 {
 		itm0, _ := pdm.itrs[0].Get()
 		itm1, _ := pdm.itrs[1].Get()
 
-		if pdm.cmp(itm0, itm1) < 0 {
+		cmpv := pdm.cmp(itm0, itm1)
+		if cmpv < 0 {
 			pdm.lastIt = pdm.itrs[0]
+		} else if cmpv == 0 {
+			pdm.lastIt = pdm.itrs[0]
+			pdm.itrs[1].Next()
 		} else {
 			pdm.lastIt = pdm.itrs[1]
 		}
-	} else if pdm.valid(0) {
+	} else if valid1 {
 		pdm.lastIt = pdm.itrs[0]
-	} else if pdm.valid(1) {
+	} else if valid2 {
 		pdm.lastIt = pdm.itrs[1]
 	}
 
-	if pdm.doDedup && pdm.lastIt != nil && pdm.lastIt.Valid() {
-		currItm, ok := pdm.lastIt.Get()
-		if !ok || pdm.cmp(lastItm, currItm) == 0 {
-			goto skip
+	// Skiplist delete deltas
+	if pdm.doDedup && pdm.Valid() {
+		if _, ok := pdm.lastIt.Get(); !ok {
+			pdm.Next()
 		}
 	}
 }
@@ -182,7 +208,7 @@ func (pdm *pdMergeIterator) Get() (unsafe.Pointer, bool) {
 }
 
 func (pdm *pdMergeIterator) Valid() bool {
-	return pdm.valid(0) || pdm.valid(1)
+	return pdm.itrs[0].Valid() || pdm.itrs[1].Valid()
 }
 
 type pgOpIterator interface {
@@ -201,39 +227,37 @@ func newPgOpIterator(pd *pageDelta, cmp skiplist.CompareFn,
 	pdCount := 0
 
 loop:
-	for {
-		switch {
-		case pd == nil:
-			break loop
-		case pd.op == opRelocPageDelta:
+	for pd != nil {
+		switch pd.op {
+		case opRelocPageDelta:
 			fpd := (*flushPageDelta)(unsafe.Pointer(pd))
 			if !hasReloc {
 				fdSz = int(fpd.flushDataSz)
 				hasReloc = true
 			}
-		case pd.op == opFlushPageDelta:
+		case opFlushPageDelta:
 			if !hasReloc {
 				fpd := (*flushPageDelta)(unsafe.Pointer(pd))
 				fdSz += int(fpd.flushDataSz)
 			}
-		case pd.op == opPageSplitDelta:
+		case opPageSplitDelta:
 			high = (*splitPageDelta)(unsafe.Pointer(pd)).itm
-		case pd.op == opPageMergeDelta:
-			itr1, fdSz1 := newPgOpIterator(pd.next, cmp, low, high, false)
-			itr2, fdSz2 := newPgOpIterator((*mergePageDelta)(unsafe.Pointer(pd)).mergeSibling,
-				cmp, low, high, false)
+		case opPageMergeDelta:
+			deltaItr, fdSz1 := newPgOpIterator(pd.next, cmp, low, high, false)
+			mergeItr, fdSz2 := newPgOpIterator(
+				(*mergePageDelta)(unsafe.Pointer(pd)).mergeSibling,
+				cmp, low, high, true)
 
 			if !hasReloc {
 				fdSz += fdSz1 + fdSz2
 			}
 
-			m.itrs[0] = &pdMergeIterator{
-				itrs: [2]pgOpIterator{itr1, itr2},
-				cmp:  cmp,
+			m.itrs[1] = &pdJoinIterator{
+				itrs: [2]pgOpIterator{deltaItr, mergeItr},
 			}
 			break loop
-		case pd.op == opBasePage:
-			m.itrs[0] = &basePgIterator{
+		case opBasePage:
+			m.itrs[1] = &basePgIterator{
 				bp:   (*basePage)(unsafe.Pointer(pd)),
 				cmp:  cmp,
 				low:  low,
@@ -241,9 +265,10 @@ loop:
 			}
 
 			break loop
+		case opInsertDelta, opDeleteDelta:
+			pdCount++
 		}
 
-		pdCount++
 		pd = pd.next
 	}
 
@@ -260,10 +285,11 @@ loop:
 		}
 
 		s := pageItemSorter{itms: pdi.deltas, cmp: cmp}
-		sort.Stable(&s)
-		pdi.deltas = s.itms
-
-		m.itrs[1] = pdi
+		pdi.deltas = s.Run()
+	}
+	m.itrs[0] = pdi
+	if m.itrs[1] == nil {
+		m.itrs[1] = &pdIterator{}
 	}
 
 	return m, fdSz
