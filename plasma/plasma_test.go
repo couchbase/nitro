@@ -453,6 +453,27 @@ func TestPlasmaCleanerPerf(t *testing.T) {
 
 }
 
+func TestPlasmaEviction(t *testing.T) {
+	os.Remove("teststore.data")
+	s := newTestIntPlasmaStore(testCfg)
+	defer s.Close()
+
+	w := s.NewWriter()
+	for i := 0; i < 1000000; i++ {
+		w.Insert(skiplist.NewIntKeyItem(i))
+	}
+
+	s.EvictAll()
+
+	for i := 0; i < 1000000; i++ {
+		itm := skiplist.NewIntKeyItem(i)
+		got, _ := w.Lookup(itm)
+		if skiplist.CompareInt(itm, got) != 0 {
+			t.Errorf("mismatch %d != %d", i, skiplist.IntFromItem(got))
+		}
+	}
+}
+
 func TestPlasmaEvictionPerf(t *testing.T) {
 	var wg sync.WaitGroup
 
