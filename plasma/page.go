@@ -69,6 +69,7 @@ type Page interface {
 
 	// TODO: Clean up later
 	IsEmpty() bool
+	GetLSSOffset() lssOffset
 }
 
 type ItemIterator interface {
@@ -1000,4 +1001,13 @@ func (pg *page) NeedsFlush() bool {
 	}
 
 	return true
+}
+
+func (pg *page) GetLSSOffset() lssOffset {
+	if pg.head.op == opFlushPageDelta || pg.head.op == opRelocPageDelta {
+		fpd := (*flushPageDelta)(unsafe.Pointer(pg.head))
+		return fpd.offset
+	}
+
+	panic("invalid usage")
 }

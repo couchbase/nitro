@@ -566,11 +566,12 @@ func (w *Writer) Lookup(itm unsafe.Pointer) (unsafe.Pointer, error) {
 	return ret, nil
 }
 
-func (s *Plasma) fetchPageFromLSS(offset lssOffset, ctx *wCtx) (*page, error) {
+func (s *Plasma) fetchPageFromLSS(baseOffset lssOffset, ctx *wCtx) (*page, error) {
 	pg := &page{
 		storeCtx: s.storeCtx,
 	}
 
+	offset := baseOffset
 loop:
 	for {
 		l, err := s.lss.Read(offset, ctx.pgEncBuf1)
@@ -632,7 +633,7 @@ loop:
 		pg.head.rightSibling = pg.getPageId(pg.head.hiItm, ctx)
 	}
 
-	pg.prevHeadPtr = unsafe.Pointer(uintptr(uint64(offset) | evictMask))
+	pg.prevHeadPtr = unsafe.Pointer(uintptr(uint64(baseOffset) | evictMask))
 
 	return pg, nil
 }

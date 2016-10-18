@@ -42,24 +42,30 @@ retry:
 		bs, dataSz := pg.Marshal(buf)
 		offset, wbuf, res := s.lss.ReserveSpace(lssBlockTypeSize + len(bs))
 		writeLSSBlock(wbuf, lssPageData, bs)
+
+		var ok bool
 		if evict {
-			if !s.EvictPage(pid, pg, offset) {
-				discardLSSBlock(wbuf)
-				s.lss.FinalizeWrite(res)
-				goto retry
-			}
+			ok = s.EvictPage(pid, pg, offset)
 		} else {
 			pg.AddFlushRecord(offset, dataSz, false)
-			if !s.UpdateMapping(pid, pg) {
-				discardLSSBlock(wbuf)
-				s.lss.FinalizeWrite(res)
-				goto retry
-			}
+			ok = s.UpdateMapping(pid, pg)
 		}
 
-		s.lss.FinalizeWrite(res)
-		w.sts.FlushDataSz += int64(dataSz)
+		if ok {
+			s.lss.FinalizeWrite(res)
+			w.sts.FlushDataSz += int64(dataSz)
+		} else {
+			discardLSSBlock(wbuf)
+			s.lss.FinalizeWrite(res)
+			goto retry
+		}
+	} else if evict && !pg.IsEmpty() {
+		offset := pg.GetLSSOffset()
+		if !s.EvictPage(pid, pg, offset) {
+			goto retry
+		}
 	}
+
 	return pg
 }
 

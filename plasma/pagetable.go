@@ -108,8 +108,9 @@ retry:
 			return pg, nil
 		}
 
+		var err error
 		off := lssOffset(offset & ^evictMask)
-		pg, err := pgRdr(off)
+		pg, err = pgRdr(off)
 		if err != nil {
 			return nil, err
 		}
