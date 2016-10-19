@@ -85,6 +85,4 @@ func (s *Plasma) EvictAll() {
 		pg := s.Persist(pid, true, s.pw)
 		pid = pg.Next()
 	}
-
-	s.lss.Sync()
 }

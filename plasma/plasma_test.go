@@ -458,14 +458,16 @@ func TestPlasmaEviction(t *testing.T) {
 	s := newTestIntPlasmaStore(testCfg)
 	defer s.Close()
 
+	n := 1000000
 	w := s.NewWriter()
-	for i := 0; i < 1000000; i++ {
+	for i := 0; i < n; i++ {
 		w.Insert(skiplist.NewIntKeyItem(i))
 	}
 
 	s.EvictAll()
+	s.EvictAll()
 
-	for i := 0; i < 1000000; i++ {
+	for i := 0; i < n; i++ {
 		itm := skiplist.NewIntKeyItem(i)
 		got, _ := w.Lookup(itm)
 		if skiplist.CompareInt(itm, got) != 0 {

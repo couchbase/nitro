@@ -975,15 +975,17 @@ func newPage(ctx *storeCtx, low unsafe.Pointer, ptr unsafe.Pointer) Page {
 		prevHeadPtr: ptr,
 	}
 
-	if ptr == nil {
-		pg.head = &pageDelta{
+	return pg
+}
+
+func newSeedPage() Page {
+	return &page{
+		head: &pageDelta{
 			op:           opMetaDelta,
 			hiItm:        skiplist.MaxItem,
 			rightSibling: nil,
-		}
+		},
 	}
-
-	return pg
 }
 
 func (pg *page) IsEmpty() bool {

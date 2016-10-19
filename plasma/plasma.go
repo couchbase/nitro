@@ -110,8 +110,13 @@ func New(cfg Config) (*Plasma, error) {
 	}
 
 	lss, err := newLSStore(cfg.File, cfg.MaxSize, cfg.FlushBufferSize, 2)
+	if err != nil {
+		return nil, err
+	}
+
 	s.lss = lss
-	s.doRecovery()
+	s.doInit()
+	err = s.doRecovery()
 	s.pw = s.NewWriter()
 	s.lsscw = s.NewWriter()
 	s.stoplssgc = make(chan struct{})
@@ -119,6 +124,12 @@ func New(cfg Config) (*Plasma, error) {
 		go s.lssCleanerDaemon()
 	}
 	return s, err
+}
+
+func (s *Plasma) doInit() {
+	pid := s.StartPageId()
+	pg := newSeedPage()
+	s.CreateMapping(pid, pg)
 }
 
 func (s *Plasma) doRecovery() error {
