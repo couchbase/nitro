@@ -76,7 +76,7 @@ func (s *pageTable) CreateMapping(pid PageId, pg Page) {
 	pgi := pg.(*page)
 
 	newPtr := unsafe.Pointer(pgi.head)
-	n.SetItem(pgi.low)
+	n.SetItem(pgi.dup(pgi.low))
 	n.DataPtr = newPtr
 	pgi.prevHeadPtr = newPtr
 }
