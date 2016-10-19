@@ -59,7 +59,7 @@ retry:
 			s.lss.FinalizeWrite(res)
 			goto retry
 		}
-	} else if evict && !pg.IsEmpty() {
+	} else if evict && pg.IsEvictable() {
 		offset := pg.GetLSSOffset()
 		if !s.EvictPage(pid, pg, offset) {
 			goto retry

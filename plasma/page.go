@@ -59,6 +59,7 @@ type Page interface {
 	GetVersion() uint16
 	IsFlushed() bool
 	NeedsFlush() bool
+	IsEvictable() bool
 	MaxItem() unsafe.Pointer
 	MinItem() unsafe.Pointer
 	SetNext(PageId)
@@ -997,6 +998,19 @@ func newSeedPage() Page {
 
 func (pg *page) IsEmpty() bool {
 	return pg.head == nil
+}
+
+func (pg *page) IsEvictable() bool {
+	if pg.head == nil {
+		return false
+	}
+
+	switch pg.head.op {
+	case opFlushPageDelta, opRelocPageDelta:
+		return true
+	}
+
+	return false
 }
 
 func (pg *page) NeedsFlush() bool {
