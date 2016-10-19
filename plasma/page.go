@@ -193,6 +193,23 @@ type storeCtx struct {
 	getItem   func(PageId) unsafe.Pointer
 }
 
+func (ctx *storeCtx) alloc(sz uintptr) unsafe.Pointer {
+	b := make([]byte, int(sz))
+	hdr := (*reflect.SliceHeader)(unsafe.Pointer(&b))
+	return unsafe.Pointer(hdr.Data)
+}
+
+func (ctx *storeCtx) dup(itm unsafe.Pointer) unsafe.Pointer {
+	if itm == skiplist.MinItem || itm == skiplist.MaxItem {
+		return itm
+	}
+
+	l := ctx.itemSize(itm)
+	p := ctx.alloc(l)
+	memcopy(p, itm, int(l))
+	return p
+}
+
 type page struct {
 	*storeCtx
 
@@ -327,23 +344,6 @@ func (pg *page) InRange(itm unsafe.Pointer) bool {
 	}
 
 	return true
-}
-
-func (pg *page) alloc(sz uintptr) unsafe.Pointer {
-	b := make([]byte, int(sz))
-	hdr := (*reflect.SliceHeader)(unsafe.Pointer(&b))
-	return unsafe.Pointer(hdr.Data)
-}
-
-func (pg *page) dup(itm unsafe.Pointer) unsafe.Pointer {
-	if itm == skiplist.MinItem || itm == skiplist.MaxItem {
-		return itm
-	}
-
-	l := pg.itemSize(itm)
-	p := pg.alloc(l)
-	memcopy(p, itm, int(l))
-	return p
 }
 
 func (pg *page) Insert(itm unsafe.Pointer) {
