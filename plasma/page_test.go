@@ -12,7 +12,8 @@ type storePtr struct {
 
 func newTestPage() (*page, *storePtr) {
 	sp := new(storePtr)
-	storeCtx := &storeCtx{
+	pg := newSeedPage().(*page)
+	pg.storeCtx = &storeCtx{
 		itemSize: func(unsafe.Pointer) uintptr {
 			return unsafe.Sizeof(new(skiplist.IntKeyItem))
 		},
@@ -26,7 +27,7 @@ func newTestPage() (*page, *storePtr) {
 		},
 	}
 
-	return newPage(storeCtx, nil, nil).(*page), sp
+	return pg, sp
 }
 
 func TestPageMergeCorrectness(t *testing.T) {

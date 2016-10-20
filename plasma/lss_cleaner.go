@@ -23,7 +23,7 @@ func (s *Plasma) tryPageRelocation(pid PageId, pg Page, buf []byte) (bool, lssOf
 	return true, relocEnd
 }
 
-func (s *Plasma) cleanLSS(proceed func() bool) error {
+func (s *Plasma) CleanLSS(proceed func() bool) error {
 	var pg Page
 	w := s.lssCleanerWriter
 	buf := w.wCtx.GetBuffer(0)
@@ -125,7 +125,7 @@ loop:
 		}
 
 		if shouldClean() {
-			if err := s.cleanLSS(shouldClean); err != nil {
+			if err := s.CleanLSS(shouldClean); err != nil {
 				fmt.Printf("logCleaner: failed (err=%v)\n", err)
 			}
 		}
