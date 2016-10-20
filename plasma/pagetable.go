@@ -23,13 +23,15 @@ type PageTable interface {
 type pageTable struct {
 	*storeCtx
 	*skiplist.Skiplist
+	sts *Stats
 }
 
 func newPageTable(sl *skiplist.Skiplist, itmSize ItemSizeFn,
-	cmp skiplist.CompareFn) *pageTable {
+	cmp skiplist.CompareFn, sts *Stats) *pageTable {
 
 	pt := &pageTable{
 		Skiplist: sl,
+		sts:      sts,
 	}
 
 	pt.storeCtx = &storeCtx{
@@ -115,8 +117,12 @@ retry:
 			return nil, err
 		}
 
-		if swapin && !s.UpdateMapping(pid, pg) {
-			goto retry
+		if swapin {
+			if !s.UpdateMapping(pid, pg) {
+				goto retry
+			}
+
+			atomic.AddInt64(&s.sts.NumPagesSwapIn, 1)
 		}
 	} else {
 		pg = newPage(s.storeCtx, n.Item(), ptr)
@@ -132,6 +138,7 @@ func (s *pageTable) EvictPage(pid PageId, pg Page, offset lssOffset) bool {
 	newPtr := unsafe.Pointer(uintptr(uint64(offset) | evictMask))
 	if atomic.CompareAndSwapPointer(&n.DataPtr, pgi.prevHeadPtr, newPtr) {
 		pgi.prevHeadPtr = newPtr
+		atomic.AddInt64(&s.sts.NumPagesSwapOut, 1)
 		return true
 	}
 

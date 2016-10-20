@@ -40,6 +40,9 @@ type Stats struct {
 
 	FlushDataSz int64
 	MemSz       int64
+
+	NumPagesSwapOut int64
+	NumPagesSwapIn  int64
 }
 
 func (s *Stats) Merge(o *Stats) {
@@ -57,6 +60,9 @@ func (s *Stats) Merge(o *Stats) {
 
 	s.FlushDataSz += o.FlushDataSz
 	s.MemSz += o.MemSz
+
+	s.NumPagesSwapOut += o.NumPagesSwapOut
+	s.NumPagesSwapIn += o.NumPagesSwapIn
 }
 
 func (s Stats) String() string {
@@ -73,13 +79,16 @@ func (s Stats) String() string {
 		"insert_conflicts  = %d\n"+
 		"delete_conflicts  = %d\n"+
 		"flushdata_size    = %d\n"+
-		"memory_size       = %d\n",
+		"memory_size       = %d\n"+
+		"num_pages_swapout = %d\n"+
+		"num_pages_swapin  = %d\n",
 		s.Inserts-s.Deletes,
 		s.Compacts, s.Splits, s.Merges,
 		s.Inserts, s.Deletes, s.CompactConflicts,
 		s.SplitConflicts, s.MergeConflicts,
 		s.InsertConflicts, s.DeleteConflicts,
-		s.FlushDataSz, s.MemSz)
+		s.FlushDataSz, s.MemSz, s.NumPagesSwapOut,
+		s.NumPagesSwapIn)
 }
 
 type Config struct {
@@ -89,21 +98,36 @@ type Config struct {
 	Compare          skiplist.CompareFn
 	ItemSize         ItemSizeFn
 
-	MaxSize         int64
-	File            string
-	FlushBufferSize int
+	MaxSize             int64
+	File                string
+	FlushBufferSize     int
+	NumPersistorThreads int
+	NumEvictorThreads   int
 
 	LSSCleanerThreshold int
 	AutoLSSCleaning     bool
 }
 
+func applyConfigDefaults(cfg Config) Config {
+	if cfg.NumPersistorThreads == 0 {
+		cfg.NumPersistorThreads = runtime.NumCPU()
+	}
+
+	if cfg.NumEvictorThreads == 0 {
+		cfg.NumEvictorThreads = runtime.NumCPU()
+	}
+	return cfg
+}
+
 func New(cfg Config) (*Plasma, error) {
 	sl := skiplist.New()
 	s := &Plasma{
-		Config:    cfg,
-		Skiplist:  sl,
-		pageTable: newPageTable(sl, cfg.ItemSize, cfg.Compare),
+		Config:   applyConfigDefaults(cfg),
+		Skiplist: sl,
 	}
+
+	ptWr := s.NewWriter()
+	s.pageTable = newPageTable(sl, cfg.ItemSize, cfg.Compare, ptWr.wCtx.sts)
 
 	lss, err := newLSStore(cfg.File, cfg.MaxSize, cfg.FlushBufferSize, 2)
 	if err != nil {
