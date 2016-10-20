@@ -20,6 +20,7 @@ type Plasma struct {
 	lss              *lsStore
 	lssCleanerWriter *Writer
 	persistWriters   []*Writer
+	evictWriters     []*Writer
 	stoplssgc        chan struct{}
 	sync.RWMutex
 }
@@ -114,8 +115,10 @@ func New(cfg Config) (*Plasma, error) {
 	err = s.doRecovery()
 
 	s.persistWriters = make([]*Writer, runtime.NumCPU())
+	s.evictWriters = make([]*Writer, runtime.NumCPU())
 	for i, _ := range s.persistWriters {
 		s.persistWriters[i] = s.NewWriter()
+		s.evictWriters[i] = s.NewWriter()
 	}
 	s.lssCleanerWriter = s.NewWriter()
 

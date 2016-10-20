@@ -2,6 +2,7 @@ package plasma
 
 import (
 	"encoding/binary"
+	"math/rand"
 	"unsafe"
 )
 
@@ -70,19 +71,36 @@ retry:
 }
 
 func (s *Plasma) PersistAll() {
-	pid := s.StartPageId()
-	for pid != nil {
-		pg := s.Persist(pid, false, s.persistWriters[0])
-		pid = pg.Next()
+	callb := func(pid PageId, partn RangePartition) error {
+		s.Persist(pid, false, s.persistWriters[partn.Shard])
+		return nil
 	}
 
+	s.PageVisitor(callb, s.NumPersistorThreads)
 	s.lss.Sync()
 }
 
 func (s *Plasma) EvictAll() {
-	pid := s.StartPageId()
-	for pid != nil {
-		pg := s.Persist(pid, true, s.persistWriters[0])
-		pid = pg.Next()
+	callb := func(pid PageId, partn RangePartition) error {
+		s.Persist(pid, true, s.evictWriters[partn.Shard])
+		return nil
 	}
+
+	s.PageVisitor(callb, s.NumPersistorThreads)
+}
+
+func (s *Plasma) RunSwapper(proceed func() bool) {
+	random := make([]*rand.Rand, s.NumEvictorThreads)
+	for i, _ := range random {
+		random[i] = rand.New(rand.NewSource(rand.Int63()))
+	}
+
+	callb := func(pid PageId, partn RangePartition) error {
+		if proceed() && random[partn.Shard].Float32() <= 0.3 {
+			s.Persist(pid, true, s.evictWriters[partn.Shard])
+		}
+		return nil
+	}
+
+	s.PageVisitor(callb, s.NumEvictorThreads)
 }
