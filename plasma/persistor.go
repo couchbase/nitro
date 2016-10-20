@@ -33,7 +33,7 @@ func getLSSBlockType(bs []byte) lssBlockType {
 }
 
 func (s *Plasma) Persist(pid PageId, evict bool, w *Writer) Page {
-	buf := w.pgEncBuf1
+	buf := w.wCtx.GetBuffer(0)
 retry:
 
 	// Never read from lss

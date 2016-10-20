@@ -26,7 +26,7 @@ func (s *Plasma) tryPageRelocation(pid PageId, pg Page, buf []byte) (bool, lssOf
 func (s *Plasma) cleanLSS(proceed func() bool) error {
 	var pg Page
 	w := s.lsscw
-	buf := w.wCtx.pgEncBuf1
+	buf := w.wCtx.GetBuffer(0)
 
 	relocated := 0
 	retries := 0

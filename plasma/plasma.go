@@ -9,6 +9,8 @@ import (
 
 type PageReader func(offset lssOffset) (Page, error)
 
+const maxCtxBuffers = 3
+
 type Plasma struct {
 	Config
 	*skiplist.Skiplist
@@ -18,15 +20,6 @@ type Plasma struct {
 	pw, lsscw *Writer
 	stoplssgc chan struct{}
 	sync.RWMutex
-}
-
-type wCtx struct {
-	buf                             *skiplist.ActionBuffer
-	pgEncBuf1, pgEncBuf2, pgEncBuf3 []byte
-	slSts                           *skiplist.Stats
-	sts                             *Stats
-
-	pgRdrFn PageReader
 }
 
 type Stats struct {
@@ -146,7 +139,7 @@ func (s *Plasma) doRecovery() error {
 	doMerge := false
 	rmFdSz := 0
 
-	buf := w.wCtx.pgEncBuf1
+	buf := w.wCtx.GetBuffer(0)
 
 	fn := func(offset lssOffset, bs []byte) (bool, error) {
 		typ := getLSSBlockType(bs)
@@ -271,23 +264,43 @@ type Writer struct {
 	*wCtx
 }
 
-func (s *Plasma) NewWriter() *Writer {
+type wCtx struct {
+	buf       *skiplist.ActionBuffer
+	pgBuffers [][]byte
+	slSts     *skiplist.Stats
+	sts       *Stats
+
+	pgRdrFn PageReader
+}
+
+func (s *Plasma) newWCtx() *wCtx {
 	ctx := &wCtx{
 		buf:       s.Skiplist.MakeBuf(),
 		slSts:     &s.Skiplist.Stats,
 		sts:       new(Stats),
-		pgEncBuf1: make([]byte, maxPageEncodedSize),
-		pgEncBuf2: make([]byte, maxPageEncodedSize),
-		pgEncBuf3: make([]byte, maxPageEncodedSize),
+		pgBuffers: make([][]byte, maxCtxBuffers),
 	}
 
 	ctx.pgRdrFn = func(offset lssOffset) (Page, error) {
 		return s.fetchPageFromLSS(offset, ctx)
 	}
 
+	return ctx
+}
+
+func (ctx *wCtx) GetBuffer(id int) []byte {
+	if ctx.pgBuffers[id] == nil {
+		ctx.pgBuffers[id] = make([]byte, maxPageEncodedSize)
+	}
+
+	return ctx.pgBuffers[id]
+}
+
+func (s *Plasma) NewWriter() *Writer {
+
 	w := &Writer{
 		Plasma: s,
-		wCtx:   ctx,
+		wCtx:   s.newWCtx(),
 	}
 
 	s.Lock()
@@ -351,9 +364,9 @@ func (s *Plasma) tryPageRemoval(pid PageId, pg Page, ctx *wCtx) {
 		return
 	}
 
-	var rmPgBuf = ctx.pgEncBuf1
-	var pgBuf = ctx.pgEncBuf2
-	var metaBuf = ctx.pgEncBuf3
+	var rmPgBuf = ctx.GetBuffer(0)
+	var pgBuf = ctx.GetBuffer(1)
+	var metaBuf = ctx.GetBuffer(2)
 	var fdSz, rmFdSz int
 
 	if shouldPersist {
@@ -431,8 +444,8 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 		shouldPersist := true
 
 		var fdSz int
-		var pgBuf = ctx.pgEncBuf1
-		var splitMetaBuf = ctx.pgEncBuf2
+		var pgBuf = ctx.GetBuffer(0)
+		var splitMetaBuf = ctx.GetBuffer(1)
 
 		if shouldPersist {
 			pgBuf, fdSz = pg.Marshal(pgBuf)
@@ -583,18 +596,19 @@ func (s *Plasma) fetchPageFromLSS(baseOffset lssOffset, ctx *wCtx) (*page, error
 	}
 
 	offset := baseOffset
+	data := ctx.GetBuffer(0)
 loop:
 	for {
-		l, err := s.lss.Read(offset, ctx.pgEncBuf1)
+		l, err := s.lss.Read(offset, data)
 		if err != nil {
 			return nil, err
 		}
 
-		typ := getLSSBlockType(ctx.pgEncBuf1)
+		typ := getLSSBlockType(data)
 		switch typ {
 		case lssPageSplit:
-			splitKey := unmarshalPageSMO(pg, ctx.pgEncBuf1[lssBlockTypeSize:])
-			dataOffset := lssBlockEndOffset(offset, ctx.pgEncBuf1[:l])
+			splitKey := unmarshalPageSMO(pg, data[lssBlockTypeSize:])
+			dataOffset := lssBlockEndOffset(offset, data[:l])
 			if dataPg, err := s.fetchPageFromLSS(dataOffset, ctx); err == nil {
 				dataPg.head = dataPg.newSplitPageDelta(splitKey, nil)
 				dataPg.AddFlushRecord(offset, 0, false)
@@ -604,15 +618,15 @@ loop:
 			}
 			break loop
 		case lssPageMerge:
-			mergeKey := unmarshalPageSMO(pg, ctx.pgEncBuf1[lssBlockTypeSize:])
-			rmPgDataOffset := lssBlockEndOffset(offset, ctx.pgEncBuf1[:l])
+			mergeKey := unmarshalPageSMO(pg, data[lssBlockTypeSize:])
+			rmPgDataOffset := lssBlockEndOffset(offset, data[:l])
 			if rmPg, err := s.fetchPageFromLSS(rmPgDataOffset, ctx); err == nil {
-				l, err := s.lss.Read(rmPgDataOffset, ctx.pgEncBuf1)
+				l, err := s.lss.Read(rmPgDataOffset, data)
 				if err != nil {
 					return nil, err
 				}
 
-				dataOffset := lssBlockEndOffset(rmPgDataOffset, ctx.pgEncBuf1[:l])
+				dataOffset := lssBlockEndOffset(rmPgDataOffset, data[:l])
 				if dataPg, err := s.fetchPageFromLSS(dataOffset, ctx); err == nil {
 					dataPg.head = dataPg.newMergePageDelta(mergeKey, rmPg.head)
 					dataPg.AddFlushRecord(offset, 0, false)
@@ -628,7 +642,7 @@ loop:
 			currPgDelta := &page{
 				storeCtx: s.storeCtx,
 			}
-			data := ctx.pgEncBuf1[lssBlockTypeSize:l]
+			data := data[lssBlockTypeSize:l]
 			nextOffset, hasChain := currPgDelta.unmarshalDelta(data, ctx)
 			currPgDelta.AddFlushRecord(offset, len(data), false)
 			pg.Append(currPgDelta)
