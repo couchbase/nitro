@@ -18,14 +18,14 @@ func (s *Plasma) tryPageRelocation(pid PageId, pg Page, buf []byte) (bool, lssOf
 	}
 
 	s.lss.FinalizeWrite(res)
-	s.lsscw.sts.FlushDataSz += int64(dataSz) - int64(staleSz)
+	s.lssCleanerWriter.sts.FlushDataSz += int64(dataSz) - int64(staleSz)
 	relocEnd := lssBlockEndOffset(offset, wbuf)
 	return true, relocEnd
 }
 
 func (s *Plasma) cleanLSS(proceed func() bool) error {
 	var pg Page
-	w := s.lsscw
+	w := s.lssCleanerWriter
 	buf := w.wCtx.GetBuffer(0)
 
 	relocated := 0

@@ -3,6 +3,7 @@ package plasma
 import (
 	"fmt"
 	"github.com/t3rm1n4l/nitro/skiplist"
+	"runtime"
 	"sync"
 	"unsafe"
 )
@@ -15,10 +16,11 @@ type Plasma struct {
 	Config
 	*skiplist.Skiplist
 	*pageTable
-	wlist     []*Writer
-	lss       *lsStore
-	pw, lsscw *Writer
-	stoplssgc chan struct{}
+	wlist            []*Writer
+	lss              *lsStore
+	lssCleanerWriter *Writer
+	persistWriters   []*Writer
+	stoplssgc        chan struct{}
 	sync.RWMutex
 }
 
@@ -110,8 +112,13 @@ func New(cfg Config) (*Plasma, error) {
 	s.lss = lss
 	s.doInit()
 	err = s.doRecovery()
-	s.pw = s.NewWriter()
-	s.lsscw = s.NewWriter()
+
+	s.persistWriters = make([]*Writer, runtime.NumCPU())
+	for i, _ := range s.persistWriters {
+		s.persistWriters[i] = s.NewWriter()
+	}
+	s.lssCleanerWriter = s.NewWriter()
+
 	s.stoplssgc = make(chan struct{})
 	if cfg.AutoLSSCleaning {
 		go s.lssCleanerDaemon()

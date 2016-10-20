@@ -72,7 +72,7 @@ retry:
 func (s *Plasma) PersistAll() {
 	pid := s.StartPageId()
 	for pid != nil {
-		pg := s.Persist(pid, false, s.pw)
+		pg := s.Persist(pid, false, s.persistWriters[0])
 		pid = pg.Next()
 	}
 
@@ -82,7 +82,7 @@ func (s *Plasma) PersistAll() {
 func (s *Plasma) EvictAll() {
 	pid := s.StartPageId()
 	for pid != nil {
-		pg := s.Persist(pid, true, s.pw)
+		pg := s.Persist(pid, true, s.persistWriters[0])
 		pid = pg.Next()
 	}
 }
