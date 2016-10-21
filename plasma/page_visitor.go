@@ -72,8 +72,8 @@ func (s *Plasma) GetRangePartitions(n int) []RangePartition {
 		if s.cmp(key, partns[shard].MinKey) > 0 {
 			key = s.dup(key)
 			partns[shard].MaxKey = key
-			partns = append(partns, RangePartition{MinKey: key, Shard: shard})
 			shard++
+			partns = append(partns, RangePartition{MinKey: key, Shard: shard})
 		}
 	}
 
