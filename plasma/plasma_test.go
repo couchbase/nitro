@@ -518,3 +518,80 @@ func TestPlasmaEvictionPerf(t *testing.T) {
 	dur = time.Since(t0)
 	fmt.Printf("%d items swapin took %v -> %v items/s\n", total, dur, float64(total)/float64(dur.Seconds()))
 }
+
+func TestPlasmaSwapper(t *testing.T) {
+	os.Remove("teststore.data")
+	s := newTestIntPlasmaStore(testCfg)
+	defer s.Close()
+
+	n := 1000000
+	w := s.NewWriter()
+	for i := 0; i < n; i++ {
+		w.Insert(skiplist.NewIntKeyItem(i))
+	}
+	s.RunSwapper(func() bool { return true })
+
+	for i := 0; i < n; i++ {
+		itm := skiplist.NewIntKeyItem(i)
+		got, _ := w.Lookup(itm)
+		if skiplist.CompareInt(itm, got) != 0 {
+			t.Errorf("mismatch %d != %d", i, skiplist.IntFromItem(got))
+		}
+	}
+
+	sts := s.GetStats()
+	if sts.NumPagesSwapOut == 0 {
+		t.Errorf("Expected few pages to be swapped out")
+	}
+
+	if sts.NumPagesSwapOut != sts.NumPagesSwapIn {
+		t.Errorf("Pages swapped out != swapped in (%d != %d)", sts.NumPagesSwapOut, sts.NumPagesSwapIn)
+	}
+
+	fmt.Println(sts)
+}
+
+func TestPlasmaAutoSwapper(t *testing.T) {
+	var wg sync.WaitGroup
+
+	os.Remove("teststore.data")
+	numThreads := 8
+	n := 10000000
+	nPerThr := n / numThreads
+	cfg := testCfg
+	cfg.LSSCleanerThreshold = 10
+	cfg.AutoLSSCleaning = true
+	cfg.AutoSwapper = true
+	cfg.MaxMemoryUsage = 1024 * 1024 * 1024
+	s := newTestIntPlasmaStore(cfg)
+	defer s.Close()
+	total := numThreads * nPerThr
+
+	t0 := time.Now()
+	for i := 0; i < numThreads; i++ {
+		wg.Add(1)
+		w := s.NewWriter()
+		go doInsert(w, &wg, i, nPerThr)
+	}
+	wg.Wait()
+
+	dur := time.Since(t0)
+	fmt.Printf("%d items insert took %v -> %v items/s\n", total, dur, float64(total)/float64(dur.Seconds()))
+
+	t0 = time.Now()
+	for i := 0; i < numThreads; i++ {
+		wg.Add(1)
+		w := s.NewWriter()
+		go doUpdate(w, &wg, i, nPerThr)
+	}
+	wg.Wait()
+	dur = time.Since(t0)
+	fmt.Printf("%d items update took %v -> %v items/s\n", total, dur, float64(total)/float64(dur.Seconds()))
+
+	fmt.Println(s.GetStats())
+
+	frag, ds, used := s.GetLSSInfo()
+
+	fmt.Printf("LSSInfo: frag:%d, ds:%d, used:%d\n", frag, ds, used)
+
+}
