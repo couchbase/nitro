@@ -2,7 +2,9 @@ package plasma
 
 import (
 	"encoding/binary"
+	"fmt"
 	"math/rand"
+	"time"
 	"unsafe"
 )
 
@@ -103,4 +105,29 @@ func (s *Plasma) RunSwapper(proceed func() bool) {
 	}
 
 	s.PageVisitor(callb, s.NumEvictorThreads)
+}
+
+func (s *Plasma) swapperDaemon() {
+loop:
+	for {
+		select {
+		case <-s.stopswapper:
+			s.stopswapper <- struct{}{}
+			break loop
+		default:
+		}
+
+		if s.shouldSwap() {
+			fmt.Println("Swapper: started")
+			numEvicted := s.GetStats().NumPagesSwapOut
+			s.RunSwapper(s.shouldSwap)
+			numEvicted = s.GetStats().NumPagesSwapOut - numEvicted
+			fmt.Printf("Swapper: (evicted: %d blocks, rss: %d) finished\n", numEvicted, ProcessRSS())
+			if s.shouldSwap() {
+				goto loop
+			}
+		}
+
+		time.Sleep(time.Second)
+	}
 }

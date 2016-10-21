@@ -16,12 +16,12 @@ type Plasma struct {
 	Config
 	*skiplist.Skiplist
 	*pageTable
-	wlist            []*Writer
-	lss              *lsStore
-	lssCleanerWriter *Writer
-	persistWriters   []*Writer
-	evictWriters     []*Writer
-	stoplssgc        chan struct{}
+	wlist                  []*Writer
+	lss                    *lsStore
+	lssCleanerWriter       *Writer
+	persistWriters         []*Writer
+	evictWriters           []*Writer
+	stoplssgc, stopswapper chan struct{}
 	sync.RWMutex
 }
 
@@ -106,6 +106,12 @@ type Config struct {
 
 	LSSCleanerThreshold int
 	AutoLSSCleaning     bool
+	AutoSwapper         bool
+
+	shouldSwap func() bool
+
+	// TODO: Remove later
+	MaxMemoryUsage int
 }
 
 func applyConfigDefaults(cfg Config) Config {
@@ -115,6 +121,13 @@ func applyConfigDefaults(cfg Config) Config {
 
 	if cfg.NumEvictorThreads == 0 {
 		cfg.NumEvictorThreads = runtime.NumCPU()
+	}
+
+	// TODO: Remove later
+	if cfg.shouldSwap == nil && cfg.MaxMemoryUsage > 0 {
+		cfg.shouldSwap = func() bool {
+			return ProcessRSS() >= int(0.7*float32(cfg.MaxMemoryUsage))
+		}
 	}
 	return cfg
 }
@@ -147,9 +160,15 @@ func New(cfg Config) (*Plasma, error) {
 	s.lssCleanerWriter = s.NewWriter()
 
 	s.stoplssgc = make(chan struct{})
+	s.stopswapper = make(chan struct{})
 	if cfg.AutoLSSCleaning {
 		go s.lssCleanerDaemon()
 	}
+
+	if cfg.AutoSwapper {
+		go s.swapperDaemon()
+	}
+
 	return s, err
 }
 
@@ -288,6 +307,11 @@ func (s *Plasma) Close() {
 	if s.Config.AutoLSSCleaning {
 		s.stoplssgc <- struct{}{}
 		<-s.stoplssgc
+	}
+
+	if s.Config.AutoSwapper {
+		s.stopswapper <- struct{}{}
+		<-s.stopswapper
 	}
 
 	s.lss.Close()
