@@ -211,6 +211,7 @@ func (w *Writer) Put2(bs []byte) (n *skiplist.Node) {
 		w.count++
 	} else {
 		w.freeItem(x)
+		n = nil
 	}
 	return
 }
