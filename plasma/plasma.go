@@ -12,6 +12,48 @@ type PageReader func(offset lssOffset) (Page, error)
 
 const maxCtxBuffers = 3
 
+type Config struct {
+	MaxDeltaChainLen int
+	MaxPageItems     int
+	MinPageItems     int
+	Compare          skiplist.CompareFn
+	ItemSize         ItemSizeFn
+
+	MaxSize             int64
+	File                string
+	FlushBufferSize     int
+	NumPersistorThreads int
+	NumEvictorThreads   int
+
+	LSSCleanerThreshold int
+	AutoLSSCleaning     bool
+	AutoSwapper         bool
+
+	EnableShapshots bool
+
+	// TODO: Remove later
+	MaxMemoryUsage int
+	shouldSwap     func() bool
+}
+
+func applyConfigDefaults(cfg Config) Config {
+	if cfg.NumPersistorThreads == 0 {
+		cfg.NumPersistorThreads = runtime.NumCPU()
+	}
+
+	if cfg.NumEvictorThreads == 0 {
+		cfg.NumEvictorThreads = runtime.NumCPU()
+	}
+
+	// TODO: Remove later
+	if cfg.shouldSwap == nil && cfg.MaxMemoryUsage > 0 {
+		cfg.shouldSwap = func() bool {
+			return ProcessRSS() >= int(0.7*float32(cfg.MaxMemoryUsage))
+		}
+	}
+	return cfg
+}
+
 type Plasma struct {
 	Config
 	*skiplist.Skiplist
@@ -23,6 +65,11 @@ type Plasma struct {
 	evictWriters           []*Writer
 	stoplssgc, stopswapper chan struct{}
 	sync.RWMutex
+
+	// MVCC metadata
+	currSn       uint64
+	gcSn         uint64
+	currSnapshot *Snapshot
 }
 
 type Stats struct {
@@ -91,47 +138,6 @@ func (s Stats) String() string {
 		s.NumPagesSwapIn)
 }
 
-type Config struct {
-	MaxDeltaChainLen int
-	MaxPageItems     int
-	MinPageItems     int
-	Compare          skiplist.CompareFn
-	ItemSize         ItemSizeFn
-
-	MaxSize             int64
-	File                string
-	FlushBufferSize     int
-	NumPersistorThreads int
-	NumEvictorThreads   int
-
-	LSSCleanerThreshold int
-	AutoLSSCleaning     bool
-	AutoSwapper         bool
-
-	shouldSwap func() bool
-
-	// TODO: Remove later
-	MaxMemoryUsage int
-}
-
-func applyConfigDefaults(cfg Config) Config {
-	if cfg.NumPersistorThreads == 0 {
-		cfg.NumPersistorThreads = runtime.NumCPU()
-	}
-
-	if cfg.NumEvictorThreads == 0 {
-		cfg.NumEvictorThreads = runtime.NumCPU()
-	}
-
-	// TODO: Remove later
-	if cfg.shouldSwap == nil && cfg.MaxMemoryUsage > 0 {
-		cfg.shouldSwap = func() bool {
-			return ProcessRSS() >= int(0.7*float32(cfg.MaxMemoryUsage))
-		}
-	}
-	return cfg
-}
-
 func New(cfg Config) (*Plasma, error) {
 	sl := skiplist.New()
 	s := &Plasma{
@@ -176,6 +182,12 @@ func (s *Plasma) doInit() {
 	pid := s.StartPageId()
 	pg := newSeedPage()
 	s.CreateMapping(pid, pg)
+
+	s.currSn = 1
+	s.currSnapshot = &Snapshot{
+		refCount: 1,
+		db:       s,
+	}
 }
 
 func (s *Plasma) doRecovery() error {
@@ -460,7 +472,6 @@ func (s *Plasma) tryPageRemoval(pid PageId, pg Page, ctx *wCtx) {
 		s.unindexPage(pid, ctx)
 
 		if shouldPersist {
-
 			ctx.sts.FlushDataSz += int64(fdSz)
 			s.lss.FinalizeWrite(res)
 		}
