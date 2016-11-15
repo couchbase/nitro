@@ -529,7 +529,7 @@ loop:
 func (pg *page) collectItems(head *pageDelta,
 	loItm, hiItm unsafe.Pointer) (itx []unsafe.Pointer, dataSz int) {
 
-	it, fdSz := newPgOpIterator(pg.head, pg.cmp, loItm, hiItm, true)
+	it, fdSz := newPgOpIterator(pg.head, pg.cmp, loItm, hiItm, defaultAcceptor)
 	var itms []unsafe.Pointer
 	for it.Init(); it.Valid(); it.Next() {
 		itm, _ := it.Get()

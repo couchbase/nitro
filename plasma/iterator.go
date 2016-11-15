@@ -6,6 +6,18 @@ import (
 	"unsafe"
 )
 
+type Acceptor interface {
+	Accept(unsafe.Pointer, bool) bool
+}
+
+type recAcceptor struct{}
+
+func (ra *recAcceptor) Accept(itm unsafe.Pointer, isInsert bool) bool {
+	return isInsert
+}
+
+var defaultAcceptor = new(recAcceptor)
+
 type Iterator struct {
 	store *Plasma
 	*wCtx
@@ -34,7 +46,7 @@ func (itr *Iterator) initPgIterator(pid PageId, seekItm unsafe.Pointer) {
 		pg := pgPtr.(*page)
 		if !pg.IsEmpty() {
 			itr.nextPid = pg.Next()
-			itr.currPgItr, _ = newPgOpIterator(pg.head, pg.cmp, seekItm, pg.head.hiItm, true)
+			itr.currPgItr, _ = newPgOpIterator(pg.head, pg.cmp, seekItm, pg.head.hiItm, defaultAcceptor)
 			itr.currPgItr.Init()
 		} else {
 			itr.err = err
@@ -160,10 +172,10 @@ func (pdj *pdJoinIterator) Get() (unsafe.Pointer, bool) {
 
 // Iterator merger
 type pdMergeIterator struct {
-	itrs    [2]pgOpIterator
-	lastIt  pgOpIterator
-	cmp     skiplist.CompareFn
-	doDedup bool
+	itrs   [2]pgOpIterator
+	lastIt pgOpIterator
+	cmp    skiplist.CompareFn
+	Acceptor
 }
 
 func (pdm *pdMergeIterator) Init() {
@@ -202,9 +214,8 @@ func (pdm *pdMergeIterator) fetchMin() {
 		pdm.lastIt = pdm.itrs[1]
 	}
 
-	// Skiplist delete deltas
-	if pdm.doDedup && pdm.Valid() {
-		if _, ok := pdm.lastIt.Get(); !ok {
+	if pdm.Acceptor != nil && pdm.Valid() {
+		if !pdm.Accept(pdm.lastIt.Get()) {
 			pdm.Next()
 		}
 	}
@@ -229,10 +240,10 @@ type pgOpIterator interface {
 }
 
 func newPgOpIterator(pd *pageDelta, cmp skiplist.CompareFn,
-	low, high unsafe.Pointer, doDedup bool) (iter pgOpIterator, fdSz int) {
+	low, high unsafe.Pointer, acceptor Acceptor) (iter pgOpIterator, fdSz int) {
 
 	var hasReloc bool
-	m := &pdMergeIterator{cmp: cmp, doDedup: doDedup}
+	m := &pdMergeIterator{cmp: cmp, Acceptor: acceptor}
 	startPd := pd
 	pdCount := 0
 
@@ -254,10 +265,10 @@ loop:
 		case opPageSplitDelta:
 			high = (*splitPageDelta)(unsafe.Pointer(pd)).itm
 		case opPageMergeDelta:
-			deltaItr, fdSz1 := newPgOpIterator(pd.next, cmp, low, high, false)
+			deltaItr, fdSz1 := newPgOpIterator(pd.next, cmp, low, high, nil)
 			mergeItr, fdSz2 := newPgOpIterator(
 				(*mergePageDelta)(unsafe.Pointer(pd)).mergeSibling,
-				cmp, low, high, true)
+				cmp, low, high, acceptor)
 
 			if !hasReloc {
 				fdSz += fdSz1 + fdSz2
