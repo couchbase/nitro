@@ -24,13 +24,15 @@ type Iterator struct {
 	currPid   PageId
 	nextPid   PageId
 	currPgItr pgOpIterator
+	acceptor  Acceptor
 
 	err error
 }
 
 func (s *Plasma) NewIterator() ItemIterator {
 	return &Iterator{
-		store: s,
+		store:    s,
+		acceptor: defaultAcceptor,
 		wCtx: &wCtx{
 			buf:   s.Skiplist.MakeBuf(),
 			slSts: &s.Skiplist.Stats,
@@ -46,7 +48,7 @@ func (itr *Iterator) initPgIterator(pid PageId, seekItm unsafe.Pointer) {
 		pg := pgPtr.(*page)
 		if !pg.IsEmpty() {
 			itr.nextPid = pg.Next()
-			itr.currPgItr, _ = newPgOpIterator(pg.head, pg.cmp, seekItm, pg.head.hiItm, defaultAcceptor)
+			itr.currPgItr, _ = newPgOpIterator(pg.head, pg.cmp, seekItm, pg.head.hiItm, itr.acceptor)
 			itr.currPgItr.Init()
 		} else {
 			itr.err = err

@@ -5,6 +5,7 @@ import (
 	"github.com/t3rm1n4l/nitro/skiplist"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"unsafe"
 )
 
@@ -607,6 +608,11 @@ refresh:
 	if pg.NeedRemoval() {
 		s.tryPageRemoval(pid, pg, ctx)
 		goto retry
+	}
+
+	if s.EnableShapshots {
+		pg.SetAcceptor(&gcAcceptor{gcSn: atomic.LoadUint64(&s.gcSn)})
+
 	}
 
 	return

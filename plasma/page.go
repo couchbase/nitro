@@ -71,6 +71,8 @@ type Page interface {
 	// TODO: Clean up later
 	IsEmpty() bool
 	GetLSSOffset() lssOffset
+
+	SetAcceptor(Acceptor)
 }
 
 type ItemIterator interface {
@@ -221,6 +223,8 @@ type page struct {
 	prevHeadPtr unsafe.Pointer
 	head        *pageDelta
 	tail        *pageDelta
+
+	acceptor Acceptor
 }
 
 func (pg *page) SetNext(pid PageId) {
@@ -529,7 +533,7 @@ loop:
 func (pg *page) collectItems(head *pageDelta,
 	loItm, hiItm unsafe.Pointer) (itx []unsafe.Pointer, dataSz int) {
 
-	it, fdSz := newPgOpIterator(pg.head, pg.cmp, loItm, hiItm, defaultAcceptor)
+	it, fdSz := newPgOpIterator(pg.head, pg.cmp, loItm, hiItm, pg.acceptor)
 	var itms []unsafe.Pointer
 	for it.Init(); it.Valid(); it.Next() {
 		itm, _ := it.Get()
@@ -569,6 +573,8 @@ func (pi *pageIterator) Seek(itm unsafe.Pointer) error {
 
 }
 
+// This method is only used by page_tests
+// TODO: Cleanup implementation by using pageOpIterator
 func (pg *page) NewIterator() ItemIterator {
 	return &pageIterator{
 		pg: pg,
@@ -981,6 +987,7 @@ func newPage(ctx *storeCtx, low unsafe.Pointer, ptr unsafe.Pointer) Page {
 		head:        (*pageDelta)(ptr),
 		low:         low,
 		prevHeadPtr: ptr,
+		acceptor:    defaultAcceptor,
 	}
 
 	return pg
@@ -988,6 +995,7 @@ func newPage(ctx *storeCtx, low unsafe.Pointer, ptr unsafe.Pointer) Page {
 
 func newSeedPage() Page {
 	return &page{
+		acceptor: defaultAcceptor,
 		head: &pageDelta{
 			op:           opMetaDelta,
 			hiItm:        skiplist.MaxItem,
@@ -1033,4 +1041,8 @@ func (pg *page) GetLSSOffset() lssOffset {
 	}
 
 	panic("invalid usage")
+}
+
+func (pg *page) SetAcceptor(a Acceptor) {
+	pg.acceptor = a
 }
