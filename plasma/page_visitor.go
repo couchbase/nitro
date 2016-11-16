@@ -40,7 +40,7 @@ func (s *Plasma) PageVisitor(callb PageVisitorCallback, concurr int) error {
 
 func (s *Plasma) VisitPartition(partn RangePartition, callb PageVisitorCallback) error {
 	buf := s.Skiplist.MakeBuf()
-	itr := s.Skiplist.NewIterator(s.cmp, buf)
+	itr := s.Skiplist.NewIterator(s.icmp, buf)
 
 	if partn.MinKey == skiplist.MinItem {
 		pid := s.StartPageId()
@@ -49,7 +49,7 @@ func (s *Plasma) VisitPartition(partn RangePartition, callb PageVisitorCallback)
 		}
 	}
 
-	for itr.Seek(partn.MinKey); itr.Valid() && s.cmp(itr.Get(), partn.MaxKey) < 0; itr.Next() {
+	for itr.Seek(partn.MinKey); itr.Valid() && s.icmp(itr.Get(), partn.MaxKey) < 0; itr.Next() {
 		pid := PageId(itr.GetNode())
 		if err := callb(pid, partn); err != nil {
 			return err
@@ -69,7 +69,7 @@ func (s *Plasma) GetRangePartitions(n int) []RangePartition {
 
 	partns = append(partns, RangePartition{MinKey: skiplist.MinItem})
 	for _, key := range s.Skiplist.GetRangeSplitItems(n) {
-		if s.cmp(key, partns[shard].MinKey) > 0 {
+		if s.icmp(key, partns[shard].MinKey) > 0 {
 			key = s.dup(key)
 			partns[shard].MaxKey = key
 			shard++

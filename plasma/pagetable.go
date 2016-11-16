@@ -27,7 +27,7 @@ type pageTable struct {
 }
 
 func newPageTable(sl *skiplist.Skiplist, itmSize ItemSizeFn,
-	cmp skiplist.CompareFn, sts *Stats) *pageTable {
+	icmp, xcmp skiplist.CompareFn, sts *Stats) *pageTable {
 
 	pt := &pageTable{
 		Skiplist: sl,
@@ -35,7 +35,8 @@ func newPageTable(sl *skiplist.Skiplist, itmSize ItemSizeFn,
 	}
 
 	pt.storeCtx = &storeCtx{
-		cmp:      cmp,
+		xcmp:     xcmp,
+		icmp:     icmp,
 		itemSize: itmSize,
 		getPageId: func(itm unsafe.Pointer, ctx *wCtx) PageId {
 			var pid PageId
@@ -45,7 +46,7 @@ func newPageTable(sl *skiplist.Skiplist, itmSize ItemSizeFn,
 				pid = sl.TailNode()
 			} else {
 				var found bool
-				_, pid, found = sl.Lookup(itm, cmp, ctx.buf, ctx.slSts)
+				_, pid, found = sl.Lookup(itm, icmp, ctx.buf, ctx.slSts)
 				if !found {
 					return nil
 				}
