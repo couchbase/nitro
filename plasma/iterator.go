@@ -58,6 +58,7 @@ func (itr *Iterator) initPgIterator(pid PageId, seekItm unsafe.Pointer) {
 
 func (itr *Iterator) SeekFirst() error {
 	itr.initPgIterator(itr.store.Skiplist.HeadNode(), nil)
+	itr.tryNextPg()
 	return itr.err
 
 }
@@ -69,7 +70,9 @@ func (itr *Iterator) Seek(itm unsafe.Pointer) error {
 	} else {
 		pid = prev
 	}
+
 	itr.initPgIterator(pid, itm)
+	itr.tryNextPg()
 	return itr.err
 }
 
@@ -82,13 +85,19 @@ func (itr *Iterator) Valid() bool {
 	return itr.currPgItr.Valid()
 }
 
+// If the current page has no valid item, move to next page
+func (itr *Iterator) tryNextPg() {
+	for !itr.currPgItr.Valid() {
+		if itr.nextPid == nil {
+			break
+		}
+		itr.initPgIterator(itr.nextPid, nil)
+	}
+}
+
 func (itr *Iterator) Next() error {
 	itr.currPgItr.Next()
-	if !itr.currPgItr.Valid() {
-		if itr.nextPid != nil {
-			itr.initPgIterator(itr.nextPid, nil)
-		}
-	}
+	itr.tryNextPg()
 
 	return itr.err
 }
