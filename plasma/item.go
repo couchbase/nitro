@@ -26,7 +26,7 @@ const (
 type item uint32
 
 func (itm *item) Size() int {
-	return itm.l() + itmHdrLen
+	return itm.l() + itmHdrLen + itmSnSize
 }
 
 func (itm *item) IsInsert() bool {
@@ -78,7 +78,7 @@ func (itm *item) Value() (bs []byte) {
 
 	sh := (*reflect.SliceHeader)(unsafe.Pointer(&bs))
 	sh.Data = kptr + uintptr(klen) + itmSnSize
-	sh.Len = l - klen
+	sh.Len = l - klen - itmKlenSize
 	sh.Cap = sh.Len
 	return
 }
@@ -135,4 +135,19 @@ func cmpItem(a, b unsafe.Pointer) int {
 	}
 
 	return cv
+}
+
+func cmpIndex(a, b unsafe.Pointer) int {
+	if a == skiplist.MinItem || b == skiplist.MaxItem {
+		return -1
+	}
+
+	if a == skiplist.MaxItem || b == skiplist.MinItem {
+		return 1
+	}
+
+	itma := (*item)(a)
+	itmb := (*item)(b)
+
+	return bytes.Compare(itma.Key(), itmb.Key())
 }
