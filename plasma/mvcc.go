@@ -56,13 +56,26 @@ func (s *Snapshot) Close() {
 	}
 }
 
+type snapshotIterator struct {
+	snap *Snapshot
+	ItemIterator
+}
+
+func (itr *snapshotIterator) Close() {
+	itr.snap.Close()
+}
+
 func (s *Snapshot) NewIterator() ItemIterator {
+	s.Open()
 	itr := s.db.NewIterator().(*Iterator)
 	itr.acceptor = &snAcceptor{
 		sn: s.sn,
 	}
 
-	return itr
+	return &snapshotIterator{
+		snap:         s,
+		ItemIterator: itr,
+	}
 }
 
 func (s *Snapshot) Open() {
