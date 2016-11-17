@@ -8,12 +8,17 @@ import (
 
 type Acceptor interface {
 	Accept(unsafe.Pointer, bool) bool
+	Clone() Acceptor
 }
 
 type recAcceptor struct{}
 
 func (ra *recAcceptor) Accept(itm unsafe.Pointer, isInsert bool) bool {
 	return isInsert
+}
+
+func (ra *recAcceptor) Clone() Acceptor {
+	return ra
 }
 
 var defaultAcceptor = new(recAcceptor)
@@ -254,7 +259,7 @@ func newPgOpIterator(pd *pageDelta, cmp skiplist.CompareFn,
 	low, high unsafe.Pointer, acceptor Acceptor) (iter pgOpIterator, fdSz int) {
 
 	var hasReloc bool
-	m := &pdMergeIterator{cmp: cmp, Acceptor: acceptor}
+	m := &pdMergeIterator{cmp: cmp, Acceptor: acceptor.Clone()}
 	startPd := pd
 	pdCount := 0
 

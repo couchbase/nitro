@@ -187,6 +187,7 @@ func (s *Plasma) doInit() {
 
 	s.currSn = 1
 	s.currSnapshot = &Snapshot{
+		sn:       1,
 		refCount: 1,
 		db:       s,
 	}
