@@ -18,23 +18,15 @@ type snAcceptor struct {
 	skip bool
 }
 
-func (a *snAcceptor) Clone() Acceptor {
-	return &snAcceptor{sn: a.sn}
-}
-
 func (a *snAcceptor) Accept(o unsafe.Pointer, _ bool) bool {
 	itm := (*item)(o)
-	if itm.Sn() > a.sn {
+	if a.skip || itm.Sn() > a.sn {
+		a.skip = false
 		return false
 	}
 
 	if !itm.IsInsert() {
 		a.skip = true
-		return false
-	}
-
-	if a.skip {
-		a.skip = false
 		return false
 	}
 
@@ -45,10 +37,6 @@ func (a *snAcceptor) Accept(o unsafe.Pointer, _ bool) bool {
 type gcAcceptor struct {
 	gcSn uint64
 	skip bool
-}
-
-func (a *gcAcceptor) Clone() Acceptor {
-	return &gcAcceptor{gcSn: a.gcSn}
 }
 
 func (a *gcAcceptor) Accept(o unsafe.Pointer, _ bool) bool {
