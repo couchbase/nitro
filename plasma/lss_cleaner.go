@@ -41,7 +41,7 @@ func (s *Plasma) CleanLSS(proceed func() bool) error {
 		if typ == lssPageData || typ == lssPageReloc {
 			state, key := decodePageState(bs[lssBlockTypeSize:])
 		retry:
-			_, node, found := s.Skiplist.Lookup(key, s.icmp, w.wCtx.buf, w.wCtx.slSts)
+			_, node, found := s.Skiplist.Lookup(key, s.cmp, w.wCtx.buf, w.wCtx.slSts)
 			if found {
 				pid := PageId(node)
 				if pg, err = s.ReadPage(pid, w.wCtx.pgRdrFn, false); err != nil {

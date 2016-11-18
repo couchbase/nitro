@@ -17,8 +17,7 @@ type Config struct {
 	MaxDeltaChainLen int
 	MaxPageItems     int
 	MinPageItems     int
-	CompareIndex     skiplist.CompareFn
-	CompareItem      skiplist.CompareFn
+	Compare          skiplist.CompareFn
 	ItemSize         ItemSizeFn
 
 	MaxSize             int64
@@ -148,7 +147,7 @@ func New(cfg Config) (*Plasma, error) {
 	}
 
 	ptWr := s.NewWriter()
-	s.pageTable = newPageTable(sl, cfg.ItemSize, cfg.CompareIndex, cfg.CompareItem, ptWr.wCtx.sts)
+	s.pageTable = newPageTable(sl, cfg.ItemSize, cfg.Compare, ptWr.wCtx.sts)
 
 	lss, err := newLSStore(cfg.File, cfg.MaxSize, cfg.FlushBufferSize, 2)
 	if err != nil {
@@ -288,7 +287,7 @@ func (s *Plasma) doRecovery() error {
 	// Fix rightSibling node pointers
 	// If crash occurs and we miss out some pages which are not persisted,
 	// some ranges became orphans. Hence we need to fix hiItms for the pages
-	itr := s.Skiplist.NewIterator(s.icmp, w.buf)
+	itr := s.Skiplist.NewIterator(s.cmp, w.buf)
 	defer itr.Close()
 	p, _ := s.ReadPage(s.StartPageId(), w.wCtx.pgRdrFn, true)
 	pg = p.(*page)
@@ -410,18 +409,18 @@ func (s *Plasma) LSSDataSize() int64 {
 
 func (s *Plasma) indexPage(pid PageId, ctx *wCtx) {
 	n := pid.(*skiplist.Node)
-	s.Skiplist.Insert4(n, s.icmp, s.icmp, ctx.buf, n.Level(), false, ctx.slSts)
+	s.Skiplist.Insert4(n, s.cmp, s.cmp, ctx.buf, n.Level(), false, ctx.slSts)
 }
 
 func (s *Plasma) unindexPage(pid PageId, ctx *wCtx) {
 	n := pid.(*skiplist.Node)
-	s.Skiplist.DeleteNode(n, s.icmp, ctx.buf, ctx.slSts)
+	s.Skiplist.DeleteNode(n, s.cmp, ctx.buf, ctx.slSts)
 }
 
 func (s *Plasma) tryPageRemoval(pid PageId, pg Page, ctx *wCtx) {
 	n := pid.(*skiplist.Node)
 	itm := n.Item()
-	prev, _, found := s.Skiplist.Lookup(itm, s.icmp, ctx.buf, ctx.slSts)
+	prev, _, found := s.Skiplist.Lookup(itm, s.cmp, ctx.buf, ctx.slSts)
 	// Somebody else removed the node
 	if !found {
 		return
@@ -590,7 +589,7 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 
 func (s *Plasma) fetchPage(itm unsafe.Pointer, ctx *wCtx) (pid PageId, pg Page, err error) {
 retry:
-	if prev, curr, found := s.Skiplist.Lookup(itm, s.icmp, ctx.buf, ctx.slSts); found {
+	if prev, curr, found := s.Skiplist.Lookup(itm, s.cmp, ctx.buf, ctx.slSts); found {
 		pid = curr
 	} else {
 		pid = prev

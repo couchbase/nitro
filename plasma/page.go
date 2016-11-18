@@ -190,8 +190,7 @@ type ItemSizeFn func(unsafe.Pointer) uintptr
 
 type storeCtx struct {
 	itemSize  ItemSizeFn
-	xcmp      skiplist.CompareFn // Item
-	icmp      skiplist.CompareFn // Index
+	cmp       skiplist.CompareFn
 	getPageId func(unsafe.Pointer, *wCtx) PageId
 	getItem   func(PageId) unsafe.Pointer
 }
@@ -344,7 +343,7 @@ func (pg *page) newBasePage(itms []unsafe.Pointer) *pageDelta {
 
 // TODO: Fix the low bound check ?
 func (pg *page) InRange(itm unsafe.Pointer) bool {
-	if pg.xcmp(itm, pg.head.hiItm) >= 0 {
+	if pg.cmp(itm, pg.head.hiItm) >= 0 {
 		return false
 	}
 
@@ -360,7 +359,7 @@ func (pg *page) Delete(itm unsafe.Pointer) {
 }
 
 func (pg *page) equal(itm0, itm1, hi unsafe.Pointer) bool {
-	return pg.xcmp(itm0, itm1) == 0 && pg.xcmp(itm0, hi) < 0
+	return pg.cmp(itm0, itm1) == 0 && pg.cmp(itm0, hi) < 0
 }
 
 func (pg *page) Lookup(itm unsafe.Pointer) unsafe.Pointer {
@@ -384,7 +383,7 @@ loop:
 			bp := (*basePage)(unsafe.Pointer(pd))
 			n := int(bp.numItems)
 			index := sort.Search(n, func(i int) bool {
-				return pg.xcmp(bp.items[i], itm) >= 0
+				return pg.cmp(bp.items[i], itm) >= 0
 			})
 
 			if index < n && pg.equal(bp.items[index], itm, hiItm) {
@@ -397,7 +396,7 @@ loop:
 			hiItm = pds.itm
 		case opPageMergeDelta:
 			pdm := (*mergePageDelta)(unsafe.Pointer(pd))
-			if pg.xcmp(itm, pdm.itm) >= 0 {
+			if pg.cmp(itm, pdm.itm) >= 0 {
 				pd = pdm.mergeSibling
 				continue loop
 			}
@@ -444,11 +443,8 @@ func (pg *page) Split(pid PageId) Page {
 	if bp != nil {
 		mid = len(bp.items) / 2
 		for mid > 0 {
-			// Make sure that split is performed by different index key
-			if pg.icmp(bp.items[mid], pg.head.hiItm) < 0 {
-				if mid-1 >= 0 && pg.icmp(bp.items[mid], bp.items[mid-1]) > 0 {
-					break
-				}
+			if pg.cmp(bp.items[mid], pg.head.hiItm) < 0 {
+				break
 			}
 			mid--
 		}
@@ -503,7 +499,7 @@ func (pg *page) Append(p Page) {
 }
 
 func (pg *page) inRange(lo, hi unsafe.Pointer, itm unsafe.Pointer) bool {
-	return pg.xcmp(itm, hi) < 0 && pg.xcmp(itm, lo) >= 0
+	return pg.cmp(itm, hi) < 0 && pg.cmp(itm, lo) >= 0
 }
 
 func prettyPrint(pd *pageDelta, stringify func(unsafe.Pointer) string) {
@@ -537,7 +533,7 @@ loop:
 func (pg *page) collectItems(head *pageDelta,
 	loItm, hiItm unsafe.Pointer) (itx []unsafe.Pointer, dataSz int) {
 
-	it, fdSz := newPgOpIterator(pg.head, pg.xcmp, loItm, hiItm, pg.acceptor)
+	it, fdSz := newPgOpIterator(pg.head, pg.cmp, loItm, hiItm, pg.acceptor)
 	var itms []unsafe.Pointer
 	for it.Init(); it.Valid(); it.Next() {
 		itm, _ := it.Get()
@@ -667,7 +663,7 @@ loop:
 		switch pd.op {
 		case opInsertDelta, opDeleteDelta:
 			rpd := (*recordDelta)(unsafe.Pointer(pd))
-			if pg.xcmp(rpd.itm, hiItm) < 0 {
+			if pg.cmp(rpd.itm, hiItm) < 0 {
 				binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(pd.op))
 				woffset += 2
 				sz := int(pg.itemSize(rpd.itm))
@@ -692,7 +688,7 @@ loop:
 			if child {
 				// Encode items as insertDelta
 				for _, itm := range bp.items {
-					if pg.xcmp(itm, hiItm) < 0 {
+					if pg.cmp(itm, hiItm) < 0 {
 						binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(opInsertDelta))
 						woffset += 2
 						sz := int(pg.itemSize(itm))
@@ -709,7 +705,7 @@ loop:
 				nItms := 0
 				woffset += 2
 				for _, itm := range bp.items {
-					if pg.xcmp(itm, hiItm) < 0 {
+					if pg.cmp(itm, hiItm) < 0 {
 						sz := int(pg.itemSize(itm))
 						binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(sz))
 						woffset += 2

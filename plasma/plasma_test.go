@@ -16,8 +16,7 @@ var testCfg = Config{
 	MaxDeltaChainLen: 200,
 	MaxPageItems:     400,
 	MinPageItems:     25,
-	CompareItem:      skiplist.CompareInt,
-	CompareIndex:     skiplist.CompareInt,
+	Compare:          skiplist.CompareInt,
 	ItemSize: func(unsafe.Pointer) uintptr {
 		return unsafe.Sizeof(new(skiplist.IntKeyItem))
 	},

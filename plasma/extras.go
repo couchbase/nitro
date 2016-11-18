@@ -120,7 +120,7 @@ func (pg *page) newPageItemSorter(head *pageDelta) pageItemSorter {
 	}
 
 	return pageItemSorter{
-		cmp:  pg.xcmp,
+		cmp:  pg.cmp,
 		itms: make([]PageItem, 0, chainLen),
 	}
 }

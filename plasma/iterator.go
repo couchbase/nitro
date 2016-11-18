@@ -48,7 +48,7 @@ func (itr *Iterator) initPgIterator(pid PageId, seekItm unsafe.Pointer) {
 		pg := pgPtr.(*page)
 		if !pg.IsEmpty() {
 			itr.nextPid = pg.Next()
-			itr.currPgItr, _ = newPgOpIterator(pg.head, pg.xcmp, seekItm, pg.head.hiItm, itr.acceptor)
+			itr.currPgItr, _ = newPgOpIterator(pg.head, pg.cmp, seekItm, pg.head.hiItm, itr.acceptor)
 			itr.currPgItr.Init()
 		} else {
 			itr.err = err
@@ -65,7 +65,7 @@ func (itr *Iterator) SeekFirst() error {
 
 func (itr *Iterator) Seek(itm unsafe.Pointer) error {
 	var pid PageId
-	if prev, curr, found := itr.store.Skiplist.Lookup(itm, itr.store.icmp, itr.wCtx.buf, itr.wCtx.slSts); found {
+	if prev, curr, found := itr.store.Skiplist.Lookup(itm, itr.store.cmp, itr.wCtx.buf, itr.wCtx.slSts); found {
 		pid = curr
 	} else {
 		pid = prev

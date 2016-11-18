@@ -17,8 +17,7 @@ func newTestPage() (*page, *storePtr) {
 		itemSize: func(unsafe.Pointer) uintptr {
 			return unsafe.Sizeof(new(skiplist.IntKeyItem))
 		},
-		xcmp: skiplist.CompareInt,
-		icmp: skiplist.CompareInt,
+		cmp: skiplist.CompareInt,
 		getPageId: func(unsafe.Pointer, *wCtx) PageId {
 			return nil
 		},
