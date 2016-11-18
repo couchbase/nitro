@@ -41,6 +41,12 @@ type gcAcceptor struct {
 
 func (a *gcAcceptor) Accept(o unsafe.Pointer, _ bool) bool {
 	itm := (*item)(o)
+
+	if a.skip {
+		a.skip = false
+		return false
+	}
+
 	if !itm.IsInsert() && itm.Sn() <= a.gcSn {
 		a.skip = true
 		return false
@@ -56,23 +62,37 @@ func (s *Snapshot) Close() {
 	}
 }
 
-type snapshotIterator struct {
+type MVCCIterator struct {
 	snap *Snapshot
 	ItemIterator
 }
 
-func (itr *snapshotIterator) Close() {
+func (itr *MVCCIterator) Seek(k []byte) {
+	sn := atomic.LoadUint64(&itr.snap.db.currSn)
+	itm := unsafe.Pointer(itr.snap.db.newItem(k, nil, sn, false))
+	itr.ItemIterator.Seek(itm)
+}
+
+func (itr *MVCCIterator) Key() []byte {
+	return (*item)(itr.Get()).Key()
+}
+
+func (itr *MVCCIterator) Value() []byte {
+	return (*item)(itr.Get()).Value()
+}
+
+func (itr *MVCCIterator) Close() {
 	itr.snap.Close()
 }
 
-func (s *Snapshot) NewIterator() ItemIterator {
+func (s *Snapshot) NewIterator() *MVCCIterator {
 	s.Open()
 	itr := s.db.NewIterator().(*Iterator)
 	itr.acceptor = &snAcceptor{
 		sn: s.sn,
 	}
 
-	return &snapshotIterator{
+	return &MVCCIterator{
 		snap:         s,
 		ItemIterator: itr,
 	}
