@@ -147,7 +147,19 @@ func New(cfg Config) (*Plasma, error) {
 	}
 
 	ptWr := s.NewWriter()
-	s.pageTable = newPageTable(sl, cfg.ItemSize, cfg.Compare, ptWr.wCtx.sts)
+
+	var aGetter AcceptorGetter
+	if cfg.EnableShapshots {
+		aGetter = func() Acceptor {
+			return &gcAcceptor{gcSn: atomic.LoadUint64(&s.gcSn)}
+		}
+	} else {
+		aGetter = func() Acceptor {
+			return defaultAcceptor
+		}
+	}
+
+	s.pageTable = newPageTable(sl, cfg.ItemSize, cfg.Compare, aGetter, ptWr.wCtx.sts)
 
 	lss, err := newLSStore(cfg.File, cfg.MaxSize, cfg.FlushBufferSize, 2)
 	if err != nil {
@@ -186,6 +198,7 @@ func (s *Plasma) doInit() {
 
 	s.currSn = 1
 	s.currSnapshot = &Snapshot{
+		sn:       1,
 		refCount: 1,
 		db:       s,
 	}
@@ -607,11 +620,6 @@ refresh:
 	if pg.NeedRemoval() {
 		s.tryPageRemoval(pid, pg, ctx)
 		goto retry
-	}
-
-	if s.EnableShapshots {
-		pg.SetAcceptor(&gcAcceptor{gcSn: atomic.LoadUint64(&s.gcSn)})
-
 	}
 
 	return

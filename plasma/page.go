@@ -71,8 +71,6 @@ type Page interface {
 	// TODO: Clean up later
 	IsEmpty() bool
 	GetLSSOffset() lssOffset
-
-	SetAcceptor(Acceptor)
 }
 
 type ItemIterator interface {
@@ -187,12 +185,14 @@ type flushPageDelta struct {
 type removePageDelta pageDelta
 
 type ItemSizeFn func(unsafe.Pointer) uintptr
+type AcceptorGetter func() Acceptor
 
 type storeCtx struct {
-	itemSize  ItemSizeFn
-	cmp       skiplist.CompareFn
-	getPageId func(unsafe.Pointer, *wCtx) PageId
-	getItem   func(PageId) unsafe.Pointer
+	itemSize    ItemSizeFn
+	cmp         skiplist.CompareFn
+	getPageId   func(unsafe.Pointer, *wCtx) PageId
+	getItem     func(PageId) unsafe.Pointer
+	getAcceptor AcceptorGetter
 }
 
 func (ctx *storeCtx) alloc(sz uintptr) unsafe.Pointer {
@@ -223,8 +223,6 @@ type page struct {
 	prevHeadPtr unsafe.Pointer
 	head        *pageDelta
 	tail        *pageDelta
-
-	acceptor Acceptor
 }
 
 func (pg *page) SetNext(pid PageId) {
@@ -536,7 +534,7 @@ loop:
 func (pg *page) collectItems(head *pageDelta,
 	loItm, hiItm unsafe.Pointer) (itx []unsafe.Pointer, dataSz int) {
 
-	it, fdSz := newPgOpIterator(pg.head, pg.cmp, loItm, hiItm, pg.acceptor)
+	it, fdSz := newPgOpIterator(pg.head, pg.cmp, loItm, hiItm, pg.getAcceptor())
 	var itms []unsafe.Pointer
 	for it.Init(); it.Valid(); it.Next() {
 		itm, _ := it.Get()
@@ -990,7 +988,6 @@ func newPage(ctx *storeCtx, low unsafe.Pointer, ptr unsafe.Pointer) Page {
 		head:        (*pageDelta)(ptr),
 		low:         low,
 		prevHeadPtr: ptr,
-		acceptor:    defaultAcceptor,
 	}
 
 	return pg
@@ -998,7 +995,6 @@ func newPage(ctx *storeCtx, low unsafe.Pointer, ptr unsafe.Pointer) Page {
 
 func newSeedPage() Page {
 	return &page{
-		acceptor: defaultAcceptor,
 		head: &pageDelta{
 			op:           opMetaDelta,
 			hiItm:        skiplist.MaxItem,
@@ -1044,8 +1040,4 @@ func (pg *page) GetLSSOffset() lssOffset {
 	}
 
 	panic("invalid usage")
-}
-
-func (pg *page) SetAcceptor(a Acceptor) {
-	pg.acceptor = a
 }
