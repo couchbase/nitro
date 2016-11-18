@@ -724,7 +724,7 @@ loop:
 				return nil, err
 			}
 			break loop
-		case lssPageData:
+		case lssPageData, lssPageReloc:
 			currPgDelta := &page{
 				storeCtx: s.storeCtx,
 			}
@@ -737,6 +737,8 @@ loop:
 			if !hasChain {
 				break loop
 			}
+		default:
+			panic(fmt.Sprintf("Invalid page data type %d", typ))
 		}
 	}
 
