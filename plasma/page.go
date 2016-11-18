@@ -443,8 +443,11 @@ func (pg *page) Split(pid PageId) Page {
 	if bp != nil {
 		mid = len(bp.items) / 2
 		for mid > 0 {
+			// Make sure that split is performed by different key boundary
 			if pg.cmp(bp.items[mid], pg.head.hiItm) < 0 {
-				break
+				if mid-1 >= 0 && pg.cmp(bp.items[mid], bp.items[mid-1]) > 0 {
+					break
+				}
 			}
 			mid--
 		}

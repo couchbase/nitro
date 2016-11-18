@@ -28,21 +28,7 @@ type pageItemSorter struct {
 
 func (s *pageItemSorter) Run() []PageItem {
 	sort.Stable(s)
-	x, y := 0, 1
-	for y < s.Len() {
-		if s.Less(x, y) {
-			x++
-			if x != y {
-				s.Swap(x, y)
-			}
-		}
-		y++
-	}
-
-	if x < s.Len() {
-		x++
-	}
-	return s.itms[:x]
+	return s.itms
 }
 
 func (s *pageItemSorter) Len() int {

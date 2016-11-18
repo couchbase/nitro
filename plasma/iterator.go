@@ -10,10 +10,22 @@ type Acceptor interface {
 	Accept(unsafe.Pointer, bool) bool
 }
 
-type recAcceptor struct{}
+type recAcceptor struct {
+	skip bool
+}
 
 func (ra *recAcceptor) Accept(itm unsafe.Pointer, isInsert bool) bool {
-	return isInsert
+	if !isInsert {
+		ra.skip = true
+		return false
+	}
+
+	if ra.skip {
+		ra.skip = false
+		return false
+	}
+
+	return true
 }
 
 var defaultAcceptor = new(recAcceptor)
@@ -215,7 +227,6 @@ func (pdm *pdMergeIterator) fetchMin() {
 			pdm.lastIt = pdm.itrs[0]
 		} else if cmpv == 0 {
 			pdm.lastIt = pdm.itrs[0]
-			pdm.itrs[1].Next()
 		} else {
 			pdm.lastIt = pdm.itrs[1]
 		}

@@ -129,25 +129,5 @@ func cmpItem(a, b unsafe.Pointer) int {
 	itma := (*item)(a)
 	itmb := (*item)(b)
 
-	cv := bytes.Compare(itma.Key(), itmb.Key())
-	if cv == 0 {
-		return int(itmb.Sn()) - int(itma.Sn())
-	}
-
-	return cv
-}
-
-func cmpIndex(a, b unsafe.Pointer) int {
-	if a == skiplist.MinItem || b == skiplist.MaxItem {
-		return -1
-	}
-
-	if a == skiplist.MaxItem || b == skiplist.MinItem {
-		return 1
-	}
-
-	itma := (*item)(a)
-	itmb := (*item)(b)
-
 	return bytes.Compare(itma.Key(), itmb.Key())
 }
