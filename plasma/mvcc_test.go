@@ -75,6 +75,36 @@ func TestMVCCSimple(t *testing.T) {
 	}
 }
 
+func TestMVCCLookup(t *testing.T) {
+	os.Remove("teststore.data")
+	s := newTestIntPlasmaStore(testSnCfg)
+	defer s.Close()
+
+	w := s.NewWriter()
+	for i := 0; i < 10000; i++ {
+		w.InsertKV([]byte(fmt.Sprintf("key-%10d", i)), []byte(fmt.Sprintf("val-%10d", i)))
+	}
+
+	k := []byte(fmt.Sprintf("key-%10d", 1000))
+	w.InsertKV(k, []byte(fmt.Sprintf("%d", 1)))
+	w.InsertKV(k, []byte(fmt.Sprintf("%d", 2)))
+	w.InsertKV(k, []byte(fmt.Sprintf("%d", 3)))
+	w.InsertKV(k, []byte(fmt.Sprintf("%d", 4)))
+	w.InsertKV(k, []byte(fmt.Sprintf("%d", 5)))
+
+	v, _ := w.LookupKV(k)
+	if string(v) != "5" {
+		t.Errorf("Expected 5, got %s", v)
+	}
+
+	w.CompactAll()
+
+	v, _ = w.LookupKV(k)
+	if string(v) != "5" {
+		t.Errorf("Expected 5, got %s", v)
+	}
+}
+
 func TestMVCCGarbageCollection(t *testing.T) {
 	os.Remove("teststore.data")
 	s := newTestIntPlasmaStore(testSnCfg)

@@ -121,14 +121,30 @@ func (s *Plasma) NewSnapshot() (snap *Snapshot) {
 	return
 }
 
-func (w *Writer) InsertKV(k, v []byte) {
+func (w *Writer) InsertKV(k, v []byte) error {
 	sn := atomic.LoadUint64(&w.currSn)
 	itm := w.newItem(k, v, sn, false)
-	w.Insert(unsafe.Pointer(itm))
+	return w.Insert(unsafe.Pointer(itm))
 }
 
-func (w *Writer) DeleteKV(k []byte) {
+func (w *Writer) DeleteKV(k []byte) error {
 	sn := atomic.LoadUint64(&w.currSn)
 	itm := w.newItem(k, nil, sn, true)
-	w.Insert(unsafe.Pointer(itm))
+	return w.Insert(unsafe.Pointer(itm))
+}
+
+func (w *Writer) LookupKV(k []byte) ([]byte, error) {
+	itm := w.newItem(k, nil, 0, true)
+	o, err := w.Lookup(unsafe.Pointer(itm))
+
+	if o == nil || err != nil {
+		return nil, err
+	}
+
+	kvItm := (*item)(o)
+	if kvItm.HasValue() {
+		return kvItm.Value(), nil
+	}
+
+	return []byte(""), nil
 }
