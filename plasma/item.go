@@ -2,6 +2,7 @@ package plasma
 
 import (
 	"bytes"
+	"fmt"
 	"github.com/t3rm1n4l/nitro/skiplist"
 	"reflect"
 	"unsafe"
@@ -130,4 +131,13 @@ func cmpItem(a, b unsafe.Pointer) int {
 	itmb := (*item)(b)
 
 	return bytes.Compare(itma.Key(), itmb.Key())
+}
+
+func itemStringer(itm unsafe.Pointer) string {
+	x := (*item)(itm)
+	v := "(nil)"
+	if x.HasValue() {
+		v = string(x.Value())
+	}
+	return fmt.Sprintf("item key:%s val:%s sn:%d insert: %v", string(x.Key()), v, x.Sn(), x.IsInsert())
 }
