@@ -748,3 +748,17 @@ loop:
 func (s *Plasma) logError(err string) {
 	fmt.Printf("Plasma: (fatal error - %s)\n", err)
 }
+
+func (w *Writer) CompactAll() {
+	callb := func(pid PageId, partn RangePartition) error {
+		if pg, err := w.ReadPage(pid, nil, false); err == nil {
+			staleFdSz := pg.Compact()
+			if updated := w.UpdateMapping(pid, pg); updated {
+				w.wCtx.sts.FlushDataSz -= int64(staleFdSz)
+			}
+		}
+		return nil
+	}
+
+	w.PageVisitor(callb, 1)
+}
