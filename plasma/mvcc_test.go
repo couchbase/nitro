@@ -193,12 +193,28 @@ func doInsertMVCC(w *Writer, wg *sync.WaitGroup, id, n int) {
 	}
 }
 
+func doUpdateMVCC(w *Writer, wg *sync.WaitGroup, id, n int, itern int) {
+	defer wg.Done()
+
+	kbuf := make([]byte, 8)
+	vbuf := make([]byte, 8)
+
+	for i := 0; i < n; i++ {
+		val := i + id*n
+		binary.BigEndian.PutUint64(kbuf, uint64(val))
+		binary.BigEndian.PutUint64(vbuf, uint64(itern))
+		w.DeleteKV(kbuf)
+		w.InsertKV(kbuf, vbuf)
+	}
+}
+
 func TestPlasmaMVCCPerf(t *testing.T) {
 	var wg sync.WaitGroup
 
 	os.Remove("teststore.data")
 	numThreads := 8
-	n := 100000000
+	n := 20000000
+	iterations := 5
 	nPerThr := n / numThreads
 	s := newTestIntPlasmaStore(testSnCfg)
 	defer s.Close()
@@ -216,4 +232,24 @@ func TestPlasmaMVCCPerf(t *testing.T) {
 
 	fmt.Println(s.GetStats())
 	fmt.Printf("%d items insert took %v -> %v items/s\n", total, dur, float64(total)/float64(dur.Seconds()))
+
+	s.NewSnapshot().Close()
+
+	for x := 0; x < iterations; x++ {
+		fmt.Println("Starting update iteration ", x)
+		t0 := time.Now()
+		for i := 0; i < numThreads; i++ {
+			wg.Add(1)
+			w := s.NewWriter()
+			go doUpdateMVCC(w, &wg, i, nPerThr, x)
+		}
+		wg.Wait()
+
+		dur := time.Since(t0)
+
+		s.NewSnapshot().Close()
+		fmt.Println(s.GetStats())
+		fmt.Printf("%d items update took %v -> %v items/s\n", total, dur, float64(total)/float64(dur.Seconds()))
+	}
+
 }
