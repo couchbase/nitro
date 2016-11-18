@@ -551,7 +551,7 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 			writeLSSBlock(wbufs[1], lssPageData, pgBuf)
 		}
 
-		if s.UpdateMapping(pid, pg) {
+		if updated = s.UpdateMapping(pid, pg); updated {
 			s.CreateMapping(splitPid, newPg)
 			s.indexPage(splitPid, ctx)
 			ctx.sts.Splits++
@@ -573,10 +573,9 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 
 	} else if !s.isStartPage(pid) && pg.NeedMerge(s.Config.MinPageItems) {
 		pg.Close()
-		if s.UpdateMapping(pid, pg) {
+		if updated = s.UpdateMapping(pid, pg); updated {
 			s.tryPageRemoval(pid, pg, ctx)
 			ctx.sts.Merges++
-			updated = true
 		} else {
 			ctx.sts.MergeConflicts++
 		}
