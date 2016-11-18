@@ -120,6 +120,7 @@ retry:
 
 		if swapin {
 			if !s.UpdateMapping(pid, pg) {
+				atomic.AddInt64(&s.sts.SwapInConflicts, 1)
 				goto retry
 			}
 

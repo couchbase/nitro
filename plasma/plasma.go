@@ -85,6 +85,7 @@ type Stats struct {
 	MergeConflicts   int64
 	InsertConflicts  int64
 	DeleteConflicts  int64
+	SwapInConflicts  int64
 
 	FlushDataSz int64
 	MemSz       int64
@@ -105,6 +106,7 @@ func (s *Stats) Merge(o *Stats) {
 	s.MergeConflicts += o.MergeConflicts
 	s.InsertConflicts += o.InsertConflicts
 	s.DeleteConflicts += o.DeleteConflicts
+	s.SwapInConflicts += o.SwapInConflicts
 
 	s.FlushDataSz += o.FlushDataSz
 	s.MemSz += o.MemSz
@@ -126,6 +128,7 @@ func (s Stats) String() string {
 		"merge_conflicts   = %d\n"+
 		"insert_conflicts  = %d\n"+
 		"delete_conflicts  = %d\n"+
+		"swapin_conflicts  = %d\n"+
 		"flushdata_size    = %d\n"+
 		"memory_size       = %d\n"+
 		"num_pages_swapout = %d\n"+
@@ -135,7 +138,8 @@ func (s Stats) String() string {
 		s.Inserts, s.Deletes, s.CompactConflicts,
 		s.SplitConflicts, s.MergeConflicts,
 		s.InsertConflicts, s.DeleteConflicts,
-		s.FlushDataSz, s.MemSz, s.NumPagesSwapOut,
+		s.SwapInConflicts, s.FlushDataSz,
+		s.MemSz, s.NumPagesSwapOut,
 		s.NumPagesSwapIn)
 }
 
