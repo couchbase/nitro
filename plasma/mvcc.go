@@ -1,9 +1,12 @@
 package plasma
 
 import (
+	"errors"
 	"sync/atomic"
 	"unsafe"
 )
+
+var ErrItemNotFound = errors.New("item not found")
 
 type Snapshot struct {
 	sn       uint64
@@ -134,11 +137,15 @@ func (w *Writer) DeleteKV(k []byte) error {
 }
 
 func (w *Writer) LookupKV(k []byte) ([]byte, error) {
-	itm := w.newItem(k, nil, 0, true)
+	itm := w.newItem(k, nil, 0, false)
 	o, err := w.Lookup(unsafe.Pointer(itm))
 
-	if o == nil || err != nil {
+	if err != nil {
 		return nil, err
+	}
+
+	if o == nil {
+		return nil, ErrItemNotFound
 	}
 
 	kvItm := (*item)(o)

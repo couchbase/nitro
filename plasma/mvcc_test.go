@@ -103,6 +103,11 @@ func TestMVCCLookup(t *testing.T) {
 	if string(v) != "5" {
 		t.Errorf("Expected 5, got %s", v)
 	}
+
+	iv, err := w.LookupKV([]byte("invalid"))
+	if err != ErrItemNotFound && iv == nil {
+		t.Errorf("Expected err, got %v %v", err, iv)
+	}
 }
 
 func TestMVCCGarbageCollection(t *testing.T) {
