@@ -568,8 +568,8 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 			writeLSSBlock(wbufs[1], lssPageData, pgBuf)
 		}
 
+		s.CreateMapping(splitPid, newPg)
 		if updated = s.UpdateMapping(pid, pg); updated {
-			s.CreateMapping(splitPid, newPg)
 			s.indexPage(splitPid, ctx)
 			ctx.sts.Splits++
 
