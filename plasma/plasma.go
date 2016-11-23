@@ -426,7 +426,9 @@ func (s *Plasma) LSSDataSize() int64 {
 
 func (s *Plasma) indexPage(pid PageId, ctx *wCtx) {
 	n := pid.(*skiplist.Node)
-	s.Skiplist.Insert4(n, s.cmp, s.cmp, ctx.buf, n.Level(), false, ctx.slSts)
+	if !s.Skiplist.Insert4(n, s.cmp, s.cmp, ctx.buf, n.Level(), false, ctx.slSts) {
+		panic("duplicate index node")
+	}
 }
 
 func (s *Plasma) unindexPage(pid PageId, ctx *wCtx) {
