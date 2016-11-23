@@ -13,48 +13,6 @@ type PageReader func(offset lssOffset) (Page, error)
 
 const maxCtxBuffers = 3
 
-type Config struct {
-	MaxDeltaChainLen int
-	MaxPageItems     int
-	MinPageItems     int
-	Compare          skiplist.CompareFn
-	ItemSize         ItemSizeFn
-
-	MaxSize             int64
-	File                string
-	FlushBufferSize     int
-	NumPersistorThreads int
-	NumEvictorThreads   int
-
-	LSSCleanerThreshold int
-	AutoLSSCleaning     bool
-	AutoSwapper         bool
-
-	EnableShapshots bool
-
-	// TODO: Remove later
-	MaxMemoryUsage int
-	shouldSwap     func() bool
-}
-
-func applyConfigDefaults(cfg Config) Config {
-	if cfg.NumPersistorThreads == 0 {
-		cfg.NumPersistorThreads = runtime.NumCPU()
-	}
-
-	if cfg.NumEvictorThreads == 0 {
-		cfg.NumEvictorThreads = runtime.NumCPU()
-	}
-
-	// TODO: Remove later
-	if cfg.shouldSwap == nil && cfg.MaxMemoryUsage > 0 {
-		cfg.shouldSwap = func() bool {
-			return ProcessRSS() >= int(0.7*float32(cfg.MaxMemoryUsage))
-		}
-	}
-	return cfg
-}
-
 type Plasma struct {
 	Config
 	*skiplist.Skiplist
