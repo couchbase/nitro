@@ -10,11 +10,11 @@ type Acceptor interface {
 	Accept(unsafe.Pointer, bool) bool
 }
 
-type recAcceptor struct {
+type defaultAcceptor struct {
 	skip bool
 }
 
-func (ra *recAcceptor) Accept(itm unsafe.Pointer, isInsert bool) bool {
+func (ra *defaultAcceptor) Accept(itm unsafe.Pointer, isInsert bool) bool {
 	if !isInsert {
 		ra.skip = true
 		return false
@@ -27,8 +27,6 @@ func (ra *recAcceptor) Accept(itm unsafe.Pointer, isInsert bool) bool {
 
 	return true
 }
-
-var defaultAcceptor = new(recAcceptor)
 
 type Iterator struct {
 	store *Plasma
@@ -44,7 +42,7 @@ type Iterator struct {
 func (s *Plasma) NewIterator() ItemIterator {
 	return &Iterator{
 		store:    s,
-		acceptor: defaultAcceptor,
+		acceptor: new(defaultAcceptor),
 		wCtx: &wCtx{
 			buf:   s.Skiplist.MakeBuf(),
 			slSts: &s.Skiplist.Stats,

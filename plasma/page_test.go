@@ -26,7 +26,7 @@ func newTestPage() (*page, *storePtr) {
 			return skiplist.MaxItem
 		},
 		getAcceptor: func() Acceptor {
-			return defaultAcceptor
+			return new(defaultAcceptor)
 		},
 	}
 

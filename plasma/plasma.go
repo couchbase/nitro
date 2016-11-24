@@ -117,7 +117,7 @@ func New(cfg Config) (*Plasma, error) {
 		}
 	} else {
 		aGetter = func() Acceptor {
-			return defaultAcceptor
+			return new(defaultAcceptor)
 		}
 	}
 
