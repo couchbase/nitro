@@ -1,9 +1,7 @@
 package plasma
 
 import (
-	"fmt"
 	"github.com/t3rm1n4l/nitro/skiplist"
-	"math/rand"
 	"runtime"
 	"unsafe"
 )
@@ -29,7 +27,9 @@ type Config struct {
 
 	// TODO: Remove later
 	MaxMemoryUsage int
-	shouldSwap     func() bool
+
+	shouldSwap    func() bool
+	shouldPersist bool
 }
 
 func applyConfigDefaults(cfg Config) Config {
@@ -47,6 +47,11 @@ func applyConfigDefaults(cfg Config) Config {
 			return ProcessRSS() >= int(0.7*float32(cfg.MaxMemoryUsage))
 		}
 	}
+
+	if cfg.File != "" {
+		cfg.shouldPersist = true
+	}
+
 	return cfg
 }
 
@@ -67,6 +72,5 @@ func DefaultConfig() Config {
 
 		MaxMemoryUsage: 1024 * 1024 * 1024 * 512,
 		MaxSize:        1024 * 1024 * 1024 * 100,
-		File:           fmt.Sprintf("/tmp/plasma-data-%d.db", rand.Int()),
 	}
 }

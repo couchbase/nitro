@@ -403,8 +403,6 @@ func (s *Plasma) tryPageRemoval(pid PageId, pg Page, ctx *wCtx) {
 		return
 	}
 
-	shouldPersist := true
-
 	pPid := PageId(prev)
 	pPg, err := s.ReadPage(pPid, ctx.pgRdrFn, true)
 	if err != nil {
@@ -417,7 +415,7 @@ func (s *Plasma) tryPageRemoval(pid PageId, pg Page, ctx *wCtx) {
 	var metaBuf = ctx.GetBuffer(2)
 	var fdSz, rmFdSz int
 
-	if shouldPersist {
+	if s.shouldPersist {
 		rmPgBuf, fdSz = pg.Marshal(rmPgBuf)
 		pgBuf, rmFdSz = pPg.Marshal(pgBuf)
 		metaBuf = marshalPageSMO(pg, metaBuf)
@@ -431,7 +429,7 @@ func (s *Plasma) tryPageRemoval(pid PageId, pg Page, ctx *wCtx) {
 	var wbufs [][]byte
 	var res lssResource
 
-	if shouldPersist {
+	if s.shouldPersist {
 		sizes := []int{
 			lssBlockTypeSize + len(metaBuf),
 			lssBlockTypeSize + len(rmPgBuf),
@@ -449,12 +447,12 @@ func (s *Plasma) tryPageRemoval(pid PageId, pg Page, ctx *wCtx) {
 	if s.UpdateMapping(pPid, pPg) {
 		s.unindexPage(pid, ctx)
 
-		if shouldPersist {
+		if s.shouldPersist {
 			ctx.sts.FlushDataSz += int64(fdSz)
 			s.lss.FinalizeWrite(res)
 		}
 
-	} else if shouldPersist {
+	} else if s.shouldPersist {
 		discardLSSBlock(wbufs[0])
 		discardLSSBlock(wbufs[1])
 		discardLSSBlock(wbufs[2])
@@ -488,13 +486,12 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 		}
 	} else if pg.NeedSplit(s.Config.MaxPageItems) {
 		splitPid := s.AllocPageId()
-		shouldPersist := true
 
 		var fdSz int
 		var pgBuf = ctx.GetBuffer(0)
 		var splitMetaBuf = ctx.GetBuffer(1)
 
-		if shouldPersist {
+		if s.shouldPersist {
 			pgBuf, fdSz = pg.Marshal(pgBuf)
 		}
 
@@ -515,7 +512,7 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 		var res lssResource
 
 		// Commit split information in lss
-		if shouldPersist {
+		if s.shouldPersist {
 			splitMetaBuf = marshalPageSMO(newPg, splitMetaBuf)
 			sizes := []int{
 				lssBlockTypeSize + len(splitMetaBuf),
@@ -533,7 +530,7 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 			s.indexPage(splitPid, ctx)
 			ctx.sts.Splits++
 
-			if shouldPersist {
+			if s.shouldPersist {
 				ctx.sts.FlushDataSz += int64(fdSz)
 				s.lss.FinalizeWrite(res)
 			}
@@ -541,7 +538,7 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 			ctx.sts.SplitConflicts++
 			s.FreePageId(splitPid)
 
-			if shouldPersist {
+			if s.shouldPersist {
 				discardLSSBlock(wbufs[0])
 				discardLSSBlock(wbufs[1])
 				s.lss.FinalizeWrite(res)
