@@ -324,36 +324,50 @@ func TestPlasmaPersistor(t *testing.T) {
 }
 
 func TestPlasmaRecovery(t *testing.T) {
+	var wg sync.WaitGroup
 	os.Remove("teststore.data")
 	s := newTestIntPlasmaStore(testCfg)
 	defer s.Close()
-	w := s.NewWriter()
-	for i := 0; i < 130000; i++ {
-		w.Insert(skiplist.NewIntKeyItem(i))
+
+	numThreads := 8
+	n := 1000000
+	m := 900000
+	ws := make([]*Writer, numThreads)
+	for i := 0; i < numThreads; i++ {
+		wg.Add(1)
+		w := s.NewWriter()
+		ws[i] = w
+		go doInsert(w, &wg, i, n/numThreads)
 	}
-	for i := 0; i < 100000; i++ {
-		w.Delete(skiplist.NewIntKeyItem(i))
+	wg.Wait()
+
+	for i := 0; i < numThreads; i++ {
+		wg.Add(1)
+		w := ws[i]
+		go doDelete(w, &wg, i, m/numThreads)
 	}
+	wg.Wait()
 
 	fmt.Println(s.GetStats())
+	fmt.Println(s.Skiplist.GetStats())
 	s.PersistAll()
-
 	s.Close()
-	s = newTestIntPlasmaStore(testCfg)
-	w = s.NewWriter()
-	fmt.Println(s.GetStats())
 
+	fmt.Println("***** reopen file *****")
+	s = newTestIntPlasmaStore(testCfg)
+	w := s.NewWriter()
+	fmt.Println(s.GetStats())
 	fmt.Println(s.Skiplist.GetStats())
 
-	for i := 0; i < 100000; i++ {
+	for i := 0; i < m; i++ {
 		itm := skiplist.NewIntKeyItem(i)
 		got, _ := w.Lookup(itm)
 		if got != nil {
-			t.Errorf("expected nil %v", got)
+			t.Errorf("expected nil %v", skiplist.IntFromItem(got))
 		}
 	}
 
-	for i := 100000; i < 130000; i++ {
+	for i := m; i < n; i++ {
 		itm := skiplist.NewIntKeyItem(i)
 		got, _ := w.Lookup(itm)
 		if got == nil {
