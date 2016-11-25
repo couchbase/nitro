@@ -376,6 +376,20 @@ func TestPlasmaRecovery(t *testing.T) {
 			t.Errorf("mismatch %d != %d", i, skiplist.IntFromItem(got))
 		}
 	}
+
+	itr := s.NewIterator()
+	count := 0
+	for itr.SeekFirst(); itr.Valid(); itr.Next() {
+		v := skiplist.IntFromItem(itr.Get())
+		if count+m != v {
+			t.Errorf("Validation: expected %d, got %d", count+m, v)
+		}
+		count++
+	}
+
+	if count != n-m {
+		t.Errorf("Expected %d, got %d", n-m, count)
+	}
 }
 
 func TestPlasmaLSSCleaner(t *testing.T) {
