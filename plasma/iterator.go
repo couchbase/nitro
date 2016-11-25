@@ -283,7 +283,10 @@ loop:
 				fdSz += int(fpd.flushDataSz)
 			}
 		case opPageSplitDelta:
-			high = (*splitPageDelta)(unsafe.Pointer(pd)).itm
+			itm := (*splitPageDelta)(unsafe.Pointer(pd)).itm
+			if cmp(itm, high) < 0 {
+				high = itm
+			}
 		case opPageMergeDelta:
 			deltaItr, fdSz1 := newPgOpIterator(pd.next, cmp, low, high, nil)
 			mergeItr, fdSz2 := newPgOpIterator(

@@ -391,7 +391,9 @@ loop:
 			return nil
 		case opPageSplitDelta:
 			pds := (*splitPageDelta)(unsafe.Pointer(pd))
-			hiItm = pds.itm
+			if pg.cmp(pds.itm, hiItm) < 0 {
+				hiItm = pds.itm
+			}
 		case opPageMergeDelta:
 			pdm := (*mergePageDelta)(unsafe.Pointer(pd))
 			if pg.cmp(itm, pdm.itm) >= 0 {
@@ -675,7 +677,9 @@ loop:
 			}
 		case opPageSplitDelta:
 			pds := (*splitPageDelta)(unsafe.Pointer(pd))
-			hiItm = pds.itm
+			if pg.cmp(pds.itm, hiItm) < 0 {
+				hiItm = pds.itm
+			}
 		case opPageMergeDelta:
 			pdm := (*mergePageDelta)(unsafe.Pointer(pd))
 			var fdSz int
