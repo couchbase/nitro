@@ -475,6 +475,9 @@ func (pg *page) doSplit(itm unsafe.Pointer, pid PageId, numItems int) *page {
 	pg.head = pg.newSplitPageDelta(itm, pid)
 	if numItems >= 0 {
 		pg.head.numItems = uint16(numItems)
+	} else {
+		// During recovery
+		pg.head.numItems /= 2
 	}
 	return splitPage
 }
