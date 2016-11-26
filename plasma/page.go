@@ -226,7 +226,11 @@ type page struct {
 }
 
 func (pg *page) SetNext(pid PageId) {
-	pg.nextPid = pid
+	if pg.head == nil {
+		pg.nextPid = pid
+	} else {
+		pg.head.rightSibling = pid
+	}
 }
 
 func (pg *page) Reset() {

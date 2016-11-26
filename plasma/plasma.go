@@ -258,35 +258,19 @@ func (s *Plasma) doRecovery() error {
 		return err
 	}
 
-	// TODO: Cleanup and fix error handling, rightsibling
-	// Fix rightSibling node pointers
-	// If crash occurs and we miss out some pages which are not persisted,
-	// some ranges became orphans. Hence we need to fix hiItms for the pages
-	itr := s.Skiplist.NewIterator(s.cmp, w.buf)
-	defer itr.Close()
-	p, _ := s.ReadPage(s.StartPageId(), w.wCtx.pgRdrFn, true)
-	pg = p.(*page)
-	if pg != nil && pg.head != nil {
-		itms, _ := pg.collectItems(pg.head, nil, pg.head.hiItm)
-		w.wCtx.sts.Inserts += int64(len(itms))
+	// Initialize rightSiblings for all pages
+	var lastPg Page
+	callb := func(pid PageId, partn RangePartition) error {
+		if lastPg != nil {
+			lastPg.SetNext(pid)
+		}
+
+		pg, err := s.ReadPage(pid, w.pgRdrFn, true)
+		lastPg = pg
+		return err
 	}
 
-	for itr.SeekFirst(); itr.Valid(); itr.Next() {
-		n := itr.GetNode()
-		pid := PageId(n)
-		pg.head.rightSibling = pid
-		pg.head.hiItm = n.Item()
-		p, _ := s.ReadPage(pid, w.wCtx.pgRdrFn, true)
-		pg = p.(*page)
-
-		// TODO: Avoid need for full iteration for counting
-		itms, _ := pg.collectItems(pg.head, nil, pg.head.hiItm)
-		w.wCtx.sts.Inserts += int64(len(itms))
-	}
-
-	if pg != nil && pg.head != nil {
-		pg.head.hiItm = skiplist.MaxItem
-	}
+	s.PageVisitor(callb, 1)
 
 	return err
 }
