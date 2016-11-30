@@ -7,6 +7,7 @@ import (
 )
 
 var ErrItemNotFound = errors.New("item not found")
+var ErrItemNoValue = errors.new("item has no value")
 
 type Snapshot struct {
 	sn       uint64
@@ -153,5 +154,5 @@ func (w *Writer) LookupKV(k []byte) ([]byte, error) {
 		return kvItm.Value(), nil
 	}
 
-	return []byte(""), nil
+	return nil, ErrItemNoValue
 }
