@@ -48,7 +48,10 @@ func applyConfigDefaults(cfg Config) Config {
 		}
 	}
 
-	if cfg.File != "" {
+	if cfg.File == "" {
+		cfg.AutoLSSCleaning = false
+		cfg.AutoSwapper = false
+	} else {
 		cfg.shouldPersist = true
 	}
 

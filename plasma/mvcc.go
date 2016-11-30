@@ -7,7 +7,7 @@ import (
 )
 
 var ErrItemNotFound = errors.New("item not found")
-var ErrItemNoValue = errors.new("item has no value")
+var ErrItemNoValue = errors.New("item has no value")
 
 type Snapshot struct {
 	sn       uint64

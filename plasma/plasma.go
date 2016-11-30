@@ -102,6 +102,8 @@ func (s Stats) String() string {
 }
 
 func New(cfg Config) (*Plasma, error) {
+	var err error
+
 	sl := skiplist.New()
 	s := &Plasma{
 		Config:   applyConfigDefaults(cfg),
@@ -123,31 +125,36 @@ func New(cfg Config) (*Plasma, error) {
 
 	s.pageTable = newPageTable(sl, cfg.ItemSize, cfg.Compare, aGetter, ptWr.wCtx.sts)
 
-	lss, err := newLSStore(cfg.File, cfg.MaxSize, cfg.FlushBufferSize, 2)
-	if err != nil {
-		return nil, err
+	if s.shouldPersist {
+		s.lss, err = newLSStore(cfg.File, cfg.MaxSize, cfg.FlushBufferSize, 2)
+		if err != nil {
+			return nil, err
+		}
+
+		err = s.doRecovery()
 	}
 
-	s.lss = lss
 	s.doInit()
-	err = s.doRecovery()
 
-	s.persistWriters = make([]*Writer, runtime.NumCPU())
-	s.evictWriters = make([]*Writer, runtime.NumCPU())
-	for i, _ := range s.persistWriters {
-		s.persistWriters[i] = s.NewWriter()
-		s.evictWriters[i] = s.NewWriter()
-	}
-	s.lssCleanerWriter = s.NewWriter()
+	if s.shouldPersist {
+		s.persistWriters = make([]*Writer, runtime.NumCPU())
+		s.evictWriters = make([]*Writer, runtime.NumCPU())
+		for i, _ := range s.persistWriters {
+			s.persistWriters[i] = s.NewWriter()
+			s.evictWriters[i] = s.NewWriter()
+		}
+		s.lssCleanerWriter = s.NewWriter()
 
-	s.stoplssgc = make(chan struct{})
-	s.stopswapper = make(chan struct{})
-	if cfg.AutoLSSCleaning {
-		go s.lssCleanerDaemon()
-	}
+		s.stoplssgc = make(chan struct{})
+		s.stopswapper = make(chan struct{})
 
-	if cfg.AutoSwapper {
-		go s.swapperDaemon()
+		if cfg.AutoLSSCleaning {
+			go s.lssCleanerDaemon()
+		}
+
+		if cfg.AutoSwapper {
+			go s.swapperDaemon()
+		}
 	}
 
 	return s, err
@@ -286,7 +293,9 @@ func (s *Plasma) Close() {
 		<-s.stopswapper
 	}
 
-	s.lss.Close()
+	if s.Config.shouldPersist {
+		s.lss.Close()
+	}
 }
 
 type Writer struct {
