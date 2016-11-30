@@ -140,18 +140,18 @@ func (w *Writer) DeleteKV(k []byte) error {
 func (w *Writer) LookupKV(k []byte) ([]byte, error) {
 	itm := w.newItem(k, nil, 0, false)
 	o, err := w.Lookup(unsafe.Pointer(itm))
+	itm = (*item)(o)
 
 	if err != nil {
 		return nil, err
 	}
 
-	if o == nil {
+	if itm == nil || !itm.IsInsert() {
 		return nil, ErrItemNotFound
 	}
 
-	kvItm := (*item)(o)
-	if kvItm.HasValue() {
-		return kvItm.Value(), nil
+	if itm.HasValue() {
+		return itm.Value(), nil
 	}
 
 	return nil, ErrItemNoValue
