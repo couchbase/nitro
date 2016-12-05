@@ -30,6 +30,8 @@ type Config struct {
 
 	shouldSwap    func() bool
 	shouldPersist bool
+
+	MaxSnSyncFrequency int
 }
 
 func applyConfigDefaults(cfg Config) Config {
@@ -53,6 +55,10 @@ func applyConfigDefaults(cfg Config) Config {
 		cfg.AutoSwapper = false
 	} else {
 		cfg.shouldPersist = true
+	}
+
+	if cfg.MaxSnSyncFrequency == 0 {
+		cfg.MaxSnSyncFrequency = 100
 	}
 
 	return cfg

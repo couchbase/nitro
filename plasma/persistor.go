@@ -19,6 +19,8 @@ const (
 	lssPageReloc
 	lssPageSplit
 	lssPageMerge
+	lssRecoveryPoints
+	lssMaxSn
 	lssDiscard
 )
 

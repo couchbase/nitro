@@ -25,6 +25,8 @@ const (
 
 	opFlushPageDelta
 	opRelocPageDelta
+
+	opRollbackDelta
 )
 
 type PageId interface{}
@@ -51,6 +53,7 @@ type Page interface {
 	Split(PageId) Page
 	Merge(Page)
 	Compact() (fdSize int)
+	Rollback(s, end uint64)
 
 	Append(Page)
 	MarshalFull([]byte) (bs []byte, fdSz int, staleFdSz int)
@@ -183,6 +186,11 @@ type flushPageDelta struct {
 }
 
 type removePageDelta pageDelta
+
+type rollbackDelta struct {
+	pageDelta
+	startSn, endSn uint64
+}
 
 type ItemSizeFn func(unsafe.Pointer) uintptr
 type AcceptorGetter func() Acceptor
@@ -899,6 +907,17 @@ loop:
 func (pg *page) AddFlushRecord(offset lssOffset, dataSz int, reloc bool) {
 	fd := pg.newFlushPageDelta(offset, dataSz, reloc)
 	pg.head = (*pageDelta)(unsafe.Pointer(fd))
+}
+
+func (pg *page) Rollback(startSn, endSn uint64) {
+	pd := new(rollbackDelta)
+	*(*pageDelta)(unsafe.Pointer(pd)) = *pg.head
+	pd.next = pg.head
+
+	pd.op = opRollbackDelta
+	pd.startSn = startSn
+	pd.endSn = endSn
+	pg.head = (*pageDelta)(unsafe.Pointer(pd))
 }
 
 func marshalPageSMO(pg Page, buf []byte) []byte {

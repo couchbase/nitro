@@ -1,6 +1,7 @@
 package plasma
 
 import (
+	"encoding/binary"
 	"fmt"
 	"github.com/t3rm1n4l/nitro/skiplist"
 	"runtime"
@@ -27,8 +28,13 @@ type Plasma struct {
 
 	// MVCC metadata
 	currSn       uint64
+	numSnCreated int
 	gcSn         uint64
 	currSnapshot *Snapshot
+
+	minRPSn        uint64
+	rpVersion      uint16
+	recoveryPoints []*RecoveryPoint
 }
 
 type Stats struct {
@@ -115,7 +121,17 @@ func New(cfg Config) (*Plasma, error) {
 	var aGetter AcceptorGetter
 	if cfg.EnableShapshots {
 		aGetter = func() Acceptor {
-			return &gcAcceptor{gcSn: atomic.LoadUint64(&s.gcSn)}
+			var sn uint64
+			gcSn := atomic.LoadUint64(&s.gcSn)
+			rpSn := atomic.LoadUint64(&s.minRPSn)
+
+			if rpSn > 0 && rpSn < gcSn {
+				sn = rpSn
+			} else {
+				sn = gcSn
+			}
+
+			return &gcAcceptor{gcSn: sn}
 		}
 	} else {
 		aGetter = func() Acceptor {
@@ -124,6 +140,10 @@ func New(cfg Config) (*Plasma, error) {
 	}
 
 	s.pageTable = newPageTable(sl, cfg.ItemSize, cfg.Compare, aGetter, ptWr.wCtx.sts)
+
+	pid := s.StartPageId()
+	pg := newSeedPage()
+	s.CreateMapping(pid, pg)
 
 	if s.shouldPersist {
 		s.lss, err = newLSStore(cfg.File, cfg.MaxSize, cfg.FlushBufferSize, 2)
@@ -161,15 +181,19 @@ func New(cfg Config) (*Plasma, error) {
 }
 
 func (s *Plasma) doInit() {
-	pid := s.StartPageId()
-	pg := newSeedPage()
-	s.CreateMapping(pid, pg)
+	if s.EnableShapshots {
+		if s.currSn == 0 {
+			s.currSn = 1
+		}
 
-	s.currSn = 1
-	s.currSnapshot = &Snapshot{
-		sn:       1,
-		refCount: 1,
-		db:       s,
+		s.currSnapshot = &Snapshot{
+			sn:       s.currSn,
+			refCount: 1,
+			db:       s,
+		}
+
+		s.updateMaxSn(s.currSn)
+		s.updateRecoveryPoints(s.recoveryPoints)
 	}
 }
 
@@ -197,6 +221,11 @@ func (s *Plasma) doRecovery() error {
 			doSplit = true
 			splitKey = unmarshalPageSMO(pg, bs[lssBlockTypeSize:])
 			break
+		case lssRecoveryPoints:
+			s.rpVersion, s.recoveryPoints = unmarshalRPs(bs[lssBlockTypeSize:])
+		case lssMaxSn:
+			s.currSn = binary.BigEndian.Uint64(bs[lssBlockTypeSize:])
+			s.gcSn = s.currSn
 		case lssPageMerge:
 			doRmPage = true
 		case lssPageData, lssPageReloc:
