@@ -118,9 +118,9 @@ func New(cfg Config) (*Plasma, error) {
 
 	ptWr := s.NewWriter()
 
-	var aGetter FilterGetter
+	var cfGetter, lfGetter FilterGetter
 	if cfg.EnableShapshots {
-		aGetter = func() ItemFilter {
+		cfGetter = func() ItemFilter {
 			var sn uint64
 			gcSn := atomic.LoadUint64(&s.gcSn)
 			rpSn := atomic.LoadUint64(&s.minRPSn)
@@ -133,13 +133,21 @@ func New(cfg Config) (*Plasma, error) {
 
 			return &gcFilter{gcSn: sn}
 		}
+
+		lfGetter = func() ItemFilter {
+			return &rollbackFilter{}
+		}
 	} else {
-		aGetter = func() ItemFilter {
+		cfGetter = func() ItemFilter {
 			return new(defaultFilter)
+		}
+
+		lfGetter = func() ItemFilter {
+			return &nilFilter
 		}
 	}
 
-	s.pageTable = newPageTable(sl, cfg.ItemSize, cfg.Compare, aGetter, ptWr.wCtx.sts)
+	s.pageTable = newPageTable(sl, cfg.ItemSize, cfg.Compare, cfGetter, lfGetter, ptWr.wCtx.sts)
 
 	pid := s.StartPageId()
 	pg := newSeedPage()

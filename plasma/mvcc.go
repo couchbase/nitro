@@ -20,21 +20,51 @@ type Snapshot struct {
 	meta      []byte
 }
 
+type rollbackSn struct {
+	start, end uint64
+}
+
+type rollbackFilter struct {
+	filters []*rollbackSn
+}
+
+func (f *rollbackFilter) Accept(o unsafe.Pointer, _ bool) bool {
+	itm := (*item)(o)
+	sn := itm.Sn()
+	for _, filter := range f.filters {
+		if sn >= filter.start && sn <= filter.end {
+			return false
+		}
+	}
+
+	return true
+}
+
+func (f *rollbackFilter) AddFilter(o interface{}) {
+	rbf := o.(*rollbackSn)
+	f.filters = append(f.filters, rbf)
+}
+
 // Used by snapshot iterator
 type snFilter struct {
 	sn   uint64
 	skip bool
+	rollbackFilter
 }
 
-func (a *snFilter) Accept(o unsafe.Pointer, _ bool) bool {
+func (f *snFilter) Accept(o unsafe.Pointer, x bool) bool {
+	if !f.rollbackFilter.Accept(o, x) {
+		return false
+	}
+
 	itm := (*item)(o)
-	if a.skip || itm.Sn() > a.sn {
-		a.skip = false
+	if f.skip || itm.Sn() > f.sn {
+		f.skip = false
 		return false
 	}
 
 	if !itm.IsInsert() {
-		a.skip = true
+		f.skip = true
 		return false
 	}
 
@@ -45,18 +75,22 @@ func (a *snFilter) Accept(o unsafe.Pointer, _ bool) bool {
 type gcFilter struct {
 	gcSn uint64
 	skip bool
+	rollbackFilter
 }
 
-func (a *gcFilter) Accept(o unsafe.Pointer, _ bool) bool {
-	itm := (*item)(o)
-
-	if a.skip {
-		a.skip = false
+func (f *gcFilter) Accept(o unsafe.Pointer, x bool) bool {
+	if !f.rollbackFilter.Accept(o, x) {
 		return false
 	}
 
-	if !itm.IsInsert() && itm.Sn() <= a.gcSn {
-		a.skip = true
+	itm := (*item)(o)
+	if f.skip {
+		f.skip = false
+		return false
+	}
+
+	if !itm.IsInsert() && itm.Sn() <= f.gcSn {
+		f.skip = true
 		return false
 	}
 

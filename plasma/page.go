@@ -189,18 +189,23 @@ type removePageDelta pageDelta
 
 type rollbackDelta struct {
 	pageDelta
-	startSn, endSn uint64
+	rb rollbackSn
+}
+
+func (rpd *rollbackDelta) Filter() interface{} {
+	return &rpd.rb
 }
 
 type ItemSizeFn func(unsafe.Pointer) uintptr
 type FilterGetter func() ItemFilter
 
 type storeCtx struct {
-	itemSize  ItemSizeFn
-	cmp       skiplist.CompareFn
-	getPageId func(unsafe.Pointer, *wCtx) PageId
-	getItem   func(PageId) unsafe.Pointer
-	getFilter FilterGetter
+	itemSize         ItemSizeFn
+	cmp              skiplist.CompareFn
+	getPageId        func(unsafe.Pointer, *wCtx) PageId
+	getItem          func(PageId) unsafe.Pointer
+	getCompactFilter FilterGetter
+	getLookupFilter  FilterGetter
 }
 
 func (ctx *storeCtx) alloc(sz uintptr) unsafe.Pointer {
@@ -375,18 +380,19 @@ func (pg *page) equal(itm0, itm1, hi unsafe.Pointer) bool {
 func (pg *page) Lookup(itm unsafe.Pointer) unsafe.Pointer {
 	pd := pg.head
 	hiItm := pg.MaxItem()
+	filter := pg.getLookupFilter()
 
 loop:
 	for pd != nil {
 		switch pd.op {
 		case opInsertDelta:
 			pdr := (*recordDelta)(unsafe.Pointer(pd))
-			if pg.equal(pdr.itm, itm, hiItm) {
+			if filter.Accept(pdr.itm, true) && pg.equal(pdr.itm, itm, hiItm) {
 				return pdr.itm
 			}
 		case opDeleteDelta:
 			pdr := (*recordDelta)(unsafe.Pointer(pd))
-			if pg.equal(pdr.itm, itm, hiItm) {
+			if filter.Accept(pdr.itm, false) && pg.equal(pdr.itm, itm, hiItm) {
 				return nil
 			}
 		case opBasePage:
@@ -396,8 +402,11 @@ loop:
 				return pg.cmp(bp.items[i], itm) >= 0
 			})
 
-			if index < n && pg.equal(bp.items[index], itm, hiItm) {
-				return bp.items[index]
+			for ; index < n && pg.equal(bp.items[index], itm, hiItm); index++ {
+				if filter.Accept(bp.items[index], true) {
+					return bp.items[index]
+				}
+
 			}
 
 			return nil
@@ -412,6 +421,11 @@ loop:
 				pd = pdm.mergeSibling
 				continue loop
 			}
+
+		case opRollbackDelta:
+			rpd := (*rollbackDelta)(unsafe.Pointer(pd))
+			filter.AddFilter(rpd.Filter())
+
 		case opFlushPageDelta:
 		case opRelocPageDelta:
 		case opPageRemoveDelta:
@@ -551,7 +565,7 @@ loop:
 func (pg *page) collectItems(head *pageDelta,
 	loItm, hiItm unsafe.Pointer) (itx []unsafe.Pointer, dataSz int) {
 
-	it, fdSz := newPgOpIterator(pg.head, pg.cmp, loItm, hiItm, pg.getFilter())
+	it, fdSz := newPgOpIterator(pg.head, pg.cmp, loItm, hiItm, pg.getCompactFilter())
 	var itms []unsafe.Pointer
 	for it.Init(); it.Valid(); it.Next() {
 		itm, _ := it.Get()
@@ -754,6 +768,14 @@ loop:
 			if pd.op == opRelocPageDelta {
 				hasReloc = true
 			}
+		case opRollbackDelta:
+			rpd := (*rollbackDelta)(unsafe.Pointer(pd))
+			binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(pd.op))
+			woffset += 2
+			binary.BigEndian.PutUint64(buf[woffset:woffset+8], uint64(rpd.rb.start))
+			woffset += 8
+			binary.BigEndian.PutUint64(buf[woffset:woffset+8], uint64(rpd.rb.end))
+			woffset += 8
 		}
 	}
 
@@ -877,6 +899,25 @@ loop:
 			offset = lssOffset(binary.BigEndian.Uint64(data[roffset : roffset+8]))
 			hasChain = true
 			break loop
+		case opRollbackDelta:
+			chainLen++
+			rpd := &rollbackDelta{
+				pageDelta: pageDelta{
+					op:           op,
+					chainLen:     uint16(chainLen),
+					numItems:     uint16(numItems),
+					state:        state,
+					hiItm:        hiItm,
+					rightSibling: rightSibling,
+				},
+				rb: rollbackSn{
+					start: binary.BigEndian.Uint64(data[roffset : roffset+8]),
+					end:   binary.BigEndian.Uint64(data[roffset+8 : roffset+16]),
+				},
+			}
+
+			roffset += 16
+			pd = (*pageDelta)(unsafe.Pointer(rpd))
 		}
 
 		if lastPd == nil {
@@ -915,8 +956,8 @@ func (pg *page) Rollback(startSn, endSn uint64) {
 	pd.next = pg.head
 
 	pd.op = opRollbackDelta
-	pd.startSn = startSn
-	pd.endSn = endSn
+	pd.rb.start = startSn
+	pd.rb.end = endSn
 	pg.head = (*pageDelta)(unsafe.Pointer(pd))
 }
 

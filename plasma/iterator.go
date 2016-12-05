@@ -8,25 +8,35 @@ import (
 
 type ItemFilter interface {
 	Accept(unsafe.Pointer, bool) bool
+	AddFilter(interface{})
 }
+
+type acceptAllFilter struct{}
+
+func (f *acceptAllFilter) Accept(unsafe.Pointer, bool) bool { return true }
+func (f *acceptAllFilter) AddFilter(interface{})            {}
+
+var nilFilter acceptAllFilter
 
 type defaultFilter struct {
 	skip bool
 }
 
-func (ra *defaultFilter) Accept(itm unsafe.Pointer, isInsert bool) bool {
+func (f *defaultFilter) Accept(itm unsafe.Pointer, isInsert bool) bool {
 	if !isInsert {
-		ra.skip = true
+		f.skip = true
 		return false
 	}
 
-	if ra.skip {
-		ra.skip = false
+	if f.skip {
+		f.skip = false
 		return false
 	}
 
 	return true
 }
+
+func (f *defaultFilter) AddFilter(interface{}) {}
 
 type Iterator struct {
 	store *Plasma
@@ -312,8 +322,10 @@ loop:
 			break loop
 		case opInsertDelta, opDeleteDelta:
 			pdCount++
+		case opRollbackDelta:
+			rpd := (*rollbackDelta)(unsafe.Pointer(pd))
+			filter.AddFilter(rpd.Filter())
 		}
-
 		pd = pd.next
 	}
 
