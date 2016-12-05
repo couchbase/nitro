@@ -21,12 +21,12 @@ type Snapshot struct {
 }
 
 // Used by snapshot iterator
-type snAcceptor struct {
+type snFilter struct {
 	sn   uint64
 	skip bool
 }
 
-func (a *snAcceptor) Accept(o unsafe.Pointer, _ bool) bool {
+func (a *snFilter) Accept(o unsafe.Pointer, _ bool) bool {
 	itm := (*item)(o)
 	if a.skip || itm.Sn() > a.sn {
 		a.skip = false
@@ -42,12 +42,12 @@ func (a *snAcceptor) Accept(o unsafe.Pointer, _ bool) bool {
 }
 
 // Used by page compactor to GC dead snapshot items
-type gcAcceptor struct {
+type gcFilter struct {
 	gcSn uint64
 	skip bool
 }
 
-func (a *gcAcceptor) Accept(o unsafe.Pointer, _ bool) bool {
+func (a *gcFilter) Accept(o unsafe.Pointer, _ bool) bool {
 	itm := (*item)(o)
 
 	if a.skip {
@@ -96,7 +96,7 @@ func (itr *MVCCIterator) Close() {
 func (s *Snapshot) NewIterator() *MVCCIterator {
 	s.Open()
 	itr := s.db.NewIterator().(*Iterator)
-	itr.acceptor = &snAcceptor{
+	itr.filter = &snFilter{
 		sn: s.sn,
 	}
 

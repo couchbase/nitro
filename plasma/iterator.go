@@ -6,15 +6,15 @@ import (
 	"unsafe"
 )
 
-type Acceptor interface {
+type ItemFilter interface {
 	Accept(unsafe.Pointer, bool) bool
 }
 
-type defaultAcceptor struct {
+type defaultFilter struct {
 	skip bool
 }
 
-func (ra *defaultAcceptor) Accept(itm unsafe.Pointer, isInsert bool) bool {
+func (ra *defaultFilter) Accept(itm unsafe.Pointer, isInsert bool) bool {
 	if !isInsert {
 		ra.skip = true
 		return false
@@ -34,15 +34,15 @@ type Iterator struct {
 	currPid   PageId
 	nextPid   PageId
 	currPgItr pgOpIterator
-	acceptor  Acceptor
+	filter    ItemFilter
 
 	err error
 }
 
 func (s *Plasma) NewIterator() ItemIterator {
 	return &Iterator{
-		store:    s,
-		acceptor: new(defaultAcceptor),
+		store:  s,
+		filter: new(defaultFilter),
 		wCtx: &wCtx{
 			buf:   s.Skiplist.MakeBuf(),
 			slSts: &s.Skiplist.Stats,
@@ -58,7 +58,7 @@ func (itr *Iterator) initPgIterator(pid PageId, seekItm unsafe.Pointer) {
 		pg := pgPtr.(*page)
 		if !pg.IsEmpty() {
 			itr.nextPid = pg.Next()
-			itr.currPgItr, _ = newPgOpIterator(pg.head, pg.cmp, seekItm, pg.head.hiItm, itr.acceptor)
+			itr.currPgItr, _ = newPgOpIterator(pg.head, pg.cmp, seekItm, pg.head.hiItm, itr.filter)
 			itr.currPgItr.Init()
 		} else {
 			itr.err = err
@@ -196,7 +196,7 @@ type pdMergeIterator struct {
 	itrs   [2]pgOpIterator
 	lastIt pgOpIterator
 	cmp    skiplist.CompareFn
-	Acceptor
+	ItemFilter
 }
 
 func (pdm *pdMergeIterator) Init() {
@@ -234,7 +234,7 @@ func (pdm *pdMergeIterator) fetchMin() {
 		pdm.lastIt = pdm.itrs[1]
 	}
 
-	if pdm.Acceptor != nil && pdm.Valid() {
+	if pdm.ItemFilter != nil && pdm.Valid() {
 		if !pdm.Accept(pdm.lastIt.Get()) {
 			pdm.Next()
 		}
@@ -260,10 +260,10 @@ type pgOpIterator interface {
 }
 
 func newPgOpIterator(pd *pageDelta, cmp skiplist.CompareFn,
-	low, high unsafe.Pointer, acceptor Acceptor) (iter pgOpIterator, fdSz int) {
+	low, high unsafe.Pointer, filter ItemFilter) (iter pgOpIterator, fdSz int) {
 
 	var hasReloc bool
-	m := &pdMergeIterator{cmp: cmp, Acceptor: acceptor}
+	m := &pdMergeIterator{cmp: cmp, ItemFilter: filter}
 	startPd := pd
 	pdCount := 0
 
@@ -291,7 +291,7 @@ loop:
 			deltaItr, fdSz1 := newPgOpIterator(pd.next, cmp, low, high, nil)
 			mergeItr, fdSz2 := newPgOpIterator(
 				(*mergePageDelta)(unsafe.Pointer(pd)).mergeSibling,
-				cmp, low, high, acceptor)
+				cmp, low, high, filter)
 
 			if !hasReloc {
 				fdSz += fdSz1 + fdSz2

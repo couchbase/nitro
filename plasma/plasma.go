@@ -118,9 +118,9 @@ func New(cfg Config) (*Plasma, error) {
 
 	ptWr := s.NewWriter()
 
-	var aGetter AcceptorGetter
+	var aGetter FilterGetter
 	if cfg.EnableShapshots {
-		aGetter = func() Acceptor {
+		aGetter = func() ItemFilter {
 			var sn uint64
 			gcSn := atomic.LoadUint64(&s.gcSn)
 			rpSn := atomic.LoadUint64(&s.minRPSn)
@@ -131,11 +131,11 @@ func New(cfg Config) (*Plasma, error) {
 				sn = gcSn
 			}
 
-			return &gcAcceptor{gcSn: sn}
+			return &gcFilter{gcSn: sn}
 		}
 	} else {
-		aGetter = func() Acceptor {
-			return new(defaultAcceptor)
+		aGetter = func() ItemFilter {
+			return new(defaultFilter)
 		}
 	}
 

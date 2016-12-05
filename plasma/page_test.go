@@ -25,8 +25,8 @@ func newTestPage() (*page, *storePtr) {
 		getItem: func(PageId) unsafe.Pointer {
 			return skiplist.MaxItem
 		},
-		getAcceptor: func() Acceptor {
-			return new(defaultAcceptor)
+		getFilter: func() ItemFilter {
+			return new(defaultFilter)
 		},
 	}
 

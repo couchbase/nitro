@@ -193,14 +193,14 @@ type rollbackDelta struct {
 }
 
 type ItemSizeFn func(unsafe.Pointer) uintptr
-type AcceptorGetter func() Acceptor
+type FilterGetter func() ItemFilter
 
 type storeCtx struct {
-	itemSize    ItemSizeFn
-	cmp         skiplist.CompareFn
-	getPageId   func(unsafe.Pointer, *wCtx) PageId
-	getItem     func(PageId) unsafe.Pointer
-	getAcceptor AcceptorGetter
+	itemSize  ItemSizeFn
+	cmp       skiplist.CompareFn
+	getPageId func(unsafe.Pointer, *wCtx) PageId
+	getItem   func(PageId) unsafe.Pointer
+	getFilter FilterGetter
 }
 
 func (ctx *storeCtx) alloc(sz uintptr) unsafe.Pointer {
@@ -551,7 +551,7 @@ loop:
 func (pg *page) collectItems(head *pageDelta,
 	loItm, hiItm unsafe.Pointer) (itx []unsafe.Pointer, dataSz int) {
 
-	it, fdSz := newPgOpIterator(pg.head, pg.cmp, loItm, hiItm, pg.getAcceptor())
+	it, fdSz := newPgOpIterator(pg.head, pg.cmp, loItm, hiItm, pg.getFilter())
 	var itms []unsafe.Pointer
 	for it.Init(); it.Valid(); it.Next() {
 		itm, _ := it.Get()

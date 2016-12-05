@@ -27,7 +27,7 @@ type pageTable struct {
 }
 
 func newPageTable(sl *skiplist.Skiplist, itmSize ItemSizeFn,
-	cmp skiplist.CompareFn, getAcceptor AcceptorGetter, sts *Stats) *pageTable {
+	cmp skiplist.CompareFn, getFilter FilterGetter, sts *Stats) *pageTable {
 
 	pt := &pageTable{
 		Skiplist: sl,
@@ -59,7 +59,7 @@ func newPageTable(sl *skiplist.Skiplist, itmSize ItemSizeFn,
 			}
 			return pid.(*skiplist.Node).Item()
 		},
-		getAcceptor: getAcceptor,
+		getFilter: getFilter,
 	}
 
 	return pt
