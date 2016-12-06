@@ -89,6 +89,18 @@ func (s *Plasma) CleanLSS(proceed func() bool) error {
 			}
 			s.Unlock()
 			return true, endOff, relocOff, nil
+		} else if typ == lssDiscard {
+			return true, endOff, relocOff, nil
+		} else if typ == lssMaxSn {
+			maxSn := decodeMaxSn(bs[lssBlockTypeSize:])
+			s.Lock()
+			if maxSn <= atomic.LoadUint64(&s.lastMaxSn) {
+				s.updateMaxSn(atomic.LoadUint64(&s.currSn), true)
+			}
+			s.Unlock()
+
+		} else {
+			panic(fmt.Sprintf("unknown block typ %d", typ))
 		}
 
 		return true, endOff, relocOff, nil

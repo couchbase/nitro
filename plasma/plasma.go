@@ -1,7 +1,6 @@
 package plasma
 
 import (
-	"encoding/binary"
 	"fmt"
 	"github.com/t3rm1n4l/nitro/skiplist"
 	"runtime"
@@ -32,6 +31,7 @@ type Plasma struct {
 	gcSn         uint64
 	currSnapshot *Snapshot
 
+	lastMaxSn      uint64
 	minRPSn        uint64
 	rpVersion      uint16
 	recoveryPoints []*RecoveryPoint
@@ -200,7 +200,7 @@ func (s *Plasma) doInit() {
 			db:       s,
 		}
 
-		s.updateMaxSn(s.currSn)
+		s.updateMaxSn(s.currSn, true)
 		s.updateRecoveryPoints(s.recoveryPoints)
 	}
 }
@@ -232,7 +232,7 @@ func (s *Plasma) doRecovery() error {
 		case lssRecoveryPoints:
 			s.rpVersion, s.recoveryPoints = unmarshalRPs(bs[lssBlockTypeSize:])
 		case lssMaxSn:
-			s.currSn = binary.BigEndian.Uint64(bs[lssBlockTypeSize:])
+			s.currSn = decodeMaxSn(bs[lssBlockTypeSize:])
 			s.gcSn = s.currSn
 		case lssPageMerge:
 			doRmPage = true

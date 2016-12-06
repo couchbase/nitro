@@ -145,6 +145,13 @@ func (s *Snapshot) Open() {
 }
 
 func (s *Plasma) NewSnapshot() (snap *Snapshot) {
+	s.Lock()
+	defer s.Unlock()
+	return s.newSnapshot()
+}
+
+func (s *Plasma) newSnapshot() (snap *Snapshot) {
+
 	if !s.EnableShapshots {
 		panic("snapshots not enabled")
 	}
@@ -159,7 +166,7 @@ func (s *Plasma) NewSnapshot() (snap *Snapshot) {
 
 	s.currSnapshot.child = nextSnap
 	s.currSnapshot = nextSnap
-	s.updateMaxSn(nextSnap.sn)
+	s.updateMaxSn(nextSnap.sn, false)
 
 	return
 }
@@ -278,7 +285,7 @@ func (s *Plasma) Rollback(rollRP *RecoveryPoint) (*Snapshot, error) {
 
 	s.lss.Sync()
 
-	newSnap := s.NewSnapshot()
+	newSnap := s.newSnapshot()
 	var newRpts []*RecoveryPoint
 	for _, rp := range s.recoveryPoints {
 		if rp.sn <= rollRP.sn {
@@ -351,16 +358,22 @@ func unmarshalRPs(bs []byte) (version uint16, rps []*RecoveryPoint) {
 	return
 }
 
-func (s *Plasma) updateMaxSn(sn uint64) {
+func (s *Plasma) updateMaxSn(sn uint64, force bool) {
 	freq := s.MaxSnSyncFrequency
-	if s.numSnCreated%freq == 0 {
+	if s.numSnCreated%freq == 0 || force {
 		var bs [8]byte
-		binary.BigEndian.PutUint64(bs[:], sn+uint64(freq+1))
+		maxSn := sn + uint64(freq+1)
+		binary.BigEndian.PutUint64(bs[:], maxSn)
 		_, wbuf, res := s.lss.ReserveSpace(len(bs) + lssBlockTypeSize)
 		writeLSSBlock(wbuf, lssMaxSn, bs[:])
 		s.lss.FinalizeWrite(res)
 		s.lss.Sync()
+		s.lastMaxSn = maxSn
 	}
 
 	s.numSnCreated++
+}
+
+func decodeMaxSn(data []byte) uint64 {
+	return binary.BigEndian.Uint64(data)
 }
