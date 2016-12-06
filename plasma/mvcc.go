@@ -251,11 +251,20 @@ func (s *Plasma) Rollback(rollRP *RecoveryPoint) (*Snapshot, error) {
 
 	callb := func(pid PageId, partn RangePartition) error {
 		w := s.persistWriters[partn.Shard]
+		pgBuf := w.GetBuffer(0)
 		if pg, err := s.ReadPage(pid, w.pgRdrFn, true); err == nil {
 			pg.Rollback(start, end)
+			pgBuf, fdSz := pg.Marshal(pgBuf)
+			offset, wbuf, res := s.lss.ReserveSpace(len(pgBuf))
+			writeLSSBlock(wbuf, lssPageData, pgBuf)
+			pg.AddFlushRecord(offset, fdSz, false)
+			s.lss.FinalizeWrite(res)
+			w.wCtx.sts.FlushDataSz += int64(fdSz)
+
 			if !s.UpdateMapping(pid, pg) {
 				panic("rollback update should not fail")
 			}
+
 		} else {
 			return err
 		}
@@ -266,6 +275,8 @@ func (s *Plasma) Rollback(rollRP *RecoveryPoint) (*Snapshot, error) {
 	if err := s.PageVisitor(callb, s.NumPersistorThreads); err != nil {
 		return nil, err
 	}
+
+	s.lss.Sync()
 
 	newSnap := s.NewSnapshot()
 	var newRpts []*RecoveryPoint
