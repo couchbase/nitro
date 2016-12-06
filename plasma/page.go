@@ -493,7 +493,7 @@ func (pg *page) doSplit(itm unsafe.Pointer, pid PageId, numItems int) *page {
 	splitPage.prevHeadPtr = nil
 	itms, _ := pg.collectItems(pg.head, itm, pg.head.hiItm)
 	splitPage.head = pg.newBasePage(itms)
-	splitPage.low = (*basePage)(unsafe.Pointer(splitPage.head)).items[0]
+	splitPage.low = pg.dup(itm)
 	pg.head = pg.newSplitPageDelta(itm, pid)
 	if numItems >= 0 {
 		pg.head.numItems = uint16(numItems)
