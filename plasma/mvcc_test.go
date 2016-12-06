@@ -258,3 +258,111 @@ func TestPlasmaMVCCPerf(t *testing.T) {
 	}
 
 }
+
+func TestPlasmaRecoveryPoint(t *testing.T) {
+	os.Remove("teststore.data")
+	s := newTestIntPlasmaStore(testSnCfg)
+
+	w := s.NewWriter()
+	for i := 1; i < 100000; i++ {
+		w.InsertKV([]byte(fmt.Sprintf("key-%10d", i)), []byte(fmt.Sprintf("val-%10d", i)))
+		if i%1000 == 0 {
+			snap := s.NewSnapshot()
+			if i%10000 == 0 {
+				s.CreateRecoveryPoint(snap, []byte(fmt.Sprint(i)))
+			}
+			snap.Close()
+		}
+	}
+
+	rpts := s.GetRecoveryPoints()
+	l := len(rpts)
+	for i := 0; i < l-4; i++ {
+		s.RemoveRecoveryPoint(rpts[i])
+	}
+
+	fmt.Printf("(1) Recovery points gcSn:%d, minRPSn:%d\n", s.gcSn, s.minRPSn)
+	for _, rpt := range s.GetRecoveryPoints() {
+		fmt.Printf("recovery_point sn:%d meta:%s\n", rpt.sn, string(rpt.meta))
+	}
+
+	s.PersistAll()
+	s.Close()
+
+	fmt.Println("Reopening database...")
+	s = newTestIntPlasmaStore(testSnCfg)
+
+	fmt.Printf("(2) Recovery points gcSn:%d, minRPSn:%d\n", s.gcSn, s.minRPSn)
+	for _, rpt := range s.GetRecoveryPoints() {
+		fmt.Printf("recovery_point sn:%d meta:%s\n", rpt.sn, string(rpt.meta))
+	}
+
+	rpts = s.GetRecoveryPoints()
+	rb := rpts[2]
+	snap, _ := s.Rollback(rb)
+	fmt.Println("Rollbacked to", string(rb.meta))
+
+	itr := snap.NewIterator()
+	count := 0
+	for itr.SeekFirst(); itr.Valid(); itr.Next() {
+		count++
+	}
+
+	var expected1 int
+	fmt.Sscan(string(rb.meta), &expected1)
+	if count != expected1 {
+		t.Errorf("Expected %d, got %d", expected1, count)
+	}
+
+	w = s.NewWriter()
+	for i := 1; i < 100000; i++ {
+		w.InsertKV([]byte(fmt.Sprintf("key-%10d", i+100000)), []byte(fmt.Sprintf("val-%10d", i+100000)))
+		if i%1000 == 0 {
+			snap := s.NewSnapshot()
+			if i%10000 == 0 {
+				s.CreateRecoveryPoint(snap, []byte(fmt.Sprint(i+100000)))
+			}
+			snap.Close()
+		}
+	}
+
+	s.Close()
+
+	fmt.Println("Reopening database...")
+	s = newTestIntPlasmaStore(testSnCfg)
+
+	w = s.NewWriter()
+	fmt.Printf("(3) Recovery points gcSn:%d, minRPSn:%d\n", s.gcSn, s.minRPSn)
+	for _, rpt := range s.GetRecoveryPoints() {
+		fmt.Printf("recovery_point sn:%d meta:%s\n", rpt.sn, string(rpt.meta))
+	}
+
+	rpts = s.GetRecoveryPoints()
+	rb = rpts[8]
+	snap, _ = s.Rollback(rb)
+	fmt.Println("Rollbacked to", string(rb.meta))
+
+	itr = snap.NewIterator()
+	count = 0
+	for itr.SeekFirst(); itr.Valid(); itr.Next() {
+		count++
+	}
+
+	var expected2 int
+	fmt.Sscan(string(rb.meta), &expected2)
+	expected2 = expected2 - 100000 + expected1
+	if count != expected2 {
+		t.Errorf("Expected %d, got %d", expected2, count)
+	}
+
+	v, err := w.LookupKV([]byte(fmt.Sprintf("key-%10d", 120000)))
+	if err != nil || string(v) != fmt.Sprintf("val-%10d", 120000) {
+		t.Errorf("invalid response %v %s", err, string(v))
+	}
+
+	_, err = w.LookupKV([]byte(fmt.Sprintf("key-%10d", 90000)))
+	if err != ErrItemNotFound {
+		t.Errorf("Expected not found")
+	}
+
+}
