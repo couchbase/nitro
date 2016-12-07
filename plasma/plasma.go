@@ -25,7 +25,8 @@ type Plasma struct {
 	stoplssgc, stopswapper chan struct{}
 	sync.RWMutex
 
-	// MVCC metadata
+	// MVCC data structures
+	mvcc         sync.RWMutex
 	currSn       uint64
 	numSnCreated int
 	gcSn         uint64

@@ -145,8 +145,8 @@ func (s *Snapshot) Open() {
 }
 
 func (s *Plasma) NewSnapshot() (snap *Snapshot) {
-	s.Lock()
-	defer s.Unlock()
+	s.mvcc.Lock()
+	defer s.mvcc.Unlock()
 	return s.newSnapshot()
 }
 
@@ -227,8 +227,8 @@ func (s *Plasma) updateRecoveryPoints(rps []*RecoveryPoint) {
 
 func (s *Plasma) CreateRecoveryPoint(sn *Snapshot, meta []byte) error {
 	if s.shouldPersist {
-		s.Lock()
-		defer s.Unlock()
+		s.mvcc.Lock()
+		defer s.mvcc.Unlock()
 
 		rp := &RecoveryPoint{
 			sn:   sn.sn,
@@ -244,14 +244,14 @@ func (s *Plasma) CreateRecoveryPoint(sn *Snapshot, meta []byte) error {
 }
 
 func (s *Plasma) GetRecoveryPoints() []*RecoveryPoint {
-	s.RLock()
-	defer s.RUnlock()
+	s.mvcc.RLock()
+	defer s.mvcc.RUnlock()
 	return s.recoveryPoints
 }
 
 func (s *Plasma) Rollback(rollRP *RecoveryPoint) (*Snapshot, error) {
-	s.Lock()
-	defer s.Unlock()
+	s.mvcc.Lock()
+	defer s.mvcc.Unlock()
 
 	start := rollRP.sn + 1
 	end := s.currSn
@@ -301,8 +301,8 @@ func (s *Plasma) Rollback(rollRP *RecoveryPoint) (*Snapshot, error) {
 }
 
 func (s *Plasma) RemoveRecoveryPoint(rmRP *RecoveryPoint) {
-	s.Lock()
-	defer s.Unlock()
+	s.mvcc.Lock()
+	defer s.mvcc.Unlock()
 
 	var newRpts []*RecoveryPoint
 	for _, rp := range s.recoveryPoints {
