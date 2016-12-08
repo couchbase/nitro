@@ -3,6 +3,8 @@ package plasma
 import (
 	"encoding/binary"
 	"errors"
+	"hash/crc32"
+	"io"
 	"os"
 	"runtime"
 	"sync"
@@ -10,8 +12,12 @@ import (
 	"unsafe"
 )
 
+const lssVersion = 0
+const headerSize = superBlockSize * 2
 const superBlockSize = 4096
 const lssReclaimBlockSize = 1024 * 1024 * 8
+
+var ErrCorruptSuperBlock = errors.New("Superblock is corrupted")
 
 type lssOffset uint64
 type lssResource interface{}
@@ -34,6 +40,9 @@ type lsStore struct {
 	maxSize    int64
 	headOffset int64
 	tailOffset int64
+
+	// Generation number
+	superBlockGen uint64
 
 	// Cleaner updates this pair during relocation
 	cleanerHeadOffset, cleanerRelocEnd int64
@@ -73,7 +82,9 @@ func newLSStore(file string, maxSize int64, bufSize int, nbufs int) (*lsStore, e
 	}
 
 	s.head = s.flushBufs[0]
-	s.loadSuperBlock()
+	if err := s.loadSuperBlock(); err != nil {
+		return nil, err
+	}
 	s.head.baseOffset = s.tailOffset
 
 	return s, nil
@@ -81,37 +92,94 @@ func newLSStore(file string, maxSize int64, bufSize int, nbufs int) (*lsStore, e
 
 func (s *lsStore) Close() {
 	s.Sync()
-	s.updateSuperBlock()
 	s.w.Close()
 	s.r.Close()
 }
 
-func (s *lsStore) updateSuperBlock() {
-	buf := s.sbBuffer[:]
+func encodeSuperblock(buf []byte, headOffset, tailOffset int64, gen uint64) {
 	woffset := 0
-	// version
-	binary.BigEndian.PutUint32(buf[woffset:woffset+4], uint32(0))
+	binary.BigEndian.PutUint32(buf[woffset:woffset+4], uint32(lssVersion))
 	woffset += 4
 
-	// headOffset
-	binary.BigEndian.PutUint64(buf[woffset:woffset+8], uint64(atomic.LoadInt64(&s.headOffset)))
+	binary.BigEndian.PutUint64(buf[woffset:woffset+8], uint64(gen))
 	woffset += 8
 
-	// tailOffset
-	binary.BigEndian.PutUint64(buf[woffset:woffset+8], uint64(atomic.LoadInt64(&s.tailOffset)))
+	binary.BigEndian.PutUint64(buf[woffset:woffset+8], uint64(headOffset))
 	woffset += 8
 
-	s.w.WriteAt(buf, 0)
+	binary.BigEndian.PutUint64(buf[woffset:woffset+8], uint64(tailOffset))
+	woffset += 8
+
+	hash := crc32.ChecksumIEEE(buf[:superBlockSize-4])
+	binary.BigEndian.PutUint32(buf[superBlockSize-4:superBlockSize], hash)
 }
 
-func (s *lsStore) loadSuperBlock() {
-	buf := s.sbBuffer[:]
+func decodeSuperblock(buf []byte) (headOffset, tailOffset int64, gen uint64, err error) {
 	roffset := 4
-
-	s.r.ReadAt(buf, 0)
-	s.headOffset = int64(binary.BigEndian.Uint64(buf[roffset : roffset+8]))
+	gen = binary.BigEndian.Uint64(buf[roffset : roffset+8])
 	roffset += 8
-	s.tailOffset = int64(binary.BigEndian.Uint64(buf[roffset : roffset+8]))
+	headOffset = int64(binary.BigEndian.Uint64(buf[roffset : roffset+8]))
+	roffset += 8
+	tailOffset = int64(binary.BigEndian.Uint64(buf[roffset : roffset+8]))
+	roffset += 8
+
+	hash := binary.BigEndian.Uint32(buf[superBlockSize-4 : superBlockSize])
+	computedHash := crc32.ChecksumIEEE(buf[:superBlockSize-4])
+	if hash != computedHash {
+		err = ErrCorruptSuperBlock
+	}
+
+	return
+}
+
+func (s *lsStore) updateSuperBlock(headOffset, tailOffset int64) {
+	buf := s.sbBuffer[:]
+	encodeSuperblock(buf, headOffset, tailOffset, s.superBlockGen)
+	offset := int64(superBlockSize * (s.superBlockGen % 2))
+	s.w.WriteAt(buf, offset)
+	s.superBlockGen++
+}
+
+func (s *lsStore) loadSuperBlock() error {
+	buf := s.sbBuffer[:]
+
+	var headOffsets, tailOffsets [2]int64
+	var gens [2]uint64
+	var errs [2]error
+
+	if _, err := s.r.ReadAt(buf, 0); err != nil && err != io.EOF {
+		return err
+	} else if err == nil {
+		headOffsets[0], tailOffsets[0], gens[0], errs[0] = decodeSuperblock(buf)
+
+		if _, err := s.r.ReadAt(buf, superBlockSize); err != nil && err != io.EOF {
+			return err
+		}
+		headOffsets[1], tailOffsets[1], gens[1], errs[1] = decodeSuperblock(buf)
+
+		var sbIndex int
+		if errs[0] == nil && errs[1] == nil {
+			if gens[0] < gens[1] {
+				sbIndex = 1
+			} else {
+				sbIndex = 0
+			}
+		} else if errs[0] == nil {
+			sbIndex = 0
+		} else if errs[1] == nil {
+			sbIndex = 1
+		} else {
+			return ErrCorruptSuperBlock
+		}
+
+		s.headOffset, s.tailOffset = headOffsets[sbIndex], tailOffsets[sbIndex]
+		s.superBlockGen = gens[sbIndex] + 1
+
+	}
+
+	s.updateSuperBlock(s.headOffset, s.tailOffset)
+	s.w.Sync()
+	return nil
 }
 
 func (s *lsStore) UsedSpace() int64 {
@@ -136,13 +204,14 @@ func (s *lsStore) flush(fb *flushBuffer) {
 	if fpos+size > s.maxSize {
 		bs := fb.Bytes()
 		tailSz := s.maxSize - fpos
-		s.w.WriteAt(bs[tailSz:], superBlockSize+0)
-		s.w.WriteAt(bs[:tailSz], superBlockSize+fpos)
+		s.w.WriteAt(bs[tailSz:], headerSize+0)
+		s.w.WriteAt(bs[:tailSz], headerSize+fpos)
 	} else {
-		s.w.WriteAt(fb.Bytes(), superBlockSize+fpos)
+		s.w.WriteAt(fb.Bytes(), headerSize+fpos)
 	}
 
-	atomic.StoreInt64(&s.tailOffset, fb.EndOffset())
+	tailOffset := fb.EndOffset()
+	atomic.StoreInt64(&s.tailOffset, tailOffset)
 	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&s.head)),
 		unsafe.Pointer(fb.NextBuffer()))
 
@@ -153,7 +222,8 @@ func (s *lsStore) flush(fb *flushBuffer) {
 		atomic.StoreInt64(&s.headOffset, headOffset)
 	}
 
-	s.updateSuperBlock()
+	s.updateSuperBlock(headOffset, tailOffset)
+	s.w.Sync()
 	fb.Reset()
 }
 
@@ -202,15 +272,15 @@ func (s *lsStore) readBlock(off int64, buf []byte) error {
 
 	if fpos+int64(len(buf)) > s.maxSize {
 		tailSz := s.maxSize - fpos
-		if _, err := s.r.ReadAt(buf[:tailSz], superBlockSize+fpos); err != nil {
+		if _, err := s.r.ReadAt(buf[:tailSz], headerSize+fpos); err != nil {
 			return err
 		}
 
-		if _, err := s.r.ReadAt(buf[tailSz:], superBlockSize+0); err != nil {
+		if _, err := s.r.ReadAt(buf[tailSz:], headerSize+0); err != nil {
 			return err
 		}
 	} else {
-		if _, err := s.r.ReadAt(buf, superBlockSize+fpos); err != nil {
+		if _, err := s.r.ReadAt(buf, headerSize+fpos); err != nil {
 			return err
 		}
 	}
@@ -332,8 +402,6 @@ func (s *lsStore) Sync() {
 		}
 		runtime.Gosched()
 	}
-
-	s.w.Sync()
 }
 
 var errFBReadFailed = errors.New("flushBuffer read failed")

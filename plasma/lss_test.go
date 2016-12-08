@@ -15,7 +15,10 @@ func TestLSSBasic(t *testing.T) {
 	nbuffers := 4
 
 	os.Remove("test.data")
-	lss, _ := newLSStore("test.data", maxSize, BufSize, nbuffers)
+	lss, err := newLSStore("test.data", maxSize, BufSize, nbuffers)
+	if err != nil {
+		panic(err)
+	}
 
 	n := 8000
 	var offs []lssOffset
@@ -148,7 +151,10 @@ func TestLSSSuperBlock(t *testing.T) {
 	freeSpace := int64(5 * 1024 * 1024)
 
 	os.Remove("test.data")
-	lss, _ := newLSStore("test.data", maxSize, BufSize, nbuffers)
+	lss, err := newLSStore("test.data", maxSize, BufSize, nbuffers)
+	if err != nil {
+		panic(err)
+	}
 	n := 100000
 
 	go func() {
@@ -179,7 +185,11 @@ func TestLSSSuperBlock(t *testing.T) {
 	head := lss.headOffset
 	lss.Close()
 
-	lss, _ = newLSStore("test.data", maxSize, BufSize, nbuffers)
+	lss, err = newLSStore("test.data", maxSize, BufSize, nbuffers)
+	if err != nil {
+		panic(err)
+	}
+
 	if tail != lss.tailOffset {
 		t.Errorf("tail: expected %d, got %d", tail, lss.tailOffset)
 	}
