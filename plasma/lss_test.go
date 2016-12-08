@@ -198,3 +198,50 @@ func TestLSSSuperBlock(t *testing.T) {
 		t.Errorf("head: expected %d, got %d", head, lss.headOffset)
 	}
 }
+
+func TestLSSSuperBlockCorruption(t *testing.T) {
+	maxSize := int64(1024 * 1024 * 20)
+	BufSize := 1024 * 1024
+	nbuffers := 2
+
+	os.Remove("test.data")
+	lss, err := newLSStore("test.data", maxSize, BufSize, nbuffers)
+	if err != nil {
+		panic(err)
+	}
+
+	buf := make([]byte, 8)
+	_, buf, res := lss.ReserveSpace(8)
+	binary.BigEndian.PutUint64(buf, uint64(1000))
+	lss.FinalizeWrite(res)
+	lss.Sync()
+
+	_, buf, res = lss.ReserveSpace(8)
+	binary.BigEndian.PutUint64(buf, uint64(2000))
+	lss.FinalizeWrite(res)
+
+	gen := lss.superBlockGen
+	lss.Close()
+
+	if w, err := os.OpenFile("test.data", os.O_WRONLY|os.O_CREATE, 0755); err != nil {
+		panic(err)
+	} else {
+		w.WriteAt([]byte("corrupt"), superBlockSize*int64(gen%2))
+		w.Close()
+	}
+
+	lss, err = newLSStore("test.data", maxSize, BufSize, nbuffers)
+	if err != nil {
+		panic(err)
+	}
+
+	count := 0
+	lss.Visitor(func(off lssOffset, bs []byte) (bool, error) {
+		count++
+		return true, nil
+	}, make([]byte, 1024*1024))
+
+	if count != 1 {
+		t.Errorf("Expected 1 got %d", count)
+	}
+}
