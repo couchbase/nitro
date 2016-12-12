@@ -111,9 +111,10 @@ func (s Stats) String() string {
 func New(cfg Config) (*Plasma, error) {
 	var err error
 
+	cfg = applyConfigDefaults(cfg)
 	sl := skiplist.New()
 	s := &Plasma{
-		Config:   applyConfigDefaults(cfg),
+		Config:   cfg,
 		Skiplist: sl,
 	}
 
@@ -155,7 +156,7 @@ func New(cfg Config) (*Plasma, error) {
 	s.CreateMapping(pid, pg)
 
 	if s.shouldPersist {
-		s.lss, err = newLSStore(cfg.File, cfg.MaxSize, cfg.FlushBufferSize, 2)
+		s.lss, err = newLSStore(cfg.File, cfg.LSSLogSegmentSize, cfg.FlushBufferSize, 2)
 		if err != nil {
 			return nil, err
 		}

@@ -32,7 +32,7 @@ func (s *Plasma) CleanLSS(proceed func() bool) error {
 	retries := 0
 	skipped := 0
 
-	callb := func(startOff, endOff lssOffset, bs []byte) (cont bool, headOff lssOffset, relocOff lssOffset, err error) {
+	callb := func(startOff, endOff lssOffset, bs []byte) (cont bool, headOff lssOffset, err error) {
 		var isMultiBlockTransaction bool
 		var multiBlockStartOffset lssOffset
 		var numBlocks int
@@ -45,12 +45,12 @@ func (s *Plasma) CleanLSS(proceed func() bool) error {
 			if found {
 				pid := PageId(node)
 				if pg, err = s.ReadPage(pid, w.wCtx.pgRdrFn, false); err != nil {
-					return false, 0, 0, err
+					return false, 0, err
 				}
 
 				if pg.GetVersion() == state.GetVersion() || !pg.IsFlushed() {
 					var ok bool
-					if ok, relocOff = s.tryPageRelocation(pid, pg, buf); !ok {
+					if ok, _ = s.tryPageRelocation(pid, pg, buf); !ok {
 						retries++
 						goto retry
 					}
@@ -66,21 +66,21 @@ func (s *Plasma) CleanLSS(proceed func() bool) error {
 				if numBlocks == 0 {
 					isMultiBlockTransaction = false
 				} else {
-					return true, multiBlockStartOffset, 0, nil
+					return true, multiBlockStartOffset, nil
 				}
 			}
 
-			return proceed(), endOff, relocOff, nil
+			return proceed(), endOff, nil
 		} else if typ == lssPageSplit {
 			isMultiBlockTransaction = true
 			multiBlockStartOffset = startOff
 			numBlocks = 1
-			return true, multiBlockStartOffset, 0, nil
+			return true, multiBlockStartOffset, nil
 		} else if typ == lssPageMerge {
 			isMultiBlockTransaction = true
 			multiBlockStartOffset = startOff
 			numBlocks = 2
-			return true, multiBlockStartOffset, 0, nil
+			return true, multiBlockStartOffset, nil
 		} else if typ == lssRecoveryPoints {
 			version, _ := unmarshalRPs(bs[lssBlockTypeSize:])
 			s.Lock()
@@ -88,9 +88,9 @@ func (s *Plasma) CleanLSS(proceed func() bool) error {
 				s.updateRecoveryPoints(s.recoveryPoints)
 			}
 			s.Unlock()
-			return true, endOff, relocOff, nil
+			return true, endOff, nil
 		} else if typ == lssDiscard {
-			return true, endOff, relocOff, nil
+			return true, endOff, nil
 		} else if typ == lssMaxSn {
 			maxSn := decodeMaxSn(bs[lssBlockTypeSize:])
 			s.mvcc.Lock()
@@ -103,17 +103,17 @@ func (s *Plasma) CleanLSS(proceed func() bool) error {
 			panic(fmt.Sprintf("unknown block typ %d", typ))
 		}
 
-		return true, endOff, relocOff, nil
+		return true, endOff, nil
 	}
 
 	frag, ds, used := s.GetLSSInfo()
-	start := atomic.LoadInt64(&s.lss.headOffset)
-	end := atomic.LoadInt64(&s.lss.tailOffset)
+	start := s.lss.log.Head()
+	end := s.lss.log.Tail()
 	fmt.Printf("logCleaner: starting... frag %d, data: %d, used: %d log:(%d - %d)\n", frag, ds, used, start, end)
 	err := s.lss.RunCleaner(callb, buf)
 	frag, ds, used = s.GetLSSInfo()
-	start = atomic.LoadInt64(&s.lss.headOffset)
-	end = atomic.LoadInt64(&s.lss.tailOffset)
+	start = s.lss.log.Head()
+	end = s.lss.log.Tail()
 	fmt.Printf("logCleaner: completed... frag %d, data: %d, used: %d, relocated: %d, retries: %d, skipped: %d log:(%d - %d)\n", frag, ds, used, relocated, retries, skipped, start, end)
 	return err
 }

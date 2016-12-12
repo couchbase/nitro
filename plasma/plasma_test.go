@@ -21,14 +21,12 @@ var testCfg = Config{
 		return unsafe.Sizeof(new(skiplist.IntKeyItem))
 	},
 	File:                "teststore.data",
-	MaxSize:             1024 * 1024 * 1024 * 5,
 	FlushBufferSize:     1024 * 1024,
 	LSSCleanerThreshold: 10,
 	AutoLSSCleaning:     false,
 }
 
 func newTestIntPlasmaStore(cfg Config) *Plasma {
-
 	s, err := New(cfg)
 	if err != nil {
 		panic(err)
@@ -38,7 +36,7 @@ func newTestIntPlasmaStore(cfg Config) *Plasma {
 }
 
 func TestPlasmaSimple(t *testing.T) {
-	os.Remove("teststore.data")
+	os.RemoveAll("teststore.data")
 	s := newTestIntPlasmaStore(testCfg)
 	defer s.Close()
 
@@ -122,7 +120,7 @@ func doLookup(w *Writer, wg *sync.WaitGroup, id, n int) {
 func TestPlasmaInsertPerf(t *testing.T) {
 	var wg sync.WaitGroup
 
-	os.Remove("teststore.data")
+	os.RemoveAll("teststore.data")
 	numThreads := 8
 	n := 20000000
 	nPerThr := n / numThreads
@@ -147,7 +145,7 @@ func TestPlasmaInsertPerf(t *testing.T) {
 func TestPlasmaDeletePerf(t *testing.T) {
 	var wg sync.WaitGroup
 
-	os.Remove("teststore.data")
+	os.RemoveAll("teststore.data")
 	numThreads := 8
 	n := 20000000
 	nPerThr := n / numThreads
@@ -180,7 +178,7 @@ func TestPlasmaDeletePerf(t *testing.T) {
 func TestPlasmaLookupPerf(t *testing.T) {
 	var wg sync.WaitGroup
 
-	os.Remove("teststore.data")
+	os.RemoveAll("teststore.data")
 	numThreads := 8
 	n := 20000000
 	nPerThr := n / numThreads
@@ -210,7 +208,7 @@ func TestPlasmaLookupPerf(t *testing.T) {
 }
 
 func TestIteratorSimple(t *testing.T) {
-	os.Remove("teststore.data")
+	os.RemoveAll("teststore.data")
 	s := newTestIntPlasmaStore(testCfg)
 	defer s.Close()
 	w := s.NewWriter()
@@ -235,7 +233,7 @@ func TestIteratorSimple(t *testing.T) {
 }
 
 func TestIteratorSeek(t *testing.T) {
-	os.Remove("teststore.data")
+	os.RemoveAll("teststore.data")
 	s := newTestIntPlasmaStore(testCfg)
 	defer s.Close()
 	w := s.NewWriter()
@@ -259,7 +257,7 @@ func TestIteratorSeek(t *testing.T) {
 func TestPlasmaIteratorLookupPerf(t *testing.T) {
 	var wg sync.WaitGroup
 
-	os.Remove("teststore.data")
+	os.RemoveAll("teststore.data")
 	numThreads := 8
 	n := 20000000
 	nPerThr := n / numThreads
@@ -297,7 +295,7 @@ func TestPlasmaIteratorLookupPerf(t *testing.T) {
 }
 
 func TestPlasmaPersistor(t *testing.T) {
-	os.Remove("teststore.data")
+	os.RemoveAll("teststore.data")
 	s := newTestIntPlasmaStore(testCfg)
 	defer s.Close()
 	w := s.NewWriter()
@@ -325,7 +323,7 @@ func TestPlasmaPersistor(t *testing.T) {
 
 func TestPlasmaRecovery(t *testing.T) {
 	var wg sync.WaitGroup
-	os.Remove("teststore.data")
+	os.RemoveAll("teststore.data")
 	s := newTestIntPlasmaStore(testCfg)
 	defer s.Close()
 
@@ -393,7 +391,7 @@ func TestPlasmaRecovery(t *testing.T) {
 }
 
 func TestPlasmaLSSCleaner(t *testing.T) {
-	os.Remove("teststore.data")
+	os.RemoveAll("teststore.data")
 	cfg := testCfg
 	cfg.LSSCleanerThreshold = 10
 	s := newTestIntPlasmaStore(cfg)
@@ -409,8 +407,15 @@ func TestPlasmaLSSCleaner(t *testing.T) {
 	s.PersistAll()
 	fmt.Println(s.GetStats(), "\n")
 
+	donech := make(chan bool)
+
 	go func() {
 		for {
+			select {
+			case <-donech:
+				break
+			default:
+			}
 			s.PersistAll()
 			time.Sleep(time.Second * time.Duration(5))
 		}
@@ -435,12 +440,16 @@ func TestPlasmaLSSCleaner(t *testing.T) {
 	if used > used0*110/100 || ds > ds0*110/100 {
 		t.Errorf("Expected better cleaning with frag ~ 10%")
 	}
+
+	donech <- true
+	s.stoplssgc <- struct{}{}
+	<-s.stoplssgc
 }
 
 func TestPlasmaCleanerPerf(t *testing.T) {
 	var wg sync.WaitGroup
 
-	os.Remove("teststore.data")
+	os.RemoveAll("teststore.data")
 	numThreads := 8
 	n := 100000000
 	nPerThr := n / numThreads
@@ -482,7 +491,7 @@ func TestPlasmaCleanerPerf(t *testing.T) {
 }
 
 func TestPlasmaEviction(t *testing.T) {
-	os.Remove("teststore.data")
+	os.RemoveAll("teststore.data")
 	s := newTestIntPlasmaStore(testCfg)
 	defer s.Close()
 
@@ -507,7 +516,7 @@ func TestPlasmaEviction(t *testing.T) {
 func TestPlasmaEvictionPerf(t *testing.T) {
 	var wg sync.WaitGroup
 
-	os.Remove("teststore.data")
+	os.RemoveAll("teststore.data")
 	numThreads := 8
 	n := 100000000
 	nPerThr := n / numThreads
@@ -548,7 +557,7 @@ func TestPlasmaEvictionPerf(t *testing.T) {
 }
 
 func TestPlasmaSwapper(t *testing.T) {
-	os.Remove("teststore.data")
+	os.RemoveAll("teststore.data")
 	s := newTestIntPlasmaStore(testCfg)
 	defer s.Close()
 
@@ -582,7 +591,7 @@ func TestPlasmaSwapper(t *testing.T) {
 func TestPlasmaAutoSwapper(t *testing.T) {
 	var wg sync.WaitGroup
 
-	os.Remove("teststore.data")
+	os.RemoveAll("teststore.data")
 	numThreads := 8
 	n := 10000000
 	nPerThr := n / numThreads

@@ -13,7 +13,7 @@ type Config struct {
 	Compare          skiplist.CompareFn
 	ItemSize         ItemSizeFn
 
-	MaxSize             int64
+	LSSLogSegmentSize   int64
 	File                string
 	FlushBufferSize     int
 	NumPersistorThreads int
@@ -61,6 +61,10 @@ func applyConfigDefaults(cfg Config) Config {
 		cfg.MaxSnSyncFrequency = 100
 	}
 
+	if cfg.LSSLogSegmentSize == 0 {
+		cfg.LSSLogSegmentSize = 1024 * 1024 * 1024
+	}
+
 	return cfg
 }
 
@@ -78,8 +82,6 @@ func DefaultConfig() Config {
 		AutoLSSCleaning:     true,
 		AutoSwapper:         false,
 		EnableShapshots:     true,
-
-		MaxMemoryUsage: 1024 * 1024 * 1024 * 512,
-		MaxSize:        1024 * 1024 * 1024 * 100,
+		MaxMemoryUsage:      1024 * 1024 * 1024 * 512,
 	}
 }

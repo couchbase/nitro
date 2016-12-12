@@ -10,7 +10,7 @@ import (
 )
 
 func TestPlasmaPageVisitor(t *testing.T) {
-	os.Remove("teststore.data")
+	os.RemoveAll("teststore.data")
 	s := newTestIntPlasmaStore(testCfg)
 	defer s.Close()
 

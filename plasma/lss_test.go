@@ -6,16 +6,16 @@ import (
 	"os"
 	"sync"
 	"testing"
-	"time"
 )
 
+const segmentSize = 1024 * 1024 * 10
+
 func TestLSSBasic(t *testing.T) {
-	maxSize := int64(1024 * 1024 * 100)
 	BufSize := 1024 * 1024
 	nbuffers := 4
 
-	os.Remove("test.data")
-	lss, err := newLSStore("test.data", maxSize, BufSize, nbuffers)
+	os.RemoveAll("test.data")
+	lss, err := newLSStore("test.data", segmentSize, BufSize, nbuffers)
 	if err != nil {
 		panic(err)
 	}
@@ -47,15 +47,14 @@ func TestLSSBasic(t *testing.T) {
 }
 
 func TestLSSConcurrent(t *testing.T) {
-	maxSize := int64(1024 * 1024 * 100)
 	BufSize := 1024 * 1024
 	nbuffers := 2
 
 	var mu sync.Mutex
 	m := make(map[lssOffset]int)
 
-	os.Remove("test.data")
-	lss, _ := newLSStore("test.data", maxSize, BufSize, nbuffers)
+	os.RemoveAll("test.data")
+	lss, _ := newLSStore("test.data", segmentSize, BufSize, nbuffers)
 
 	n := 10000
 	var wg sync.WaitGroup
@@ -83,37 +82,34 @@ func TestLSSConcurrent(t *testing.T) {
 }
 
 func TestLSSCleaner(t *testing.T) {
-	maxSize := int64(1024 * 1024 * 20)
+	var wg sync.WaitGroup
 	BufSize := 1024 * 1024
 	nbuffers := 4
 
-	os.Remove("test.data")
-	lss, _ := newLSStore("test.data", maxSize, BufSize, nbuffers)
+	os.RemoveAll("test.data")
+	lss, _ := newLSStore("test.data", segmentSize, BufSize, nbuffers)
 
 	n := 1000000
-	freeSpace := int64(5 * 1024 * 1024)
 	var lock sync.Mutex
 	offs := make(map[int]lssOffset)
 
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		buf := make([]byte, 1024*1024)
-		for {
-			if lss.AvailableSpace() < freeSpace {
-				lss.RunCleaner(func(off, endOff lssOffset, bs []byte) (bool, lssOffset, lssOffset, error) {
-					lock.Lock()
-					got := int(binary.BigEndian.Uint64(bs[:8]))
-					delete(offs, got)
-					lock.Unlock()
-
-					if lss.AvailableSpace() >= freeSpace {
-						return false, endOff, 0, nil
-					}
-
-					return true, endOff, 0, nil
-				}, buf)
-			} else {
-				time.Sleep(time.Second)
-			}
+		cleaned := 0
+		for cleaned < n/2 {
+			lss.RunCleaner(func(off, endOff lssOffset, bs []byte) (bool, lssOffset, error) {
+				lock.Lock()
+				got := int(binary.BigEndian.Uint64(bs[:8]))
+				delete(offs, got)
+				lock.Unlock()
+				cleaned++
+				if cleaned == n/2 {
+					return false, endOff, nil
+				}
+				return true, endOff, nil
+			}, buf)
 		}
 	}()
 
@@ -133,6 +129,9 @@ func TestLSSCleaner(t *testing.T) {
 		}
 	}
 
+	lss.Sync()
+	wg.Wait()
+
 	empty := []byte{0, 0, 0, 0, 0, 0, 0, 0}
 	for i, off := range offs {
 		lss.Read(off, bufread)
@@ -145,32 +144,31 @@ func TestLSSCleaner(t *testing.T) {
 }
 
 func TestLSSSuperBlock(t *testing.T) {
-	maxSize := int64(1024 * 1024 * 20)
+	var wg sync.WaitGroup
 	BufSize := 1024 * 1024
 	nbuffers := 2
-	freeSpace := int64(5 * 1024 * 1024)
 
-	os.Remove("test.data")
-	lss, err := newLSStore("test.data", maxSize, BufSize, nbuffers)
+	os.RemoveAll("test.data")
+	lss, err := newLSStore("test.data", segmentSize, BufSize, nbuffers)
 	if err != nil {
 		panic(err)
 	}
 	n := 100000
 
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		buf := make([]byte, 1024*1024)
-		for {
-			if lss.AvailableSpace() < freeSpace {
-				lss.RunCleaner(func(off, endOff lssOffset, bs []byte) (bool, lssOffset, lssOffset, error) {
-					if lss.AvailableSpace() >= freeSpace {
-						return false, endOff, 0, nil
-					}
-
-					return true, endOff, 0, nil
-				}, buf)
-			} else {
-				time.Sleep(time.Second)
-			}
+		cleaned := 0
+		for cleaned < n/2 {
+			lss.RunCleaner(func(off, endOff lssOffset, bs []byte) (bool, lssOffset, error) {
+				cleaned++
+				if cleaned < n/2 {
+					return true, endOff, nil
+				} else {
+					return false, off, nil
+				}
+			}, buf)
 		}
 	}()
 
@@ -180,68 +178,22 @@ func TestLSSSuperBlock(t *testing.T) {
 		lss.FinalizeWrite(res)
 	}
 
+	wg.Wait()
 	lss.Sync()
-	tail := lss.tailOffset
-	head := lss.headOffset
+	tail := lss.log.Tail()
+	head := lss.log.Head()
 	lss.Close()
 
-	lss, err = newLSStore("test.data", maxSize, BufSize, nbuffers)
+	lss, err = newLSStore("test.data", segmentSize, BufSize, nbuffers)
 	if err != nil {
 		panic(err)
 	}
 
-	if tail != lss.tailOffset {
-		t.Errorf("tail: expected %d, got %d", tail, lss.tailOffset)
+	if tail != lss.log.Tail() {
+		t.Errorf("tail: expected %d, got %d", tail, lss.log.Tail())
 	}
 
-	if head != lss.headOffset {
-		t.Errorf("head: expected %d, got %d", head, lss.headOffset)
-	}
-}
-
-func TestLSSSuperBlockCorruption(t *testing.T) {
-	maxSize := int64(1024 * 1024 * 20)
-	BufSize := 1024 * 1024
-	nbuffers := 2
-
-	os.Remove("test.data")
-	lss, err := newLSStore("test.data", maxSize, BufSize, nbuffers)
-	if err != nil {
-		panic(err)
-	}
-
-	buf := make([]byte, 8)
-	_, buf, res := lss.ReserveSpace(8)
-	binary.BigEndian.PutUint64(buf, uint64(1000))
-	lss.FinalizeWrite(res)
-	lss.Sync()
-
-	_, buf, res = lss.ReserveSpace(8)
-	binary.BigEndian.PutUint64(buf, uint64(2000))
-	lss.FinalizeWrite(res)
-
-	gen := lss.superBlockGen
-	lss.Close()
-
-	if w, err := os.OpenFile("test.data", os.O_WRONLY|os.O_CREATE, 0755); err != nil {
-		panic(err)
-	} else {
-		w.WriteAt([]byte("corrupt"), superBlockSize*int64(gen%2))
-		w.Close()
-	}
-
-	lss, err = newLSStore("test.data", maxSize, BufSize, nbuffers)
-	if err != nil {
-		panic(err)
-	}
-
-	count := 0
-	lss.Visitor(func(off lssOffset, bs []byte) (bool, error) {
-		count++
-		return true, nil
-	}, make([]byte, 1024*1024))
-
-	if count != 1 {
-		t.Errorf("Expected 1 got %d", count)
+	if head != lss.log.Head() {
+		t.Errorf("head: expected %d, got %d", head, lss.log.Head())
 	}
 }

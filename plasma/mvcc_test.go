@@ -19,7 +19,6 @@ var testSnCfg = Config{
 		return uintptr((*item)(itm).Size())
 	},
 	File:                "teststore.data",
-	MaxSize:             1024 * 1024 * 1024 * 10,
 	FlushBufferSize:     1024 * 1024,
 	LSSCleanerThreshold: 10,
 	AutoLSSCleaning:     true,
@@ -29,7 +28,7 @@ var testSnCfg = Config{
 }
 
 func TestMVCCSimple(t *testing.T) {
-	os.Remove("teststore.data")
+	os.RemoveAll("teststore.data")
 	s := newTestIntPlasmaStore(testSnCfg)
 	defer s.Close()
 
@@ -76,7 +75,7 @@ func TestMVCCSimple(t *testing.T) {
 }
 
 func TestMVCCLookup(t *testing.T) {
-	os.Remove("teststore.data")
+	os.RemoveAll("teststore.data")
 	s := newTestIntPlasmaStore(testSnCfg)
 	defer s.Close()
 
@@ -111,7 +110,7 @@ func TestMVCCLookup(t *testing.T) {
 }
 
 func TestMVCCGarbageCollection(t *testing.T) {
-	os.Remove("teststore.data")
+	os.RemoveAll("teststore.data")
 	s := newTestIntPlasmaStore(testSnCfg)
 	defer s.Close()
 
@@ -213,10 +212,10 @@ func doUpdateMVCC(w *Writer, wg *sync.WaitGroup, id, n int, itern int) {
 	}
 }
 
-func TestPlasmaMVCCPerf(t *testing.T) {
+func SkipTestPlasmaMVCCPerf(t *testing.T) {
 	var wg sync.WaitGroup
 
-	os.Remove("teststore.data")
+	os.RemoveAll("teststore.data")
 	numThreads := 8
 	n := 20000000
 	iterations := 5
@@ -260,7 +259,7 @@ func TestPlasmaMVCCPerf(t *testing.T) {
 }
 
 func TestPlasmaRecoveryPoint(t *testing.T) {
-	os.Remove("teststore.data")
+	os.RemoveAll("teststore.data")
 	s := newTestIntPlasmaStore(testSnCfg)
 
 	w := s.NewWriter()
