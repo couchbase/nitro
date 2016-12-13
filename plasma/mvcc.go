@@ -208,6 +208,10 @@ type RecoveryPoint struct {
 	meta []byte
 }
 
+func (rp *RecoveryPoint) Meta() []byte {
+	return rp.meta
+}
+
 func (s *Plasma) updateRecoveryPoints(rps []*RecoveryPoint) {
 	version := s.rpVersion + 1
 	bs := marshalRPs(rps, version)
