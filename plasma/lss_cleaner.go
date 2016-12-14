@@ -85,7 +85,7 @@ func (s *Plasma) CleanLSS(proceed func() bool) error {
 			version, _ := unmarshalRPs(bs[lssBlockTypeSize:])
 			s.Lock()
 			if s.rpVersion == version {
-				s.updateRecoveryPoints(s.recoveryPoints)
+				s.updateRecoveryPoints(s.recoveryPoints, true)
 			}
 			s.Unlock()
 			return true, endOff, nil

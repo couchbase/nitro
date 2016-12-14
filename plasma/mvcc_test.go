@@ -268,6 +268,7 @@ func TestPlasmaRecoveryPoint(t *testing.T) {
 		if i%1000 == 0 {
 			snap := s.NewSnapshot()
 			if i%10000 == 0 {
+				snap.Open()
 				s.CreateRecoveryPoint(snap, []byte(fmt.Sprint(i)))
 			}
 			snap.Close()
@@ -319,6 +320,7 @@ func TestPlasmaRecoveryPoint(t *testing.T) {
 		if i%1000 == 0 {
 			snap := s.NewSnapshot()
 			if i%10000 == 0 {
+				snap.Open()
 				s.CreateRecoveryPoint(snap, []byte(fmt.Sprint(i+100000)))
 			}
 			snap.Close()

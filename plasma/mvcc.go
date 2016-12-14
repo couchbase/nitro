@@ -212,15 +212,17 @@ func (rp *RecoveryPoint) Meta() []byte {
 	return rp.meta
 }
 
-func (s *Plasma) updateRecoveryPoints(rps []*RecoveryPoint) {
-	version := s.rpVersion + 1
-	bs := marshalRPs(rps, version)
-	_, wbuf, res := s.lss.ReserveSpace(len(bs) + lssBlockTypeSize)
-	writeLSSBlock(wbuf, lssRecoveryPoints, bs)
-	s.lss.FinalizeWrite(res)
+func (s *Plasma) updateRecoveryPoints(rps []*RecoveryPoint, commit bool) {
+	if commit {
+		version := s.rpVersion + 1
+		bs := marshalRPs(rps, version)
+		_, wbuf, res := s.lss.ReserveSpace(len(bs) + lssBlockTypeSize)
+		writeLSSBlock(wbuf, lssRecoveryPoints, bs)
+		s.lss.FinalizeWrite(res)
 
-	s.rpVersion = version
-	s.recoveryPoints = rps
+		s.rpVersion = version
+		s.recoveryPoints = rps
+	}
 
 	if len(rps) == 0 {
 		atomic.StoreUint64(&s.minRPSn, 0)
@@ -231,19 +233,29 @@ func (s *Plasma) updateRecoveryPoints(rps []*RecoveryPoint) {
 
 func (s *Plasma) CreateRecoveryPoint(sn *Snapshot, meta []byte) error {
 	if s.shouldPersist {
+		// Prepare
 		s.mvcc.Lock()
-		defer s.mvcc.Unlock()
-
 		rp := &RecoveryPoint{
 			sn:   sn.sn,
 			meta: meta,
 		}
 
-		s.PersistAll()
 		rps := append(s.recoveryPoints, rp)
-		s.updateRecoveryPoints(rps)
-	}
+		s.updateRecoveryPoints(rps, false)
+		s.mvcc.Unlock()
 
+		sn.Close()
+		s.PersistAll()
+
+		// Commit
+		s.mvcc.Lock()
+		s.updateRecoveryPoints(rps, true)
+		s.mvcc.Unlock()
+
+		s.lss.Sync()
+	} else {
+		sn.Close()
+	}
 	return nil
 }
 
@@ -297,7 +309,7 @@ func (s *Plasma) Rollback(rollRP *RecoveryPoint) (*Snapshot, error) {
 		}
 	}
 
-	s.updateRecoveryPoints(newRpts)
+	s.updateRecoveryPoints(newRpts, true)
 	s.gcSn = newSnap.sn
 
 	s.lss.Sync()
@@ -315,7 +327,7 @@ func (s *Plasma) RemoveRecoveryPoint(rmRP *RecoveryPoint) {
 		}
 	}
 
-	s.updateRecoveryPoints(newRpts)
+	s.updateRecoveryPoints(newRpts, true)
 }
 
 func marshalRPs(rps []*RecoveryPoint, version uint16) []byte {

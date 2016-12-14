@@ -203,7 +203,7 @@ func (s *Plasma) doInit() {
 		}
 
 		s.updateMaxSn(s.currSn, true)
-		s.updateRecoveryPoints(s.recoveryPoints)
+		s.updateRecoveryPoints(s.recoveryPoints, true)
 	}
 }
 
