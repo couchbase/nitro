@@ -757,3 +757,14 @@ func (w *Writer) CompactAll() {
 
 	w.PageVisitor(callb, 1)
 }
+
+func (s *Plasma) lookupIndex(key unsafe.Pointer, ctx *wCtx) PageId {
+	if key == nil {
+		return s.StartPageId()
+	}
+
+	if _, node, found := s.Skiplist.Lookup(key, s.cmp, ctx.buf, ctx.slSts); found {
+		return PageId(node)
+	}
+	return nil
+}

@@ -32,18 +32,16 @@ func (s *Plasma) CleanLSS(proceed func() bool) error {
 	retries := 0
 	skipped := 0
 
-	callb := func(startOff, endOff lssOffset, bs []byte) (cont bool, headOff lssOffset, err error) {
-		var isMultiBlockTransaction bool
-		var multiBlockStartOffset lssOffset
-		var numBlocks int
+	var isMultiBlockTransaction bool
+	var multiBlockStartOffset lssOffset
+	var numBlocks int
 
+	callb := func(startOff, endOff lssOffset, bs []byte) (cont bool, headOff lssOffset, err error) {
 		typ := getLSSBlockType(bs)
 		if typ == lssPageData || typ == lssPageReloc {
 			state, key := decodePageState(bs[lssBlockTypeSize:])
 		retry:
-			_, node, found := s.Skiplist.Lookup(key, s.cmp, w.wCtx.buf, w.wCtx.slSts)
-			if found {
-				pid := PageId(node)
+			if pid := s.lookupIndex(key, w.wCtx); pid != nil {
 				if pg, err = s.ReadPage(pid, w.wCtx.pgRdrFn, false); err != nil {
 					return false, 0, err
 				}
