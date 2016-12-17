@@ -278,7 +278,7 @@ func (s *Plasma) Rollback(rollRP *RecoveryPoint) (*Snapshot, error) {
 		if pg, err := s.ReadPage(pid, w.pgRdrFn, true); err == nil {
 			pg.Rollback(start, end)
 			pgBuf, fdSz := pg.Marshal(pgBuf)
-			offset, wbuf, res := s.lss.ReserveSpace(len(pgBuf))
+			offset, wbuf, res := s.lss.ReserveSpace(len(pgBuf) + lssBlockTypeSize)
 			writeLSSBlock(wbuf, lssPageData, pgBuf)
 			pg.AddFlushRecord(offset, fdSz, false)
 			s.lss.FinalizeWrite(res)
