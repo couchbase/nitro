@@ -235,7 +235,6 @@ func (s *Plasma) doRecovery() error {
 			s.rpVersion, s.recoveryPoints = unmarshalRPs(bs[lssBlockTypeSize:])
 		case lssMaxSn:
 			s.currSn = decodeMaxSn(bs[lssBlockTypeSize:])
-			s.gcSn = s.currSn
 		case lssPageMerge:
 			doRmPage = true
 		case lssPageData, lssPageReloc:
@@ -317,7 +316,7 @@ func (s *Plasma) doRecovery() error {
 	}
 
 	s.PageVisitor(callb, 1)
-
+	s.gcSn = s.currSn
 	return err
 }
 
