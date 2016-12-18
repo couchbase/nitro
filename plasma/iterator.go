@@ -303,7 +303,7 @@ loop:
 				high = itm
 			}
 		case opPageMergeDelta:
-			deltaItr, fdSz1 := newPgOpIterator(pd.next, cmp, low, high, nil)
+			deltaItr, fdSz1 := newPgOpIterator(pd.next, cmp, low, high, filter)
 			mergeItr, fdSz2 := newPgOpIterator(
 				(*mergePageDelta)(unsafe.Pointer(pd)).mergeSibling,
 				cmp, low, high, filter)
