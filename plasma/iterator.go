@@ -9,12 +9,14 @@ import (
 type ItemFilter interface {
 	Accept(unsafe.Pointer, bool) bool
 	AddFilter(interface{})
+	Reset()
 }
 
 type acceptAllFilter struct{}
 
 func (f *acceptAllFilter) Accept(unsafe.Pointer, bool) bool { return true }
 func (f *acceptAllFilter) AddFilter(interface{})            {}
+func (f *acceptAllFilter) Reset()                           {}
 
 var nilFilter acceptAllFilter
 
@@ -37,6 +39,8 @@ func (f *defaultFilter) Accept(itm unsafe.Pointer, isInsert bool) bool {
 }
 
 func (f *defaultFilter) AddFilter(interface{}) {}
+
+func (f *defaultFilter) Reset() {}
 
 type Iterator struct {
 	store *Plasma
@@ -68,6 +72,7 @@ func (itr *Iterator) initPgIterator(pid PageId, seekItm unsafe.Pointer) {
 		pg := pgPtr.(*page)
 		if !pg.IsEmpty() {
 			itr.nextPid = pg.Next()
+			itr.filter.Reset()
 			itr.currPgItr, _ = newPgOpIterator(pg.head, pg.cmp, seekItm, pg.head.hiItm, itr.filter)
 			itr.currPgItr.Init()
 		} else {

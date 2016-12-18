@@ -45,6 +45,10 @@ func (f *rollbackFilter) AddFilter(o interface{}) {
 	f.filters = append(f.filters, rbf)
 }
 
+func (f *rollbackFilter) Reset() {
+	f.filters = nil
+}
+
 // Used by snapshot iterator
 type snFilter struct {
 	sn   uint64
