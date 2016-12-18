@@ -956,6 +956,7 @@ func (pg *page) Rollback(startSn, endSn uint64) {
 	pd.next = pg.head
 
 	pd.op = opRollbackDelta
+	pd.chainLen++
 	pd.rb.start = startSn
 	pd.rb.end = endSn
 	pg.head = (*pageDelta)(unsafe.Pointer(pd))
