@@ -81,11 +81,11 @@ func (s *Plasma) CleanLSS(proceed func() bool) error {
 			return true, multiBlockStartOffset, nil
 		} else if typ == lssRecoveryPoints {
 			version, _ := unmarshalRPs(bs[lssBlockTypeSize:])
-			s.Lock()
+			s.mvcc.Lock()
 			if s.rpVersion == version {
 				s.updateRecoveryPoints(s.recoveryPoints, true)
 			}
-			s.Unlock()
+			s.mvcc.Unlock()
 			return true, endOff, nil
 		} else if typ == lssDiscard {
 			return true, endOff, nil
