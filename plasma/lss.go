@@ -78,6 +78,7 @@ func newLSStore(path string, segSize int64, bufSize int, nbufs int) (*lsStore, e
 
 	s.head = s.flushBufs[0]
 	s.head.baseOffset = s.log.Tail()
+	s.startOffset = s.log.Head()
 
 	return s, nil
 }
