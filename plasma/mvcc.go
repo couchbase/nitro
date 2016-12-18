@@ -343,7 +343,7 @@ func marshalRPs(rps []*RecoveryPoint, version uint16) []byte {
 	bs := make([]byte, 2+2+l)
 	binary.BigEndian.PutUint16(bs[:2], version)
 	offset := 2
-	binary.BigEndian.PutUint16(bs[:2], uint16(len(rps)))
+	binary.BigEndian.PutUint16(bs[offset:offset+2], uint16(len(rps)))
 	offset += 2
 	for _, rp := range rps {
 		l := uint32(4 + 8 + len(rp.meta))
@@ -361,7 +361,7 @@ func marshalRPs(rps []*RecoveryPoint, version uint16) []byte {
 func unmarshalRPs(bs []byte) (version uint16, rps []*RecoveryPoint) {
 	version = binary.BigEndian.Uint16(bs[:2])
 	offset := 2
-	n := int(binary.BigEndian.Uint16(bs[:2]))
+	n := int(binary.BigEndian.Uint16(bs[offset : offset+2]))
 	offset += 2
 	for i := 0; i < n; i++ {
 		rp := new(RecoveryPoint)
