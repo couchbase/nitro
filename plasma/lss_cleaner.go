@@ -41,7 +41,7 @@ func (s *Plasma) CleanLSS(proceed func() bool) error {
 		if typ == lssPageData || typ == lssPageReloc {
 			state, key := decodePageState(bs[lssBlockTypeSize:])
 		retry:
-			if pid := s.lookupIndex(key, w.wCtx); pid != nil {
+			if pid := s.getPageId(key, w.wCtx); pid != nil {
 				if pg, err = s.ReadPage(pid, w.wCtx.pgRdrFn, false); err != nil {
 					return false, 0, err
 				}
