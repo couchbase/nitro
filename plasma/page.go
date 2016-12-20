@@ -674,19 +674,6 @@ func (pg *page) marshal(buf []byte, woffset int, pd *pageDelta,
 				memcopy(unsafe.Pointer(&buf[woffset]), pd.hiItm, l)
 				woffset += l
 			}
-
-			// rightSibling
-			nkey := pg.getItem(pd.rightSibling)
-			if nkey == skiplist.MaxItem {
-				binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(0))
-				woffset += 2
-			} else {
-				l := int(pg.itemSize(nkey))
-				binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(l))
-				woffset += 2
-				memcopy(unsafe.Pointer(&buf[woffset]), nkey, l)
-				woffset += l
-			}
 		}
 	}
 
@@ -838,18 +825,6 @@ func (pg *page) unmarshalDelta(data []byte, ctx *wCtx) (offset lssOffset, hasCha
 		roffset += l
 	}
 
-	var rightSibling PageId
-	l = int(binary.BigEndian.Uint16(data[roffset : roffset+2]))
-
-	// TODO: rightSibling needs to be fixed later (help recovery now)
-	roffset += 2
-	if l == 0 {
-		// rightSibling = pg.getPageId(skiplist.MaxItem, ctx)
-	} else {
-		// rightSibling = pg.getPageId(unsafe.Pointer(&data[roffset]), ctx)
-		roffset += l
-	}
-
 	var pd, lastPd *pageDelta
 loop:
 	for roffset < len(data) {
@@ -864,12 +839,11 @@ loop:
 			roffset += l
 			rpd := &recordDelta{
 				pageDelta: pageDelta{
-					op:           op,
-					chainLen:     uint16(chainLen),
-					numItems:     uint16(numItems),
-					state:        state,
-					hiItm:        hiItm,
-					rightSibling: rightSibling,
+					op:       op,
+					chainLen: uint16(chainLen),
+					numItems: uint16(numItems),
+					state:    state,
+					hiItm:    hiItm,
 				},
 				itm: unsafe.Pointer(&itm[0]),
 			}
@@ -893,7 +867,6 @@ loop:
 			bp := pg.newBasePage(itms)
 			bp.state = state
 			bp.hiItm = hiItm
-			bp.rightSibling = rightSibling
 			pd = (*pageDelta)(unsafe.Pointer(bp))
 		case opFlushPageDelta, opRelocPageDelta:
 			offset = lssOffset(binary.BigEndian.Uint64(data[roffset : roffset+8]))
@@ -903,12 +876,11 @@ loop:
 			chainLen++
 			rpd := &rollbackDelta{
 				pageDelta: pageDelta{
-					op:           op,
-					chainLen:     uint16(chainLen),
-					numItems:     uint16(numItems),
-					state:        state,
-					hiItm:        hiItm,
-					rightSibling: rightSibling,
+					op:       op,
+					chainLen: uint16(chainLen),
+					numItems: uint16(numItems),
+					state:    state,
+					hiItm:    hiItm,
 				},
 				rb: rollbackSn{
 					start: binary.BigEndian.Uint64(data[roffset : roffset+8]),
@@ -933,12 +905,11 @@ loop:
 
 	if lastPd == nil {
 		pg.meta = &pageDelta{
-			op:           opMetaDelta,
-			chainLen:     uint16(chainLen),
-			numItems:     uint16(numItems),
-			state:        state,
-			hiItm:        hiItm,
-			rightSibling: rightSibling,
+			op:       opMetaDelta,
+			chainLen: uint16(chainLen),
+			numItems: uint16(numItems),
+			state:    state,
+			hiItm:    hiItm,
 		}
 	}
 
