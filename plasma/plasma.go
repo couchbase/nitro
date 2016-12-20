@@ -230,42 +230,40 @@ func (s *Plasma) doRecovery() error {
 		case lssPageSplit:
 			doSplit = true
 			splitKey = unmarshalPageSMO(pg, bs[lssBlockTypeSize:])
-			break
 		case lssRecoveryPoints:
 			s.rpVersion, s.recoveryPoints = unmarshalRPs(bs[lssBlockTypeSize:])
 		case lssMaxSn:
 			s.currSn = decodeMaxSn(bs[lssBlockTypeSize:])
 		case lssPageMerge:
 			doRmPage = true
-		case lssPageData, lssPageReloc:
+		case lssPageData, lssPageReloc, lssPageUpdate:
 			pg.Unmarshal(bs[lssBlockTypeSize:], w.wCtx)
+
+			newPageData := (typ == lssPageData || typ == lssPageReloc)
+			pid := s.getPageId(pg.low, w.wCtx)
+
+			if pid == nil {
+				if newPageData {
+					pid = s.AllocPageId()
+					s.CreateMapping(pid, pg)
+					s.indexPage(pid, w.wCtx)
+				} else {
+					break
+				}
+			}
+
 			flushDataSz := len(bs)
 			w.sts.FlushDataSz += int64(flushDataSz)
 
-			var pid PageId
-			if pg.low == skiplist.MinItem {
-				pid = s.StartPageId()
-			} else {
-				pid = s.getPageId(pg.low, w.wCtx)
+			currPg, err := s.ReadPage(pid, w.wCtx.pgRdrFn, true)
+			if err != nil {
+				return false, err
 			}
 
-			if pid == nil {
-				pid = s.AllocPageId()
-				s.CreateMapping(pid, pg)
-				s.indexPage(pid, w.wCtx)
+			if newPageData {
+				w.sts.FlushDataSz -= int64(currPg.GetFlushDataSize())
 			} else {
-				currPg, err := s.ReadPage(pid, w.wCtx.pgRdrFn, true)
-				if err != nil {
-					return false, err
-				}
-				// If same version, do prepend, otherwise replace.
-				if currPg.GetVersion() == pg.GetVersion() || pg.IsEmpty() {
-					pg.Append(currPg)
-				} else {
-					// Replace happens with a flushed page
-					// Hence, no need to keep fdsize in basepage
-					w.sts.FlushDataSz -= int64(currPg.GetFlushDataSize())
-				}
+				pg.Append(currPg)
 			}
 
 			if doSplit {
@@ -471,8 +469,10 @@ func (s *Plasma) tryPageRemoval(pid PageId, pg Page, ctx *wCtx) {
 		pPg.AddFlushRecord(offsets[0], fdSz, false)
 
 		writeLSSBlock(wbufs[0], lssPageMerge, metaBuf)
-		writeLSSBlock(wbufs[1], lssPageData, rmPgBuf)
-		writeLSSBlock(wbufs[2], lssPageData, pgBuf)
+		typ := pgFlushLSSType(pg)
+		writeLSSBlock(wbufs[1], typ, rmPgBuf)
+		typ = pgFlushLSSType(pPg)
+		writeLSSBlock(wbufs[2], typ, pgBuf)
 	}
 
 	if s.UpdateMapping(pPid, pPg) {
@@ -551,9 +551,11 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 			}
 
 			offsets, wbufs, res = s.lss.ReserveSpaceMulti(sizes)
-			pg.AddFlushRecord(offsets[0], fdSz, false)
 			writeLSSBlock(wbufs[0], lssPageSplit, splitMetaBuf)
-			writeLSSBlock(wbufs[1], lssPageData, pgBuf)
+
+			typ := pgFlushLSSType(pg)
+			writeLSSBlock(wbufs[1], typ, pgBuf)
+			pg.AddFlushRecord(offsets[0], fdSz, false)
 		}
 
 		s.CreateMapping(splitPid, newPg)
@@ -712,7 +714,7 @@ loop:
 				return nil, err
 			}
 			break loop
-		case lssPageData, lssPageReloc:
+		case lssPageData, lssPageReloc, lssPageUpdate:
 			currPgDelta := &page{
 				storeCtx: s.storeCtx,
 			}

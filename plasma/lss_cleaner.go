@@ -52,7 +52,6 @@ func (s *Plasma) CleanLSS(proceed func() bool) error {
 						retries++
 						goto retry
 					}
-
 					relocated++
 				} else {
 					skipped++
@@ -87,7 +86,7 @@ func (s *Plasma) CleanLSS(proceed func() bool) error {
 			}
 			s.mvcc.Unlock()
 			return true, endOff, nil
-		} else if typ == lssDiscard {
+		} else if typ == lssDiscard || typ == lssPageUpdate {
 			return true, endOff, nil
 		} else if typ == lssMaxSn {
 			maxSn := decodeMaxSn(bs[lssBlockTypeSize:])

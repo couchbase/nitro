@@ -17,6 +17,7 @@ var lssBlockTypeSize = int(unsafe.Sizeof(*(new(lssBlockType))))
 const (
 	lssPageData lssBlockType = iota
 	lssPageReloc
+	lssPageUpdate
 	lssPageSplit
 	lssPageMerge
 	lssRecoveryPoints
@@ -46,7 +47,8 @@ retry:
 	if pg.NeedsFlush() {
 		bs, dataSz := pg.Marshal(buf)
 		offset, wbuf, res := s.lss.ReserveSpace(lssBlockTypeSize + len(bs))
-		writeLSSBlock(wbuf, lssPageData, bs)
+		typ := pgFlushLSSType(pg)
+		writeLSSBlock(wbuf, typ, bs)
 
 		var ok bool
 		if evict {
@@ -132,4 +134,12 @@ loop:
 
 		time.Sleep(time.Second)
 	}
+}
+
+func pgFlushLSSType(pg Page) lssBlockType {
+	if pg.IsFlushed() {
+		return lssPageUpdate
+	}
+
+	return lssPageData
 }

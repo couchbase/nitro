@@ -1075,6 +1075,7 @@ func newSeedPage() Page {
 	}
 }
 
+// TODO: Depreciate
 func (pg *page) IsEmpty() bool {
 	return pg.head == nil
 }
