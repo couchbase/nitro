@@ -958,16 +958,34 @@ func unmarshalPageSMO(p Page, data []byte) unsafe.Pointer {
 }
 
 func (pg *page) GetFlushDataSize() int {
+	return getFdSize(pg.head)
+}
+
+func getFdSize(pd *pageDelta) int {
+	hasReloc := false
 	flushDataSz := 0
 loop:
-	for pd := pg.head; pd != nil; pd = pd.next {
+	for ; pd != nil; pd = pd.next {
 		switch pd.op {
 		case opBasePage:
 			break loop
-		case opFlushPageDelta:
+		case opFlushPageDelta, opRelocPageDelta:
 			fpd := (*flushPageDelta)(unsafe.Pointer(pd))
-			flushDataSz += int(fpd.flushDataSz)
+			if !hasReloc {
+				flushDataSz += int(fpd.flushDataSz)
+			}
+
+			if pd.op == opRelocPageDelta {
+				hasReloc = true
+			}
+		case opPageMergeDelta:
+			pdm := (*mergePageDelta)(unsafe.Pointer(pd))
+			fdSz := getFdSize(pdm.mergeSibling)
+			if !hasReloc {
+				flushDataSz += fdSz
+			}
 		}
+
 	}
 
 	return flushDataSz

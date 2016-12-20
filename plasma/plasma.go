@@ -214,30 +214,31 @@ func (s *Plasma) doRecovery() error {
 
 	w := s.NewWriter()
 
-	var rmPg *page
-	var splitKey unsafe.Pointer
-	doSplit := false
-	doRmPage := false
-	doMerge := false
-	rmFdSz := 0
-
 	buf := w.wCtx.GetBuffer(0)
 
 	fn := func(offset lssOffset, bs []byte) (bool, error) {
 		typ := getLSSBlockType(bs)
+		bs = bs[lssBlockTypeSize:]
 		switch typ {
 		case lssDiscard:
-		case lssPageSplit:
-			doSplit = true
-			splitKey = unmarshalPageSMO(pg, bs[lssBlockTypeSize:])
 		case lssRecoveryPoints:
-			s.rpVersion, s.recoveryPoints = unmarshalRPs(bs[lssBlockTypeSize:])
+			s.rpVersion, s.recoveryPoints = unmarshalRPs(bs)
 		case lssMaxSn:
-			s.currSn = decodeMaxSn(bs[lssBlockTypeSize:])
-		case lssPageMerge:
-			doRmPage = true
+			s.currSn = decodeMaxSn(bs)
+		case lssPageRemove:
+			rmPglow := unmarshalPageSMO(pg, bs)
+			pid := s.getPageId(rmPglow, w.wCtx)
+			if pid != nil {
+				currPg, err := s.ReadPage(pid, w.wCtx.pgRdrFn, true)
+				if err != nil {
+					return false, err
+				}
+
+				w.sts.FlushDataSz -= int64(currPg.GetFlushDataSize())
+				s.unindexPage(pid, w.wCtx)
+			}
 		case lssPageData, lssPageReloc, lssPageUpdate:
-			pg.Unmarshal(bs[lssBlockTypeSize:], w.wCtx)
+			pg.Unmarshal(bs, w.wCtx)
 
 			newPageData := (typ == lssPageData || typ == lssPageReloc)
 			pid := s.getPageId(pg.low, w.wCtx)
@@ -264,28 +265,6 @@ func (s *Plasma) doRecovery() error {
 				w.sts.FlushDataSz -= int64(currPg.GetFlushDataSize())
 			} else {
 				pg.Append(currPg)
-			}
-
-			if doSplit {
-				splitPid := s.AllocPageId()
-				newPg := pg.doSplit(splitKey, splitPid, -1)
-				s.CreateMapping(splitPid, newPg)
-				s.indexPage(splitPid, w.wCtx)
-				w.wCtx.sts.Splits++
-				doSplit = false
-			} else if doRmPage {
-				rmPg = new(page)
-				*rmPg = *pg
-				rmFdSz = flushDataSz
-				doRmPage = false
-				doMerge = true
-				s.unindexPage(pid, w.wCtx)
-			} else if doMerge {
-				doMerge = false
-				pg.Merge(rmPg)
-				flushDataSz += rmFdSz
-				w.wCtx.sts.Merges++
-				rmPg = nil
 			}
 
 			pg.AddFlushRecord(offset, flushDataSz, false)
@@ -427,7 +406,7 @@ func (s *Plasma) tryPageRemoval(pid PageId, pg Page, ctx *wCtx) {
 	n := pid.(*skiplist.Node)
 	itm := n.Item()
 	prev, _, found := s.Skiplist.Lookup(itm, s.cmp, ctx.buf, ctx.slSts)
-	// Somebody else removed the node
+	// Somebody completed the removal already
 	if !found {
 		return
 	}
@@ -439,18 +418,9 @@ func (s *Plasma) tryPageRemoval(pid PageId, pg Page, ctx *wCtx) {
 		return
 	}
 
-	var rmPgBuf = ctx.GetBuffer(0)
-	var pgBuf = ctx.GetBuffer(1)
-	var metaBuf = ctx.GetBuffer(2)
-	var fdSz, rmFdSz int
-
-	if s.shouldPersist {
-		rmPgBuf, fdSz = pg.Marshal(rmPgBuf)
-		pgBuf, rmFdSz = pPg.Marshal(pgBuf)
-		metaBuf = marshalPageSMO(pg, metaBuf)
-		// Merge flushDataSize info of dead page to parent
-		fdSz += rmFdSz
-	}
+	var pgBuf = ctx.GetBuffer(0)
+	var metaBuf = ctx.GetBuffer(1)
+	var fdSz, staleFdSz int
 
 	pPg.Merge(pg)
 
@@ -459,34 +429,33 @@ func (s *Plasma) tryPageRemoval(pid PageId, pg Page, ctx *wCtx) {
 	var res lssResource
 
 	if s.shouldPersist {
+		metaBuf = marshalPageSMO(pg, metaBuf)
+		pgBuf, fdSz, staleFdSz = pPg.MarshalFull(pgBuf)
+
 		sizes := []int{
 			lssBlockTypeSize + len(metaBuf),
-			lssBlockTypeSize + len(rmPgBuf),
 			lssBlockTypeSize + len(pgBuf),
 		}
 
 		offsets, wbufs, res = s.lss.ReserveSpaceMulti(sizes)
-		pPg.AddFlushRecord(offsets[0], fdSz, false)
 
-		writeLSSBlock(wbufs[0], lssPageMerge, metaBuf)
-		typ := pgFlushLSSType(pg)
-		writeLSSBlock(wbufs[1], typ, rmPgBuf)
-		typ = pgFlushLSSType(pPg)
-		writeLSSBlock(wbufs[2], typ, pgBuf)
+		writeLSSBlock(wbufs[0], lssPageRemove, metaBuf)
+
+		writeLSSBlock(wbufs[1], lssPageData, pgBuf)
+		pPg.AddFlushRecord(offsets[0], fdSz, true)
 	}
 
 	if s.UpdateMapping(pPid, pPg) {
 		s.unindexPage(pid, ctx)
 
 		if s.shouldPersist {
-			ctx.sts.FlushDataSz += int64(fdSz)
+			ctx.sts.FlushDataSz += int64(fdSz) - int64(staleFdSz)
 			s.lss.FinalizeWrite(res)
 		}
 
 	} else if s.shouldPersist {
 		discardLSSBlock(wbufs[0])
 		discardLSSBlock(wbufs[1])
-		discardLSSBlock(wbufs[2])
 		s.lss.FinalizeWrite(res)
 	}
 }
@@ -518,13 +487,9 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 	} else if pg.NeedSplit(s.Config.MaxPageItems) {
 		splitPid := s.AllocPageId()
 
-		var fdSz int
+		var fdSz, splitFdSz int
 		var pgBuf = ctx.GetBuffer(0)
-		var splitMetaBuf = ctx.GetBuffer(1)
-
-		if s.shouldPersist {
-			pgBuf, fdSz = pg.Marshal(pgBuf)
-		}
+		var splitPgBuf = ctx.GetBuffer(1)
 
 		newPg := pg.Split(splitPid)
 
@@ -542,20 +507,24 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 		var wbufs [][]byte
 		var res lssResource
 
-		// Commit split information in lss
+		// Replace one page with two pages
 		if s.shouldPersist {
-			splitMetaBuf = marshalPageSMO(newPg, splitMetaBuf)
+			pgBuf, fdSz = pg.Marshal(pgBuf)
+			splitPgBuf, splitFdSz = newPg.Marshal(splitPgBuf)
+
 			sizes := []int{
-				lssBlockTypeSize + len(splitMetaBuf),
 				lssBlockTypeSize + len(pgBuf),
+				lssBlockTypeSize + len(splitPgBuf),
 			}
 
 			offsets, wbufs, res = s.lss.ReserveSpaceMulti(sizes)
-			writeLSSBlock(wbufs[0], lssPageSplit, splitMetaBuf)
 
 			typ := pgFlushLSSType(pg)
-			writeLSSBlock(wbufs[1], typ, pgBuf)
+			writeLSSBlock(wbufs[0], typ, pgBuf)
 			pg.AddFlushRecord(offsets[0], fdSz, false)
+
+			writeLSSBlock(wbufs[1], lssPageData, splitPgBuf)
+			newPg.AddFlushRecord(offsets[1], splitFdSz, false)
 		}
 
 		s.CreateMapping(splitPid, newPg)
@@ -564,7 +533,7 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 			ctx.sts.Splits++
 
 			if s.shouldPersist {
-				ctx.sts.FlushDataSz += int64(fdSz)
+				ctx.sts.FlushDataSz += int64(fdSz) + int64(splitFdSz)
 				s.lss.FinalizeWrite(res)
 			}
 		} else {
@@ -577,7 +546,6 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 				s.lss.FinalizeWrite(res)
 			}
 		}
-
 	} else if !s.isStartPage(pid) && pg.NeedMerge(s.Config.MinPageItems) {
 		pg.Close()
 		if updated = s.UpdateMapping(pid, pg); updated {
@@ -682,38 +650,6 @@ loop:
 
 		typ := getLSSBlockType(data)
 		switch typ {
-		case lssPageSplit:
-			splitKey := unmarshalPageSMO(pg, data[lssBlockTypeSize:])
-			dataOffset := lssBlockEndOffset(offset, data[:l])
-			if dataPg, err := s.fetchPageFromLSS(dataOffset, ctx); err == nil {
-				dataPg.head = dataPg.newSplitPageDelta(splitKey, nil)
-				dataPg.AddFlushRecord(offset, 0, false)
-				pg.Append(dataPg)
-			} else {
-				return nil, err
-			}
-			break loop
-		case lssPageMerge:
-			mergeKey := unmarshalPageSMO(pg, data[lssBlockTypeSize:])
-			rmPgDataOffset := lssBlockEndOffset(offset, data[:l])
-			if rmPg, err := s.fetchPageFromLSS(rmPgDataOffset, ctx); err == nil {
-				l, err := s.lss.Read(rmPgDataOffset, data)
-				if err != nil {
-					return nil, err
-				}
-
-				dataOffset := lssBlockEndOffset(rmPgDataOffset, data[:l])
-				if dataPg, err := s.fetchPageFromLSS(dataOffset, ctx); err == nil {
-					dataPg.head = dataPg.newMergePageDelta(mergeKey, rmPg.head)
-					dataPg.AddFlushRecord(offset, 0, false)
-					pg.Append(dataPg)
-				} else {
-					return nil, err
-				}
-			} else {
-				return nil, err
-			}
-			break loop
 		case lssPageData, lssPageReloc, lssPageUpdate:
 			currPgDelta := &page{
 				storeCtx: s.storeCtx,

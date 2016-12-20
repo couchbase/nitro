@@ -18,8 +18,7 @@ const (
 	lssPageData lssBlockType = iota
 	lssPageReloc
 	lssPageUpdate
-	lssPageSplit
-	lssPageMerge
+	lssPageRemove
 	lssRecoveryPoints
 	lssMaxSn
 	lssDiscard
