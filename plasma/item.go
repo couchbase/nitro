@@ -134,6 +134,12 @@ func cmpItem(a, b unsafe.Pointer) int {
 }
 
 func itemStringer(itm unsafe.Pointer) string {
+	if itm == skiplist.MinItem {
+		return "minItem"
+	} else if itm == skiplist.MaxItem {
+		return "maxItem"
+	}
+
 	x := (*item)(itm)
 	v := "(nil)"
 	if x.HasValue() {
