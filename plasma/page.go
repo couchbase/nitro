@@ -696,6 +696,8 @@ loop:
 			if pg.cmp(pds.itm, hiItm) < 0 {
 				hiItm = pds.itm
 			}
+			binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(pd.op))
+			woffset += 2
 		case opPageMergeDelta:
 			pdm := (*mergePageDelta)(unsafe.Pointer(pd))
 			var fdSz int
@@ -850,7 +852,18 @@ loop:
 
 			chainLen--
 			pd = (*pageDelta)(unsafe.Pointer(rpd))
-
+		case opPageSplitDelta:
+			spd := &splitPageDelta{
+				pageDelta: pageDelta{
+					op:       op,
+					chainLen: uint16(chainLen),
+					numItems: uint16(numItems),
+					state:    state,
+					hiItm:    hiItm,
+				},
+				itm: hiItm,
+			}
+			pd = (*pageDelta)(unsafe.Pointer(spd))
 		case opBasePage:
 			nItms := int(binary.BigEndian.Uint16(data[roffset : roffset+2]))
 			roffset += 2
