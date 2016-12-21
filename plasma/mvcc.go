@@ -279,6 +279,7 @@ func (s *Plasma) Rollback(rollRP *RecoveryPoint) (*Snapshot, error) {
 	callb := func(pid PageId, partn RangePartition) error {
 		w := s.persistWriters[partn.Shard]
 		pgBuf := w.GetBuffer(0)
+	retry:
 		if pg, err := s.ReadPage(pid, w.pgRdrFn, true); err == nil {
 			pg.Rollback(start, end)
 			pgBuf, fdSz := pg.Marshal(pgBuf)
@@ -289,8 +290,9 @@ func (s *Plasma) Rollback(rollRP *RecoveryPoint) (*Snapshot, error) {
 			s.lss.FinalizeWrite(res)
 			w.wCtx.sts.FlushDataSz += int64(fdSz)
 
+			// May conflict with cleaner
 			if !s.UpdateMapping(pid, pg) {
-				panic("rollback update should not fail")
+				goto retry
 			}
 
 		} else {
