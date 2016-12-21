@@ -70,7 +70,11 @@ func (itr *Iterator) initPgIterator(pid PageId, seekItm unsafe.Pointer) {
 	itr.currPid = pid
 	if pgPtr, err := itr.store.ReadPage(pid, itr.wCtx.pgRdrFn, true); err == nil {
 		pg := pgPtr.(*page)
-		if !pg.IsEmpty() {
+		if err == nil {
+			if pg.IsEmpty() {
+				panic("an empty page found")
+			}
+
 			itr.nextPid = pg.Next()
 			itr.filter.Reset()
 			itr.currPgItr, _ = newPgOpIterator(pg.head, pg.cmp, seekItm, pg.head.hiItm, itr.filter)
@@ -113,7 +117,7 @@ func (itr *Iterator) Valid() bool {
 // If the current page has no valid item, move to next page
 func (itr *Iterator) tryNextPg() {
 	for !itr.currPgItr.Valid() {
-		if itr.nextPid == nil {
+		if itr.nextPid == itr.store.EndPageId() {
 			break
 		}
 		itr.initPgIterator(itr.nextPid, nil)
