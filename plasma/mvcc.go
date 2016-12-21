@@ -217,21 +217,23 @@ func (rp *RecoveryPoint) Meta() []byte {
 }
 
 func (s *Plasma) updateRecoveryPoints(rps []*RecoveryPoint, commit bool) {
-	if commit {
-		version := s.rpVersion + 1
-		bs := marshalRPs(rps, version)
-		_, wbuf, res := s.lss.ReserveSpace(len(bs) + lssBlockTypeSize)
-		writeLSSBlock(wbuf, lssRecoveryPoints, bs)
-		s.lss.FinalizeWrite(res)
+	if s.shouldPersist {
+		if commit {
+			version := s.rpVersion + 1
+			bs := marshalRPs(rps, version)
+			_, wbuf, res := s.lss.ReserveSpace(len(bs) + lssBlockTypeSize)
+			writeLSSBlock(wbuf, lssRecoveryPoints, bs)
+			s.lss.FinalizeWrite(res)
 
-		s.rpVersion = version
-		s.recoveryPoints = rps
-	}
+			s.rpVersion = version
+			s.recoveryPoints = rps
+		}
 
-	if len(rps) == 0 {
-		atomic.StoreUint64(&s.minRPSn, 0)
-	} else {
-		atomic.StoreUint64(&s.minRPSn, rps[0].sn)
+		if len(rps) == 0 {
+			atomic.StoreUint64(&s.minRPSn, 0)
+		} else {
+			atomic.StoreUint64(&s.minRPSn, rps[0].sn)
+		}
 	}
 }
 
@@ -382,19 +384,21 @@ func unmarshalRPs(bs []byte) (version uint16, rps []*RecoveryPoint) {
 }
 
 func (s *Plasma) updateMaxSn(sn uint64, force bool) {
-	freq := s.MaxSnSyncFrequency
-	if s.numSnCreated%freq == 0 || force {
-		var bs [8]byte
-		maxSn := sn + uint64(freq+1)
-		binary.BigEndian.PutUint64(bs[:], maxSn)
-		_, wbuf, res := s.lss.ReserveSpace(len(bs) + lssBlockTypeSize)
-		writeLSSBlock(wbuf, lssMaxSn, bs[:])
-		s.lss.FinalizeWrite(res)
-		s.lss.Sync()
-		s.lastMaxSn = maxSn
-	}
+	if s.shouldPersist {
+		freq := s.MaxSnSyncFrequency
+		if s.numSnCreated%freq == 0 || force {
+			var bs [8]byte
+			maxSn := sn + uint64(freq+1)
+			binary.BigEndian.PutUint64(bs[:], maxSn)
+			_, wbuf, res := s.lss.ReserveSpace(len(bs) + lssBlockTypeSize)
+			writeLSSBlock(wbuf, lssMaxSn, bs[:])
+			s.lss.FinalizeWrite(res)
+			s.lss.Sync()
+			s.lastMaxSn = maxSn
+		}
 
-	s.numSnCreated++
+		s.numSnCreated++
+	}
 }
 
 func decodeMaxSn(data []byte) uint64 {
