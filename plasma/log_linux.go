@@ -7,6 +7,8 @@ import (
 )
 
 const minHolePunchSize = 512 * 1024 * 1024
+const FALLOC_FL_PUNCH_HOLEOC_FL_KEEP_SIZE = 0x01
+const FALLOC_FL_PUNCH_HOLE = 0x02
 
 type singleFileLog struct {
 	fd                     *os.File
@@ -100,8 +102,6 @@ func (l *singleFileLog) tryHolePunch() error {
 }
 
 func punchHole(f *os.File, offset, size int64) error {
-	FALLOC_FL_PUNCH_HOLEOC_FL_KEEP_SIZE := 0x01
-	FALLOC_FL_PUNCH_HOLE := 0x02
 	return syscall.Fallocate(int(f.Fd()),
 		FALLOC_FL_PUNCH_HOLE|FALLOC_FL_PUNCH_HOLEOC_FL_KEEP_SIZE, offset,
 		size)
