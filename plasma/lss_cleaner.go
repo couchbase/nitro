@@ -43,9 +43,13 @@ func (s *Plasma) CleanLSS(proceed func() bool) error {
 					return false, 0, err
 				}
 
+				if pg.NeedRemoval() {
+					s.tryPageRemoval(pid, pg, w.wCtx)
+					goto retry
+				}
+
 				if pg.GetVersion() == state.GetVersion() || !pg.IsFlushed() {
-					var ok bool
-					if ok, _ = s.tryPageRelocation(pid, pg, buf); !ok {
+					if ok, _ := s.tryPageRelocation(pid, pg, buf); !ok {
 						retries++
 						goto retry
 					}
