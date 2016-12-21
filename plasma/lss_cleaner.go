@@ -26,7 +26,8 @@ func (s *Plasma) tryPageRelocation(pid PageId, pg Page, buf []byte) (bool, lssOf
 func (s *Plasma) CleanLSS(proceed func() bool) error {
 	var pg Page
 	w := s.lssCleanerWriter
-	buf := w.wCtx.GetBuffer(0)
+	relocBuf := w.wCtx.GetBuffer(0)
+	cleanerBuf := w.wCtx.GetBuffer(1)
 
 	relocated := 0
 	retries := 0
@@ -49,7 +50,7 @@ func (s *Plasma) CleanLSS(proceed func() bool) error {
 				}
 
 				if pg.GetVersion() == state.GetVersion() || !pg.IsFlushed() {
-					if ok, _ := s.tryPageRelocation(pid, pg, buf); !ok {
+					if ok, _ := s.tryPageRelocation(pid, pg, relocBuf); !ok {
 						retries++
 						goto retry
 					}
@@ -88,7 +89,7 @@ func (s *Plasma) CleanLSS(proceed func() bool) error {
 	start := s.lss.log.Head()
 	end := s.lss.log.Tail()
 	fmt.Printf("logCleaner: starting... frag %d, data: %d, used: %d log:(%d - %d)\n", frag, ds, used, start, end)
-	err := s.lss.RunCleaner(callb, buf)
+	err := s.lss.RunCleaner(callb, cleanerBuf)
 	frag, ds, used = s.GetLSSInfo()
 	start = s.lss.log.Head()
 	end = s.lss.log.Tail()
