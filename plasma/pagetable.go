@@ -53,6 +53,7 @@ func newPageTable(sl *skiplist.Skiplist, itmSize ItemSizeFn,
 
 			return pid
 		},
+		// TODO: depreciate
 		getItem: func(pid PageId) unsafe.Pointer {
 			if pid == nil {
 				return skiplist.MaxItem

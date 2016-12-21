@@ -152,7 +152,7 @@ func New(cfg Config) (*Plasma, error) {
 	s.pageTable = newPageTable(sl, cfg.ItemSize, cfg.Compare, cfGetter, lfGetter, ptWr.wCtx.sts)
 
 	pid := s.StartPageId()
-	pg := newSeedPage()
+	pg := s.newSeedPage()
 	s.CreateMapping(pid, pg)
 
 	if s.shouldPersist {
@@ -296,12 +296,16 @@ func (s *Plasma) doRecovery() error {
 		return err
 	}
 
-	if lastPg != nil && lastPg.MaxItem() != skiplist.MaxItem {
-		panic("invalid last page")
-	}
-
 	s.PageVisitor(callb, 1)
 	s.gcSn = s.currSn
+
+	if lastPg != nil {
+		lastPg.SetNext(s.EndPageId())
+		if lastPg.MaxItem() != skiplist.MaxItem {
+			panic("invalid last page")
+		}
+	}
+
 	return err
 }
 

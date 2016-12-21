@@ -12,7 +12,15 @@ type storePtr struct {
 
 func newTestPage() (*page, *storePtr) {
 	sp := new(storePtr)
-	pg := newSeedPage().(*page)
+	pg := &page{
+		low: skiplist.MinItem,
+		head: &pageDelta{
+			op:           opMetaDelta,
+			hiItm:        skiplist.MaxItem,
+			rightSibling: nil,
+		},
+	}
+
 	pg.storeCtx = &storeCtx{
 		itemSize: func(unsafe.Pointer) uintptr {
 			return unsafe.Sizeof(new(skiplist.IntKeyItem))

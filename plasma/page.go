@@ -1067,12 +1067,13 @@ func newPage(ctx *storeCtx, low unsafe.Pointer, ptr unsafe.Pointer) Page {
 	return pg
 }
 
-func newSeedPage() Page {
+func (s *Plasma) newSeedPage() Page {
 	return &page{
+		low: skiplist.MinItem,
 		head: &pageDelta{
 			op:           opMetaDelta,
 			hiItm:        skiplist.MaxItem,
-			rightSibling: nil,
+			rightSibling: s.EndPageId(),
 		},
 	}
 }
