@@ -283,13 +283,21 @@ func (s *Plasma) doRecovery() error {
 	// Initialize rightSiblings for all pages
 	var lastPg Page
 	callb := func(pid PageId, partn RangePartition) error {
+		pg, err := s.ReadPage(pid, w.pgRdrFn, true)
 		if lastPg != nil {
+			if err == nil && s.cmp(lastPg.MaxItem(), pg.MinItem()) != 0 {
+				panic("found missing page")
+			}
+
 			lastPg.SetNext(pid)
 		}
 
-		pg, err := s.ReadPage(pid, w.pgRdrFn, true)
 		lastPg = pg
 		return err
+	}
+
+	if lastPg != nil && lastPg.MaxItem() != skiplist.MaxItem {
+		panic("invalid last page")
 	}
 
 	s.PageVisitor(callb, 1)
