@@ -2,6 +2,7 @@ package plasma
 
 import (
 	"os"
+	"sync/atomic"
 	"syscall"
 )
 
@@ -16,12 +17,14 @@ type singleFileLog struct {
 }
 
 func newSingleFileLog(path string) (Log, error) {
+	var sbBuffer [logSBSize]byte
+
 	fd, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0755)
 	if err != nil {
 		return nil, err
 	}
 
-	h, t, g, err := readLogSB(l.fd, sbBuffer[:])
+	h, t, g, err := readLogSB(fd, sbBuffer[:])
 	if err != nil {
 		return nil, err
 	}
@@ -36,17 +39,25 @@ func newSingleFileLog(path string) (Log, error) {
 	return log, nil
 }
 
+func (l *singleFileLog) Head() int64 {
+	return atomic.LoadInt64(&l.headOffset)
+}
+
+func (l *singleFileLog) Tail() int64 {
+	return atomic.LoadInt64(&l.tailOffset)
+}
+
 func (l *singleFileLog) Read(bs []byte, off int64) error {
-	_, err := l.ReadAt(bs, off+2*logSBSize)
+	_, err := l.fd.ReadAt(bs, off+2*logSBSize)
 	return err
 }
 
 func (l *singleFileLog) Append(bs []byte) error {
-	if _, err := l.fd.WriteAt(bs, s.tailOffset); err != nil {
+	if _, err := l.fd.WriteAt(bs, l.tailOffset); err != nil {
 		return err
 	}
 
-	atomic.Addint64(&l.tailOffset, int64(len(bs)))
+	atomic.AddInt64(&l.tailOffset, int64(len(bs)))
 	return nil
 }
 
@@ -55,7 +66,7 @@ func (l *singleFileLog) Trim(offset int64) {
 }
 
 func (l *singleFileLog) Commit() error {
-	marshalLogSB(l.sbBuffer[:], l.headOffset, l.tailOff, l.sbGen)
+	marshalLogSB(l.sbBuffer[:], l.headOffset, l.tailOffset, l.sbGen)
 	offset := int64(logSBSize * (l.sbGen % 2))
 	if _, err := l.fd.WriteAt(l.sbBuffer[:], offset); err != nil {
 		return err
@@ -65,6 +76,7 @@ func (l *singleFileLog) Commit() error {
 		return err
 	}
 	l.sbGen++
+	return nil
 }
 
 func (l *singleFileLog) Size() int64 {
