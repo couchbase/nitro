@@ -41,11 +41,9 @@ type lsStore struct {
 
 	cleanerTrimOffset lssOffset
 
-	head *flushBuffer
-
-	bufSize   int
-	flushBufs []*flushBuffer
-	currBuf   int32
+	head, tail unsafe.Pointer
+	bufSize    int
+	nbufs      int
 
 	sbBuffer [superBlockSize]byte
 
@@ -62,23 +60,33 @@ func newLSStore(path string, segSize int64, bufSize int, nbufs int) (*lsStore, e
 	s := &lsStore{
 		path:          path,
 		segmentSize:   segSize,
+		nbufs:         nbufs,
 		bufSize:       bufSize,
 		trimBatchSize: int64(bufSize),
-		flushBufs:     make([]*flushBuffer, nbufs),
 	}
 
 	if s.log, err = newLog(path, segSize); err != nil {
 		return nil, err
 	}
 
-	for i, _ := range s.flushBufs {
-		s.flushBufs[i] = newFlushBuffer(bufSize, s.flush)
-		s.flushBufs[i].Reset()
+	head := newFlushBuffer(bufSize, s.flush)
+
+	// Prepare circular linked buffers
+	curr := head
+	for i := 0; i < nbufs-1; i++ {
+		nextFb := newFlushBuffer(bufSize, s.flush)
+		curr.SetNext(nextFb)
+		curr = nextFb
+		curr.Reset()
 	}
 
-	s.head = s.flushBufs[0]
-	s.head.baseOffset = s.log.Tail()
+	curr.SetNext(head)
+
+	head.baseOffset = s.log.Tail()
 	s.startOffset = s.log.Head()
+
+	s.head = unsafe.Pointer(head)
+	s.tail = s.head
 
 	return s, nil
 }
@@ -102,40 +110,40 @@ func (s *lsStore) flush(fb *flushBuffer) {
 		time.Sleep(time.Second)
 	}
 
-	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&s.head)),
-		unsafe.Pointer(fb.NextBuffer()))
-
 	if trimOffset, doTrim := fb.GetTrimLogOffset(); doTrim {
 		s.log.Trim(int64(trimOffset))
 	}
 
 	s.log.Commit()
-	fb.Reset()
+
+	nextFb := fb.NextBuffer()
+	atomic.StorePointer(&s.head, unsafe.Pointer(nextFb))
 }
 
-func (s *lsStore) initNextBuffer(id int32, fb *flushBuffer) {
-	nextId := id + 1
-	nextFbid := int(nextId) % len(s.flushBufs)
-	nextFb := s.flushBufs[nextFbid]
+func (s *lsStore) initNextBuffer(currFb *flushBuffer) {
+	nextFb := currFb.NextBuffer()
 
 	for !nextFb.IsReset() {
 		runtime.Gosched()
 	}
 
-	nextFb.Init(fb, fb.EndOffset())
+	nextFb.baseOffset = currFb.EndOffset()
+	nextFb.seqno = currFb.seqno + 1
 
-	if !atomic.CompareAndSwapInt32(&s.currBuf, id, nextId) {
-		panic("should not happen")
+	// 1 writer rc for parent to enforce ordering of flush callback
+	// 1 writer rc for the guy who closes the buffer
+	atomic.StoreUint64(&nextFb.state, encodeState(false, 2, 0))
+
+	if !atomic.CompareAndSwapPointer(&s.tail, unsafe.Pointer(currFb), unsafe.Pointer(nextFb)) {
+		panic(fmt.Sprintf("fatal: tailSeqno:%d, currSeqno:%d", s.currBuf().seqno, currFb.seqno))
 	}
 }
 
 func (s *lsStore) TrimLog(off lssOffset) {
 retry:
-	id := atomic.LoadInt32(&s.currBuf)
-	fbid := int(id) % len(s.flushBufs)
-	fb := s.flushBufs[fbid]
-
+	fb := s.currBuf()
 	if !fb.SetTrimLogOffset(off) {
+		runtime.Gosched()
 		goto retry
 	}
 }
@@ -145,15 +153,18 @@ func (s *lsStore) ReserveSpace(size int) (lssOffset, []byte, lssResource) {
 	return offs[0], bs[0], res
 }
 
+func (s *lsStore) currBuf() *flushBuffer {
+	return (*flushBuffer)(atomic.LoadPointer(&s.tail))
+}
+
 func (s *lsStore) ReserveSpaceMulti(sizes []int) ([]lssOffset, [][]byte, lssResource) {
 retry:
-	id := atomic.LoadInt32(&s.currBuf)
-	fbid := int(id) % len(s.flushBufs)
-	fb := s.flushBufs[fbid]
+	fb := s.currBuf()
 	success, markedFull, offsets, bufs := fb.Alloc(sizes)
 	if !success {
 		if markedFull {
-			s.initNextBuffer(id, fb)
+			s.initNextBuffer(fb)
+			fb.Done()
 			goto retry
 		}
 
@@ -167,25 +178,18 @@ retry:
 func (s *lsStore) Read(lssOf lssOffset, buf []byte) (int, error) {
 	offset := int64(lssOf)
 retry:
-	tail := s.log.Tail()
+	tailOff := s.log.Tail()
 
 	// It's in the flush buffers
-	if offset >= tail {
-		id := atomic.LoadInt32(&s.currBuf)
-		fbid := int(id) % len(s.flushBufs)
-		end := s.flushBufs[fbid]
-		start := s.head
-
-		startOffset := start.StartOffset()
-		endOffset := end.EndOffset()
-
-		if startOffset < endOffset && offset >= startOffset && offset < endOffset {
-			for fb := start; fb != nil; fb = fb.NextBuffer() {
-				if n, err := fb.Read(offset, buf); err == nil {
-					return n, nil
-				}
+	if offset >= tailOff {
+		fb := (*flushBuffer)(s.head)
+		for i := 0; i < s.nbufs; i++ {
+			if n, err := fb.Read(offset, buf); err == nil {
+				return n, nil
 			}
+			fb = fb.NextBuffer()
 		}
+		runtime.Gosched()
 		goto retry
 	}
 
@@ -254,9 +258,7 @@ func (s *lsStore) visitor(start, end int64, callb lssBlockCallback, buf []byte) 
 
 func (s *lsStore) Sync() {
 retry:
-	id := atomic.LoadInt32(&s.currBuf)
-	fbid := int(id) % len(s.flushBufs)
-	fb := s.flushBufs[fbid]
+	fb := s.currBuf()
 
 	var endOffset int64
 	var closed bool
@@ -266,7 +268,8 @@ retry:
 		goto retry
 	}
 
-	s.initNextBuffer(id, fb)
+	s.initNextBuffer(fb)
+	fb.Done()
 
 	for {
 		tailOffset := s.log.Tail()
@@ -284,10 +287,11 @@ type flushCallback func(fb *flushBuffer)
 const headerFBSize = 4
 
 type flushBuffer struct {
+	seqno      uint64
 	baseOffset int64
 	state      uint64
 	b          []byte
-	child      *flushBuffer
+	next       *flushBuffer
 	callb      flushCallback
 
 	trimOffset lssOffset
@@ -306,7 +310,7 @@ func (fb *flushBuffer) GetTrimLogOffset() (lssOffset, bool) {
 }
 
 func (fb *flushBuffer) Bytes() []byte {
-	_, _, offset := decodeState(fb.state)
+	_, _, _, offset := decodeState(fb.state)
 	return fb.b[:offset]
 }
 
@@ -315,17 +319,16 @@ func (fb *flushBuffer) StartOffset() int64 {
 }
 
 func (fb *flushBuffer) EndOffset() int64 {
-	_, _, offset := decodeState(fb.state)
+	_, _, _, offset := decodeState(fb.state)
 	return fb.baseOffset + int64(offset)
 }
 
 func (fb *flushBuffer) TryClose() (markedFull bool, lssOff int64) {
 	state := atomic.LoadUint64(&fb.state)
-	closed, nw, offset := decodeState(state)
-	newState := encodeState(true, nw+1, offset)
-	if !closed && nw > 0 && atomic.CompareAndSwapUint64(&fb.state, state, newState) {
+	isfull, reset, nw, offset := decodeState(state)
+	newState := encodeState(true, nw, offset)
+	if !isfull && !reset && atomic.CompareAndSwapUint64(&fb.state, state, newState) {
 		lssOff = fb.EndOffset()
-		fb.Done()
 		return true, lssOff
 	}
 
@@ -333,15 +336,19 @@ func (fb *flushBuffer) TryClose() (markedFull bool, lssOff int64) {
 }
 
 func (fb *flushBuffer) NextBuffer() *flushBuffer {
-	return fb.child
+	return fb.next
+}
+
+func (fb *flushBuffer) SetNext(nfb *flushBuffer) {
+	fb.next = nfb
 }
 
 func (fb *flushBuffer) Read(off int64, buf []byte) (l int, err error) {
 	state := atomic.LoadUint64(&fb.state)
-	isfull, nw, offset := decodeState(state)
+	isfull, reset, nw, offset := decodeState(state)
 	newState := encodeState(isfull, nw+1, offset)
 
-	if nw > 0 && atomic.CompareAndSwapUint64(&fb.state, state, newState) {
+	if nw > 0 && !reset && atomic.CompareAndSwapUint64(&fb.state, state, newState) {
 		start := fb.baseOffset
 		end := start + int64(offset)
 
@@ -362,27 +369,12 @@ func (fb *flushBuffer) Read(off int64, buf []byte) (l int, err error) {
 	return
 }
 
-func (fb *flushBuffer) Init(parent *flushBuffer, baseOffset int64) {
-	fb.baseOffset = baseOffset
-	// 1 writer rc for parent to enforce ordering of flush callback
-	// 1 writer rc for parent to call flush callback if writers have already
-	// terminated while initialization of next buffer.
-	if parent != nil {
-		atomic.StoreUint64(&fb.state, encodeState(false, 2, 0))
-		parent.child = fb
-
-		// If parent is already full and writers have completed operations,
-		// this would trigger flush callback.
-		parent.Done()
-	}
-}
-
 func (fb *flushBuffer) SetTrimLogOffset(off lssOffset) bool {
 	state := atomic.LoadUint64(&fb.state)
-	isfull, nw, offset := decodeState(state)
+	isfull, reset, nw, offset := decodeState(state)
 
 	newState := encodeState(isfull, nw+1, offset)
-	if nw > 0 && atomic.CompareAndSwapUint64(&fb.state, state, newState) {
+	if !reset && nw > 0 && atomic.CompareAndSwapUint64(&fb.state, state, newState) {
 		fb.trimOffset = off
 		fb.Done()
 		return true
@@ -394,8 +386,9 @@ func (fb *flushBuffer) SetTrimLogOffset(off lssOffset) bool {
 func (fb *flushBuffer) Alloc(sizes []int) (status bool, markedFull bool, offs []lssOffset, bufs [][]byte) {
 retry:
 	state := atomic.LoadUint64(&fb.state)
-	isfull, nw, offset := decodeState(state)
-	if isfull {
+	isfull, reset, nw, offset := decodeState(state)
+
+	if isfull || reset {
 		return false, false, nil, nil
 	}
 
@@ -409,6 +402,7 @@ retry:
 		markedFull := true
 		newState := encodeState(true, nw, offset)
 		if !atomic.CompareAndSwapUint64(&fb.state, state, newState) {
+			runtime.Gosched()
 			goto retry
 		}
 		return false, markedFull, nil, nil
@@ -434,7 +428,7 @@ retry:
 func (fb *flushBuffer) Done() {
 retry:
 	state := atomic.LoadUint64(&fb.state)
-	isfull, nw, offset := decodeState(state)
+	isfull, _, nw, offset := decodeState(state)
 
 	newState := encodeState(isfull, nw-1, offset)
 	if !atomic.CompareAndSwapUint64(&fb.state, state, newState) {
@@ -442,16 +436,16 @@ retry:
 	}
 
 	if nw == 1 && isfull {
-		if fb.child != nil {
-			fb.child.Done()
-		}
 		fb.callb(fb)
+		fb.Reset()
+		nextFb := fb.NextBuffer()
+		nextFb.Done()
 	}
 }
 
 func (fb *flushBuffer) IsFull() bool {
 	state := atomic.LoadUint64(&fb.state)
-	isfull, _, _ := decodeState(state)
+	isfull, _, _, _ := decodeState(state)
 	return isfull
 }
 
@@ -462,19 +456,19 @@ func (fb *flushBuffer) IsReset() bool {
 
 func (fb *flushBuffer) Reset() {
 	fb.baseOffset = 0
-	fb.child = nil
 	state := resetState(atomic.LoadUint64(&fb.state))
 	atomic.StoreUint64(&fb.state, state)
 }
 
 // State encoding
 // [32 bit offset][14 bit void][16 bit nwriters][1 bit reset][1 bit full]
-func decodeState(state uint64) (bool, int, int) {
+func decodeState(state uint64) (bool, bool, int, int) {
 	isfull := state&0x1 == 0x1           // 1 bit full
+	reset := state&0x2 == 0x2            // 1 bit reset
 	nwriters := int(state >> 2 & 0xffff) // 16 bits
 	offset := int(state >> 32)           // remaining bits
 
-	return isfull, nwriters, offset
+	return isfull, reset, nwriters, offset
 }
 
 func encodeState(isfull bool, nwriters int, offset int) uint64 {
