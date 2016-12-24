@@ -32,8 +32,9 @@ type Plasma struct {
 	gcSn         uint64
 	currSnapshot *Snapshot
 
-	lastMaxSn      uint64
-	minRPSn        uint64
+	lastMaxSn uint64
+
+	rpSns          unsafe.Pointer
 	rpVersion      uint16
 	recoveryPoints []*RecoveryPoint
 }
@@ -123,17 +124,28 @@ func New(cfg Config) (*Plasma, error) {
 	var cfGetter, lfGetter FilterGetter
 	if cfg.EnableShapshots {
 		cfGetter = func() ItemFilter {
-			var sn uint64
 			gcSn := atomic.LoadUint64(&s.gcSn)
-			rpSn := atomic.LoadUint64(&s.minRPSn)
+			rpSns := (*[]uint64)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&s.rpSns))))
 
-			if rpSn > 0 && rpSn < gcSn {
-				sn = rpSn
-			} else {
-				sn = gcSn
+			var gcPos int
+			for _, sn := range *rpSns {
+				if sn < gcSn {
+					gcPos++
+				} else {
+					break
+				}
 			}
 
-			return &gcFilter{gcSn: sn}
+			var snIntervals []uint64
+			if gcPos == 0 {
+				snIntervals = []uint64{0, gcSn}
+			} else {
+				snIntervals = make([]uint64, gcPos+2)
+				copy(snIntervals[1:], (*rpSns)[:gcPos])
+				snIntervals[gcPos+1] = gcSn
+			}
+
+			return &gcFilter{snIntervals: snIntervals}
 		}
 
 		lfGetter = func() ItemFilter {
@@ -203,7 +215,8 @@ func (s *Plasma) doInit() {
 		}
 
 		s.updateMaxSn(s.currSn, true)
-		s.updateRecoveryPoints(s.recoveryPoints, true)
+		s.updateRecoveryPoints(s.recoveryPoints)
+		s.updateRPSns(s.recoveryPoints)
 	}
 }
 

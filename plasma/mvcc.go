@@ -77,9 +77,30 @@ func (f *snFilter) Accept(o unsafe.Pointer, x bool) bool {
 
 // Used by page compactor to GC dead snapshot items
 type gcFilter struct {
-	gcSn uint64
+	snIntervals []uint64
+
+	in   int
 	skip bool
+
 	rollbackFilter
+}
+
+func (f *gcFilter) findInterval(sn uint64) (int, bool) {
+	in := -1
+
+	for i := 0; i < len(f.snIntervals)-1; i++ {
+		if f.inInterval(i, sn) {
+			in = i
+		} else {
+			break
+		}
+	}
+
+	return in, in > -1
+}
+
+func (f *gcFilter) inInterval(in int, sn uint64) bool {
+	return sn > f.snIntervals[in] && sn < f.snIntervals[in+1]
 }
 
 func (f *gcFilter) Accept(o unsafe.Pointer, x bool) bool {
@@ -90,12 +111,19 @@ func (f *gcFilter) Accept(o unsafe.Pointer, x bool) bool {
 	itm := (*item)(o)
 	if f.skip {
 		f.skip = false
-		return false
+		if f.inInterval(f.in, itm.Sn()) {
+			return false
+		}
+
+		return true
 	}
 
-	if !itm.IsInsert() && itm.Sn() <= f.gcSn {
-		f.skip = true
-		return false
+	if !itm.IsInsert() {
+		var ok bool
+		if f.in, ok = f.findInterval(itm.Sn()); ok {
+			f.skip = true
+			return false
+		}
 	}
 
 	return true
@@ -216,25 +244,25 @@ func (rp *RecoveryPoint) Meta() []byte {
 	return rp.meta
 }
 
-func (s *Plasma) updateRecoveryPoints(rps []*RecoveryPoint, commit bool) {
+func (s *Plasma) updateRecoveryPoints(rps []*RecoveryPoint) {
 	if s.shouldPersist {
-		if commit {
-			version := s.rpVersion + 1
-			bs := marshalRPs(rps, version)
-			_, wbuf, res := s.lss.ReserveSpace(len(bs) + lssBlockTypeSize)
-			writeLSSBlock(wbuf, lssRecoveryPoints, bs)
-			s.lss.FinalizeWrite(res)
+		version := s.rpVersion + 1
+		bs := marshalRPs(rps, version)
+		_, wbuf, res := s.lss.ReserveSpace(len(bs) + lssBlockTypeSize)
+		writeLSSBlock(wbuf, lssRecoveryPoints, bs)
+		s.lss.FinalizeWrite(res)
 
-			s.rpVersion = version
-			s.recoveryPoints = rps
-		}
-
-		if len(rps) == 0 {
-			atomic.StoreUint64(&s.minRPSn, 0)
-		} else {
-			atomic.StoreUint64(&s.minRPSn, rps[0].sn)
-		}
+		s.rpVersion = version
+		s.recoveryPoints = rps
 	}
+}
+
+func (s *Plasma) updateRPSns(rps []*RecoveryPoint) {
+	rpSns := make([]uint64, len(rps))
+	for i, rp := range rps {
+		rpSns[i] = rp.sn
+	}
+	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&s.rpSns)), unsafe.Pointer(&rpSns))
 }
 
 func (s *Plasma) CreateRecoveryPoint(sn *Snapshot, meta []byte) error {
@@ -247,7 +275,9 @@ func (s *Plasma) CreateRecoveryPoint(sn *Snapshot, meta []byte) error {
 		}
 
 		rps := append(s.recoveryPoints, rp)
-		s.updateRecoveryPoints(rps, false)
+		s.updateRecoveryPoints(rps)
+		s.updateRPSns(rps)
+
 		s.mvcc.Unlock()
 
 		sn.Close()
@@ -255,7 +285,7 @@ func (s *Plasma) CreateRecoveryPoint(sn *Snapshot, meta []byte) error {
 
 		// Commit
 		s.mvcc.Lock()
-		s.updateRecoveryPoints(rps, true)
+		s.updateRecoveryPoints(rps)
 		s.mvcc.Unlock()
 
 		s.lss.Sync()
@@ -318,7 +348,7 @@ func (s *Plasma) Rollback(rollRP *RecoveryPoint) (*Snapshot, error) {
 		}
 	}
 
-	s.updateRecoveryPoints(newRpts, true)
+	s.updateRecoveryPoints(newRpts)
 	s.gcSn = newSnap.sn
 
 	s.lss.Sync()
@@ -336,7 +366,8 @@ func (s *Plasma) RemoveRecoveryPoint(rmRP *RecoveryPoint) {
 		}
 	}
 
-	s.updateRecoveryPoints(newRpts, true)
+	s.updateRecoveryPoints(newRpts)
+	s.updateRPSns(newRpts)
 }
 
 func marshalRPs(rps []*RecoveryPoint, version uint16) []byte {

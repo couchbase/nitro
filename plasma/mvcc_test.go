@@ -281,7 +281,7 @@ func TestPlasmaRecoveryPoint(t *testing.T) {
 		s.RemoveRecoveryPoint(rpts[i])
 	}
 
-	fmt.Printf("(1) Recovery points gcSn:%d, minRPSn:%d\n", s.gcSn, s.minRPSn)
+	fmt.Printf("(1) Recovery points gcSn:%d, minRPSn:%v\n", s.gcSn, s.rpSns)
 	for _, rpt := range s.GetRecoveryPoints() {
 		fmt.Printf("recovery_point sn:%d meta:%s\n", rpt.sn, string(rpt.meta))
 	}
@@ -292,7 +292,7 @@ func TestPlasmaRecoveryPoint(t *testing.T) {
 	fmt.Println("Reopening database...")
 	s = newTestIntPlasmaStore(testSnCfg)
 
-	fmt.Printf("(2) Recovery points gcSn:%d, minRPSn:%d\n", s.gcSn, s.minRPSn)
+	fmt.Printf("(2) Recovery points gcSn:%d, minRPSn:%v\n", s.gcSn, s.rpSns)
 	for _, rpt := range s.GetRecoveryPoints() {
 		fmt.Printf("recovery_point sn:%d meta:%s\n", rpt.sn, string(rpt.meta))
 	}
@@ -333,7 +333,7 @@ func TestPlasmaRecoveryPoint(t *testing.T) {
 	s = newTestIntPlasmaStore(testSnCfg)
 
 	w = s.NewWriter()
-	fmt.Printf("(3) Recovery points gcSn:%d, minRPSn:%d\n", s.gcSn, s.minRPSn)
+	fmt.Printf("(3) Recovery points gcSn:%d, minRPSn:%v\n", s.gcSn, s.rpSns)
 	for _, rpt := range s.GetRecoveryPoints() {
 		fmt.Printf("recovery_point sn:%d meta:%s\n", rpt.sn, string(rpt.meta))
 	}
