@@ -387,12 +387,12 @@ loop:
 		switch pd.op {
 		case opInsertDelta:
 			pdr := (*recordDelta)(unsafe.Pointer(pd))
-			if filter.Accept(pdr.itm, true) && pg.equal(pdr.itm, itm, hiItm) {
+			if filter.Accept(pdr) && pg.equal(pdr.itm, itm, hiItm) {
 				return pdr.itm
 			}
 		case opDeleteDelta:
 			pdr := (*recordDelta)(unsafe.Pointer(pd))
-			if filter.Accept(pdr.itm, false) && pg.equal(pdr.itm, itm, hiItm) {
+			if filter.Accept(pdr) && pg.equal(pdr.itm, itm, hiItm) {
 				return nil
 			}
 		case opBasePage:
@@ -403,7 +403,8 @@ loop:
 			})
 
 			for ; index < n && pg.equal(bp.items[index], itm, hiItm); index++ {
-				if filter.Accept(bp.items[index], true) {
+				bpItm := (*basePageItem)(bp.items[index])
+				if filter.Accept(bpItm) {
 					return bp.items[index]
 				}
 
@@ -568,8 +569,8 @@ func (pg *page) collectItems(head *pageDelta,
 	it, fdSz := newPgOpIterator(pg.head, pg.cmp, loItm, hiItm, pg.getCompactFilter())
 	var itms []unsafe.Pointer
 	for it.Init(); it.Valid(); it.Next() {
-		itm, _ := it.Get()
-		itms = append(itms, itm)
+		itm := it.Get()
+		itms = append(itms, itm.Item())
 	}
 
 	return itms, fdSz

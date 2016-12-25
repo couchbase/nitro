@@ -28,8 +28,8 @@ type rollbackFilter struct {
 	filters []*rollbackSn
 }
 
-func (f *rollbackFilter) Accept(o unsafe.Pointer, _ bool) bool {
-	itm := (*item)(o)
+func (f *rollbackFilter) Accept(o PageItem) bool {
+	itm := (*item)(o.Item())
 	sn := itm.Sn()
 	for _, filter := range f.filters {
 		if sn >= filter.start && sn <= filter.end {
@@ -56,12 +56,12 @@ type snFilter struct {
 	rollbackFilter
 }
 
-func (f *snFilter) Accept(o unsafe.Pointer, x bool) bool {
-	if !f.rollbackFilter.Accept(o, x) {
+func (f *snFilter) Accept(o PageItem) bool {
+	if !f.rollbackFilter.Accept(o) {
 		return false
 	}
 
-	itm := (*item)(o)
+	itm := (*item)(o.Item())
 	if f.skip || itm.Sn() > f.sn {
 		f.skip = false
 		return false
@@ -104,12 +104,12 @@ func (f *gcFilter) inInterval(in int, sn uint64) bool {
 	return sn > f.snIntervals[in] && sn < f.snIntervals[in+1]
 }
 
-func (f *gcFilter) Accept(o unsafe.Pointer, x bool) bool {
-	if !f.rollbackFilter.Accept(o, x) {
+func (f *gcFilter) Accept(o PageItem) bool {
+	if !f.rollbackFilter.Accept(o) {
 		return false
 	}
 
-	itm := (*item)(o)
+	itm := (*item)(o.Item())
 	sn := itm.Sn()
 	var ok bool
 

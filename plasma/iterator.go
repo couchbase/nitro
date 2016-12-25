@@ -7,16 +7,23 @@ import (
 )
 
 type ItemFilter interface {
-	Accept(unsafe.Pointer, bool) bool
+	Accept(PageItem) bool
 	AddFilter(interface{})
 	Reset()
 }
 
+type pgOpIterator interface {
+	Init()
+	Get() PageItem
+	Next()
+	Valid() bool
+}
+
 type acceptAllFilter struct{}
 
-func (f *acceptAllFilter) Accept(unsafe.Pointer, bool) bool { return true }
-func (f *acceptAllFilter) AddFilter(interface{})            {}
-func (f *acceptAllFilter) Reset()                           {}
+func (f *acceptAllFilter) Accept(PageItem) bool  { return true }
+func (f *acceptAllFilter) AddFilter(interface{}) {}
+func (f *acceptAllFilter) Reset()                {}
 
 var nilFilter acceptAllFilter
 
@@ -24,8 +31,8 @@ type defaultFilter struct {
 	skip bool
 }
 
-func (f *defaultFilter) Accept(itm unsafe.Pointer, isInsert bool) bool {
-	if !isInsert {
+func (f *defaultFilter) Accept(itm PageItem) bool {
+	if !itm.IsInsert() {
 		f.skip = true
 		return false
 	}
@@ -106,8 +113,7 @@ func (itr *Iterator) Seek(itm unsafe.Pointer) error {
 }
 
 func (itr *Iterator) Get() unsafe.Pointer {
-	itm, _ := itr.currPgItr.Get()
-	return itm
+	return itr.currPgItr.Get().Item()
 }
 
 func (itr *Iterator) Valid() bool {
@@ -139,8 +145,8 @@ type pdIterator struct {
 
 func (pdi *pdIterator) Init() {}
 
-func (pdi *pdIterator) Get() (unsafe.Pointer, bool) {
-	return pdi.deltas[pdi.i].Item(), pdi.deltas[pdi.i].IsInsert()
+func (pdi *pdIterator) Get() PageItem {
+	return pdi.deltas[pdi.i]
 }
 
 func (pdi *pdIterator) Valid() bool {
@@ -149,6 +155,16 @@ func (pdi *pdIterator) Valid() bool {
 
 func (pdi *pdIterator) Next() {
 	pdi.i++
+}
+
+type basePageItem struct{}
+
+func (i *basePageItem) Item() unsafe.Pointer {
+	return unsafe.Pointer(i)
+}
+
+func (i *basePageItem) IsInsert() bool {
+	return true
 }
 
 // Base page interator
@@ -170,8 +186,8 @@ func (bpi *basePgIterator) Init() {
 	})
 }
 
-func (bpi *basePgIterator) Get() (unsafe.Pointer, bool) {
-	return bpi.bp.items[bpi.i], true
+func (bpi *basePgIterator) Get() PageItem {
+	return (*basePageItem)(bpi.bp.items[bpi.i])
 }
 
 func (bpi *basePgIterator) Valid() bool {
@@ -206,7 +222,7 @@ func (pdj *pdJoinIterator) Next() {
 	}
 }
 
-func (pdj *pdJoinIterator) Get() (unsafe.Pointer, bool) {
+func (pdj *pdJoinIterator) Get() PageItem {
 	return pdj.itrs[pdj.i].Get()
 }
 
@@ -236,8 +252,8 @@ func (pdm *pdMergeIterator) fetchMin() {
 	valid2 := pdm.itrs[1].Valid()
 
 	if valid1 && valid2 {
-		itm0, _ := pdm.itrs[0].Get()
-		itm1, _ := pdm.itrs[1].Get()
+		itm0 := pdm.itrs[0].Get().Item()
+		itm1 := pdm.itrs[1].Get().Item()
 
 		cmpv := pdm.cmp(itm0, itm1)
 		if cmpv < 0 {
@@ -260,22 +276,15 @@ func (pdm *pdMergeIterator) fetchMin() {
 	}
 }
 
-func (pdm *pdMergeIterator) Get() (unsafe.Pointer, bool) {
+func (pdm *pdMergeIterator) Get() PageItem {
 	if pdm.lastIt == nil {
-		return nil, false
+		return nil
 	}
 	return pdm.lastIt.Get()
 }
 
 func (pdm *pdMergeIterator) Valid() bool {
 	return pdm.itrs[0].Valid() || pdm.itrs[1].Valid()
-}
-
-type pgOpIterator interface {
-	Init()
-	Get() (unsafe.Pointer, bool)
-	Next()
-	Valid() bool
 }
 
 func newPgOpIterator(pd *pageDelta, cmp skiplist.CompareFn,
