@@ -28,16 +28,16 @@ type rollbackFilter struct {
 	filters []*rollbackSn
 }
 
-func (f *rollbackFilter) Accept(o PageItem) bool {
+func (f *rollbackFilter) Process(o PageItem) []PageItem {
 	itm := (*item)(o.Item())
 	sn := itm.Sn()
 	for _, filter := range f.filters {
 		if sn >= filter.start && sn <= filter.end {
-			return false
+			return nil
 		}
 	}
 
-	return true
+	return []PageItem{o}
 }
 
 func (f *rollbackFilter) AddFilter(o interface{}) {
@@ -56,33 +56,30 @@ type snFilter struct {
 	rollbackFilter
 }
 
-func (f *snFilter) Accept(o PageItem) bool {
-	if !f.rollbackFilter.Accept(o) {
-		return false
+func (f *snFilter) Process(o PageItem) []PageItem {
+	if len(f.rollbackFilter.Process(o)) == 0 {
+		return nil
 	}
 
 	itm := (*item)(o.Item())
 	if f.skip || itm.Sn() > f.sn {
 		f.skip = false
-		return false
+		return nil
 	}
 
 	if !itm.IsInsert() {
 		f.skip = true
-		return false
+		return nil
 	}
 
-	return true
+	return []PageItem{o}
 }
 
 // Used by page compactor to GC dead snapshot items
 type gcFilter struct {
 	snIntervals []uint64
 
-	in     int
-	skip   bool
-	skipSn uint64
-
+	skipItm *item
 	rollbackFilter
 }
 
@@ -104,36 +101,36 @@ func (f *gcFilter) inInterval(in int, sn uint64) bool {
 	return sn > f.snIntervals[in] && sn < f.snIntervals[in+1]
 }
 
-func (f *gcFilter) Accept(o PageItem) bool {
-	if !f.rollbackFilter.Accept(o) {
-		return false
+func (f *gcFilter) Process(o PageItem) []PageItem {
+	if len(f.rollbackFilter.Process(o)) == 0 {
+		return nil
 	}
 
 	itm := (*item)(o.Item())
 	sn := itm.Sn()
-	var ok bool
+	skipItm := f.skipItm
+	f.skipItm = nil
 
-	skipSn := f.skipSn
-	skip := f.skip
-	f.skip = false
-	f.skipSn = 0
-
-	if itm.IsInsert() {
-		if skip {
-			return !f.inInterval(f.in, sn)
-		} else if skipSn > 0 && skipSn == sn {
-			return false
-		}
-
-	} else {
-		f.skipSn = sn
-		if f.in, ok = f.findInterval(sn); ok {
-			f.skip = true
-			return false
-		}
+	if !itm.IsInsert() {
+		f.skipItm = itm
+		return nil
 	}
 
-	return true
+	if skipItm != nil {
+		if skipItm.Sn() == sn {
+			return nil
+		}
+
+		if in, ok := f.findInterval(skipItm.Sn()); ok {
+			if f.inInterval(in, sn) {
+				return nil
+			}
+		}
+
+		return []PageItem{PageItem(skipItm), o}
+	}
+
+	return []PageItem{o}
 }
 
 func (s *Snapshot) Close() {

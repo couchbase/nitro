@@ -35,6 +35,10 @@ func (itm *item) IsInsert() bool {
 
 }
 
+func (itm *item) Item() unsafe.Pointer {
+	return unsafe.Pointer(itm)
+}
+
 func (itm *item) HasValue() bool {
 	return itmHasValMask&*itm > 0
 }

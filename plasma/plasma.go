@@ -124,7 +124,7 @@ func New(cfg Config) (*Plasma, error) {
 	var cfGetter, lfGetter FilterGetter
 	if cfg.EnableShapshots {
 		cfGetter = func() ItemFilter {
-			gcSn := atomic.LoadUint64(&s.gcSn)
+			gcSn := atomic.LoadUint64(&s.gcSn) + 1
 			rpSns := (*[]uint64)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&s.rpSns))))
 
 			var gcPos int

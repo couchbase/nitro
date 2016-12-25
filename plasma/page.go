@@ -387,12 +387,12 @@ loop:
 		switch pd.op {
 		case opInsertDelta:
 			pdr := (*recordDelta)(unsafe.Pointer(pd))
-			if filter.Accept(pdr) && pg.equal(pdr.itm, itm, hiItm) {
+			if len(filter.Process(pdr)) > 0 && pg.equal(pdr.itm, itm, hiItm) {
 				return pdr.itm
 			}
 		case opDeleteDelta:
 			pdr := (*recordDelta)(unsafe.Pointer(pd))
-			if filter.Accept(pdr) && pg.equal(pdr.itm, itm, hiItm) {
+			if len(filter.Process(pdr)) > 0 && pg.equal(pdr.itm, itm, hiItm) {
 				return nil
 			}
 		case opBasePage:
@@ -404,10 +404,9 @@ loop:
 
 			for ; index < n && pg.equal(bp.items[index], itm, hiItm); index++ {
 				bpItm := (*basePageItem)(bp.items[index])
-				if filter.Accept(bpItm) {
+				if len(filter.Process(bpItm)) > 0 {
 					return bp.items[index]
 				}
-
 			}
 
 			return nil
