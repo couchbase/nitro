@@ -79,8 +79,9 @@ func (f *snFilter) Accept(o unsafe.Pointer, x bool) bool {
 type gcFilter struct {
 	snIntervals []uint64
 
-	in   int
-	skip bool
+	in     int
+	skip   bool
+	skipSn uint64
 
 	rollbackFilter
 }
@@ -109,18 +110,24 @@ func (f *gcFilter) Accept(o unsafe.Pointer, x bool) bool {
 	}
 
 	itm := (*item)(o)
-	if f.skip {
-		f.skip = false
-		if f.inInterval(f.in, itm.Sn()) {
+	sn := itm.Sn()
+	var ok bool
+
+	skipSn := f.skipSn
+	skip := f.skip
+	f.skip = false
+	f.skipSn = 0
+
+	if itm.IsInsert() {
+		if skip {
+			return !f.inInterval(f.in, sn)
+		} else if skipSn > 0 && skipSn == sn {
 			return false
 		}
 
-		return true
-	}
-
-	if !itm.IsInsert() {
-		var ok bool
-		if f.in, ok = f.findInterval(itm.Sn()); ok {
+	} else {
+		f.skipSn = sn
+		if f.in, ok = f.findInterval(sn); ok {
 			f.skip = true
 			return false
 		}
