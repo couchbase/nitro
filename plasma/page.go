@@ -84,9 +84,18 @@ type ItemIterator interface {
 	Next() error
 }
 
+type PageItemsList interface {
+	Len() int
+	At(i int) PageItem
+}
+
+var nilPageItemsList = (*pageItemsList)(&[]PageItem{})
+
 type PageItem interface {
 	IsInsert() bool
 	Item() unsafe.Pointer
+
+	PageItemsList
 }
 
 type pageItem struct {
@@ -99,6 +108,24 @@ func (pi *pageItem) IsInsert() bool {
 
 func (pi *pageItem) Item() unsafe.Pointer {
 	return pi.itm
+}
+
+func (pi *pageItem) Len() int {
+	return 1
+}
+
+func (pi *pageItem) At(i int) PageItem {
+	return pi
+}
+
+type pageItemsList []PageItem
+
+func (pil *pageItemsList) Len() int {
+	return len(*pil)
+}
+
+func (pil *pageItemsList) At(i int) PageItem {
+	return (*pil)[i]
 }
 
 var pageDeltaHdrSize = unsafe.Sizeof(*new(pageDelta))
@@ -140,6 +167,14 @@ func (pd *pageDelta) IsInsert() bool {
 
 func (pd *pageDelta) Item() unsafe.Pointer {
 	return (*recordDelta)(unsafe.Pointer(pd)).itm
+}
+
+func (pd *pageDelta) Len() int {
+	return 1
+}
+
+func (pd *pageDelta) At(int) PageItem {
+	return pd
 }
 
 type basePage struct {
@@ -387,12 +422,12 @@ loop:
 		switch pd.op {
 		case opInsertDelta:
 			pdr := (*recordDelta)(unsafe.Pointer(pd))
-			if len(filter.Process(pdr)) > 0 && pg.equal(pdr.itm, itm, hiItm) {
+			if filter.Process(pdr).Len() > 0 && pg.equal(pdr.itm, itm, hiItm) {
 				return pdr.itm
 			}
 		case opDeleteDelta:
 			pdr := (*recordDelta)(unsafe.Pointer(pd))
-			if len(filter.Process(pdr)) > 0 && pg.equal(pdr.itm, itm, hiItm) {
+			if filter.Process(pdr).Len() > 0 && pg.equal(pdr.itm, itm, hiItm) {
 				return nil
 			}
 		case opBasePage:
@@ -404,7 +439,7 @@ loop:
 
 			for ; index < n && pg.equal(bp.items[index], itm, hiItm); index++ {
 				bpItm := (*basePageItem)(bp.items[index])
-				if len(filter.Process(bpItm)) > 0 {
+				if filter.Process(bpItm).Len() > 0 {
 					return bp.items[index]
 				}
 			}

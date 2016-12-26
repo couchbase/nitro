@@ -7,7 +7,7 @@ import (
 )
 
 type ItemFilter interface {
-	Process(PageItem) []PageItem
+	Process(PageItem) PageItemsList
 	AddFilter(interface{})
 	Reset()
 }
@@ -21,9 +21,9 @@ type pgOpIterator interface {
 
 type acceptAllFilter struct{}
 
-func (f *acceptAllFilter) Process(itm PageItem) []PageItem { return []PageItem{itm} }
-func (f *acceptAllFilter) AddFilter(interface{})           {}
-func (f *acceptAllFilter) Reset()                          {}
+func (f *acceptAllFilter) Process(itm PageItem) PageItemsList { return itm }
+func (f *acceptAllFilter) AddFilter(interface{})              {}
+func (f *acceptAllFilter) Reset()                             {}
 
 var nilFilter acceptAllFilter
 
@@ -31,18 +31,18 @@ type defaultFilter struct {
 	skip bool
 }
 
-func (f *defaultFilter) Process(itm PageItem) []PageItem {
+func (f *defaultFilter) Process(itm PageItem) PageItemsList {
 	if !itm.IsInsert() {
 		f.skip = true
-		return nil
+		return nilPageItemsList
 	}
 
 	if f.skip {
 		f.skip = false
-		return nil
+		return nilPageItemsList
 	}
 
-	return []PageItem{itm}
+	return itm
 }
 
 func (f *defaultFilter) AddFilter(interface{}) {}
@@ -167,6 +167,14 @@ func (i *basePageItem) IsInsert() bool {
 	return true
 }
 
+func (i *basePageItem) Len() int {
+	return 1
+}
+
+func (i *basePageItem) At(int) PageItem {
+	return i
+}
+
 // Base page interator
 type basePgIterator struct {
 	cmp       skiplist.CompareFn
@@ -233,7 +241,7 @@ type pdMergeIterator struct {
 	cmp    skiplist.CompareFn
 	ItemFilter
 
-	items  []PageItem
+	items  PageItemsList
 	offset int
 }
 
@@ -246,7 +254,7 @@ func (pdm *pdMergeIterator) Init() {
 func (pdm *pdMergeIterator) Next() {
 	pdm.offset++
 
-	if pdm.offset >= len(pdm.items) {
+	if pdm.offset >= pdm.items.Len() {
 		pdm.next()
 	}
 }
@@ -280,10 +288,10 @@ func (pdm *pdMergeIterator) fetchMin() {
 		pdm.lastIt = pdm.itrs[1]
 	}
 
-	pdm.items = nil
+	pdm.items = nilPageItemsList
 	pdm.offset = 0
 	if pdm.ItemFilter != nil && pdm.valid() {
-		if pdm.items = pdm.Process(pdm.lastIt.Get()); len(pdm.items) == 0 {
+		if pdm.items = pdm.Process(pdm.lastIt.Get()); pdm.items == nilPageItemsList {
 			pdm.next()
 		}
 	}
@@ -294,8 +302,8 @@ func (pdm *pdMergeIterator) Get() PageItem {
 		return nil
 	}
 
-	if len(pdm.items) > 0 {
-		return pdm.items[pdm.offset]
+	if pdm.items.Len() > 0 {
+		return pdm.items.At(pdm.offset)
 	}
 
 	return pdm.lastIt.Get()
@@ -306,7 +314,7 @@ func (pdm *pdMergeIterator) valid() bool {
 }
 
 func (pdm *pdMergeIterator) Valid() bool {
-	return pdm.offset < len(pdm.items)
+	return pdm.offset < pdm.items.Len()
 }
 
 func newPgOpIterator(pd *pageDelta, cmp skiplist.CompareFn,

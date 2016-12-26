@@ -28,20 +28,20 @@ type rollbackFilter struct {
 	filters []*rollbackSn
 }
 
-func (f *rollbackFilter) Process(o PageItem) []PageItem {
+func (f *rollbackFilter) Process(o PageItem) PageItemsList {
 	if f.filters == nil {
-		return []PageItem{o}
+		return o
 	}
 
 	itm := (*item)(o.Item())
 	sn := itm.Sn()
 	for _, filter := range f.filters {
 		if sn >= filter.start && sn <= filter.end {
-			return nil
+			return nilPageItemsList
 		}
 	}
 
-	return []PageItem{o}
+	return o
 }
 
 func (f *rollbackFilter) AddFilter(o interface{}) {
@@ -60,23 +60,23 @@ type snFilter struct {
 	rollbackFilter
 }
 
-func (f *snFilter) Process(o PageItem) []PageItem {
-	if len(f.rollbackFilter.Process(o)) == 0 {
-		return nil
+func (f *snFilter) Process(o PageItem) PageItemsList {
+	if f.rollbackFilter.Process(o) == nilPageItemsList {
+		return nilPageItemsList
 	}
 
 	itm := (*item)(o.Item())
 	if f.skip || itm.Sn() > f.sn {
 		f.skip = false
-		return nil
+		return nilPageItemsList
 	}
 
 	if !itm.IsInsert() {
 		f.skip = true
-		return nil
+		return nilPageItemsList
 	}
 
-	return []PageItem{o}
+	return o
 }
 
 // Used by page compactor to GC dead snapshot items
@@ -104,9 +104,9 @@ func (f *gcFilter) inInterval(in int, sn uint64) bool {
 	return sn > f.snIntervals[in] && sn < f.snIntervals[in+1]
 }
 
-func (f *gcFilter) Process(o PageItem) []PageItem {
-	if len(f.rollbackFilter.Process(o)) == 0 {
-		return nil
+func (f *gcFilter) Process(o PageItem) PageItemsList {
+	if f.rollbackFilter.Process(o) == nilPageItemsList {
+		return nilPageItemsList
 	}
 
 	itm := (*item)(o.Item())
@@ -116,24 +116,24 @@ func (f *gcFilter) Process(o PageItem) []PageItem {
 
 	if !itm.IsInsert() {
 		f.skipItm = itm
-		return nil
+		return nilPageItemsList
 	}
 
 	if skipItm != nil {
 		if skipItm.Sn() == sn {
-			return nil
+			return nilPageItemsList
 		}
 
 		if in, ok := f.findInterval(skipItm.Sn()); ok {
 			if f.inInterval(in, sn) {
-				return nil
+				return nilPageItemsList
 			}
 		}
 
-		return []PageItem{PageItem(skipItm), o}
+		return (*pageItemsList)(&[]PageItem{skipItm, o})
 	}
 
-	return []PageItem{o}
+	return o
 }
 
 func (s *Snapshot) Close() {
