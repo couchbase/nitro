@@ -29,6 +29,10 @@ type rollbackFilter struct {
 }
 
 func (f *rollbackFilter) Process(o PageItem) []PageItem {
+	if f.filters == nil {
+		return []PageItem{o}
+	}
+
 	itm := (*item)(o.Item())
 	sn := itm.Sn()
 	for _, filter := range f.filters {
