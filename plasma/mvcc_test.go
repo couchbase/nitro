@@ -365,5 +365,132 @@ func TestPlasmaRecoveryPoint(t *testing.T) {
 	if err != ErrItemNotFound {
 		t.Errorf("Expected not found")
 	}
+}
 
+func TestMVCCIntervalGC(t *testing.T) {
+	os.RemoveAll("teststore.data")
+	s := newTestIntPlasmaStore(testSnCfg)
+	defer s.Close()
+
+	n := 1000
+
+	w := s.NewWriter()
+	for i := 0; i < n; i++ {
+		w.InsertKV([]byte(fmt.Sprintf("key-%10d", i)), []byte("sn1"))
+	}
+
+	snap1 := s.NewSnapshot()
+
+	for i := 0; i < n; i++ {
+		w.DeleteKV([]byte(fmt.Sprintf("key-%10d", i)))
+		w.InsertKV([]byte(fmt.Sprintf("key-%10d", i)), []byte("sn2"))
+	}
+
+	snap2 := s.NewSnapshot()
+
+	for i := 0; i < n; i++ {
+		w.DeleteKV([]byte(fmt.Sprintf("key-%10d", i)))
+		w.InsertKV([]byte(fmt.Sprintf("key-%10d", i)), []byte("sn3"))
+	}
+
+	snap3 := s.NewSnapshot()
+	snap3.Open()
+	s.CreateRecoveryPoint(snap3, []byte(fmt.Sprint("rp1")))
+
+	for i := 0; i < n; i++ {
+		w.DeleteKV([]byte(fmt.Sprintf("key-%10d", i)))
+		w.InsertKV([]byte(fmt.Sprintf("key-%10d", i)), []byte("sn4"))
+	}
+
+	snap4 := s.NewSnapshot()
+
+	for i := 0; i < n; i++ {
+		w.DeleteKV([]byte(fmt.Sprintf("key-%10d", i)))
+		w.InsertKV([]byte(fmt.Sprintf("key-%10d", i)), []byte("sn5"))
+	}
+
+	snap5 := s.NewSnapshot()
+
+	for i := 0; i < n; i++ {
+		w.DeleteKV([]byte(fmt.Sprintf("key-%10d", i)))
+		w.InsertKV([]byte(fmt.Sprintf("key-%10d", i)), []byte("sn6"))
+	}
+
+	// Insert and delete in same snapshot
+	for i := n; i < n+100; i++ {
+		w.InsertKV([]byte(fmt.Sprintf("key-%10d", i)), []byte("sn6"))
+		w.DeleteKV([]byte(fmt.Sprintf("key-%10d", i)))
+	}
+
+	snap6 := s.NewSnapshot()
+	snap6.Open()
+	s.CreateRecoveryPoint(snap6, []byte(fmt.Sprint("rp2")))
+
+	for i := 0; i < n; i++ {
+		w.DeleteKV([]byte(fmt.Sprintf("key-%10d", i)))
+		w.InsertKV([]byte(fmt.Sprintf("key-%10d", i)), []byte("sn7"))
+	}
+
+	snap7 := s.NewSnapshot()
+
+	for i := 0; i < n; i++ {
+		w.InsertKV([]byte(fmt.Sprintf("key-%10d", i)), []byte("sn8"))
+		w.DeleteKV([]byte(fmt.Sprintf("key-%10d", i)))
+	}
+
+	itr := s.NewIterator()
+	count := func() int {
+		count := 0
+		for itr.SeekFirst(); itr.Valid(); itr.Next() {
+			count++
+		}
+		return count
+	}
+
+	w.CompactAll()
+	if c := count(); c != 13000 {
+		t.Errorf("Expected 13000, got %d", c)
+	}
+
+	snap1.Close()
+	w.CompactAll()
+	if c := count(); c != 11000 {
+		t.Errorf("Expected 13000, got %d", c)
+	}
+
+	snap2.Close()
+	w.CompactAll()
+	if c := count(); c != 9000 {
+		t.Errorf("Expected 13000, got %d", c)
+	}
+
+	snap3.Close()
+	w.CompactAll()
+	if c := count(); c != 9000 {
+		t.Errorf("Expected 13000, got %d", c)
+	}
+
+	snap4.Close()
+	w.CompactAll()
+	if c := count(); c != 7000 {
+		t.Errorf("Expected 13000, got %d", c)
+	}
+
+	snap5.Close()
+	w.CompactAll()
+	if c := count(); c != 5000 {
+		t.Errorf("Expected 13000, got %d", c)
+	}
+
+	snap6.Close()
+	w.CompactAll()
+	if c := count(); c != 5000 {
+		t.Errorf("Expected 13000, got %d", c)
+	}
+
+	snap7.Close()
+	w.CompactAll()
+	if c := count(); c != 5000 {
+		t.Errorf("Expected 13000, got %d", c)
+	}
 }
