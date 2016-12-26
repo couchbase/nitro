@@ -87,9 +87,8 @@ func (f *gcFilter) findInterval(sn uint64) (int, bool) {
 	in := -1
 
 	for i := 0; i < len(f.snIntervals)-1; i++ {
-		if f.inInterval(i, sn) {
+		if sn > f.snIntervals[i] && sn <= f.snIntervals[i+1] {
 			in = i
-		} else {
 			break
 		}
 	}

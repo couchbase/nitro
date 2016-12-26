@@ -166,15 +166,15 @@ func TestMVCCGarbageCollection(t *testing.T) {
 	snap1.Close()
 	w.CompactAll()
 
-	if c := count(); c != 5000 {
-		t.Errorf("Expected 5000, got %d", c)
+	if c := count(); c != 3000 {
+		t.Errorf("Expected 3000, got %d", c)
 	}
 
 	snap4.Close()
 	w.CompactAll()
 
-	if c := count(); c != 5000 {
-		t.Errorf("Expected 5000, got %d", c)
+	if c := count(); c != 3000 {
+		t.Errorf("Expected 3000, got %d", c)
 	}
 
 	snap3.Close()
