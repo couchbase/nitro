@@ -958,7 +958,7 @@ func (m *Nitro) StoreToDisk(dir string, snap *Snapshot, concurr int, itmCallback
 		defer func() {
 			if err = m.changeDeltaWrState(dwStateTerminate, nil, nil); err == nil {
 				bs, _ := json.Marshal(deltaFiles)
-				ioutil.WriteFile(filepath.Join(deltadir, "files.json"), bs, 0660)
+				err = ioutil.WriteFile(filepath.Join(deltadir, "files.json"), bs, 0660)
 			}
 		}()
 	}
@@ -982,7 +982,7 @@ func (m *Nitro) StoreToDisk(dir string, snap *Snapshot, concurr int, itmCallback
 
 	if err = m.Visitor(snap, visitorCallback, shards, concurr); err == nil {
 		bs, _ := json.Marshal(files)
-		ioutil.WriteFile(filepath.Join(datadir, "files.json"), bs, 0660)
+		err = ioutil.WriteFile(filepath.Join(datadir, "files.json"), bs, 0660)
 	}
 
 	return err
