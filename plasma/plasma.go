@@ -14,6 +14,7 @@ type PageReader func(offset lssOffset) (Page, error)
 const maxCtxBuffers = 3
 
 var (
+	memQuota    int64
 	dbInstances *skiplist.Skiplist
 )
 
@@ -762,6 +763,14 @@ func (w *Writer) CompactAll() {
 	}
 
 	w.PageVisitor(callb, 1)
+}
+
+func SetMemoryQuota(m int64) {
+	atomic.StoreInt64(&memQuota, m)
+}
+
+func QuotaSwapper() bool {
+	return MemoryInUse() >= int64(float64(atomic.LoadInt64(&memQuota))*0.7)
 }
 
 func MemoryInUse() (sz int64) {

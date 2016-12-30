@@ -48,6 +48,8 @@ func applyConfigDefaults(cfg Config) Config {
 		cfg.shouldSwap = func() bool {
 			return ProcessRSS() >= int(0.7*float32(cfg.MaxMemoryUsage))
 		}
+	} else {
+		cfg.shouldSwap = QuotaSwapper
 	}
 
 	if cfg.File == "" {
