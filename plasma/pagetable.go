@@ -126,6 +126,7 @@ retry:
 				goto retry
 			}
 
+			pg.InCache(true)
 			atomic.AddInt64(&s.sts.NumPagesSwapIn, 1)
 		}
 	} else {
@@ -142,7 +143,9 @@ func (s *pageTable) EvictPage(pid PageId, pg Page, offset lssOffset) bool {
 	newPtr := unsafe.Pointer(uintptr(uint64(offset) | evictMask))
 	if atomic.CompareAndSwapPointer(&n.DataPtr, pgi.prevHeadPtr, newPtr) {
 		pgi.prevHeadPtr = newPtr
-		atomic.AddInt64(&s.sts.NumPagesSwapOut, 1)
+		if pg.IsInCache() {
+			atomic.AddInt64(&s.sts.NumPagesSwapOut, 1)
+		}
 		return true
 	}
 

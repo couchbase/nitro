@@ -7,11 +7,19 @@ import (
 )
 
 func (s *Plasma) tryPageRelocation(pid PageId, pg Page, buf []byte) (bool, lssOffset) {
+	var ok bool
 	bs, dataSz, staleSz := pg.MarshalFull(buf)
 	offset, wbuf, res := s.lss.ReserveSpace(lssBlockTypeSize + len(bs))
 	pg.AddFlushRecord(offset, dataSz, true)
 	writeLSSBlock(wbuf, lssPageReloc, bs)
-	if !s.UpdateMapping(pid, pg) {
+
+	if pg.IsInCache() {
+		ok = s.UpdateMapping(pid, pg)
+	} else {
+		ok = s.EvictPage(pid, pg, offset)
+	}
+
+	if !ok {
 		discardLSSBlock(wbuf)
 		s.lss.FinalizeWrite(res)
 		return false, 0

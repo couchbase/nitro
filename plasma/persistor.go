@@ -51,7 +51,7 @@ retry:
 
 		var ok bool
 		if evict {
-			ok = s.EvictPage(pid, pg, offset)
+			s.EvictPage(pid, pg, offset)
 		} else {
 			pg.AddFlushRecord(offset, dataSz, false)
 			ok = s.UpdateMapping(pid, pg)

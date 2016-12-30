@@ -64,12 +64,8 @@ func (s *Plasma) NewIterator() ItemIterator {
 	return &Iterator{
 		store:  s,
 		filter: new(defaultFilter),
-		wCtx: &wCtx{
-			buf:   s.Skiplist.MakeBuf(),
-			slSts: &s.Skiplist.Stats,
-			// TODO: merge with plasma store stats
-			sts: new(Stats),
-		},
+		// TODO: merge with plasma store stats
+		wCtx: s.newWCtx(),
 	}
 }
 

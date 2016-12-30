@@ -662,6 +662,7 @@ func (w *Writer) Lookup(itm unsafe.Pointer) (unsafe.Pointer, error) {
 func (s *Plasma) fetchPageFromLSS(baseOffset lssOffset, ctx *wCtx) (*page, error) {
 	pg := &page{
 		storeCtx: s.storeCtx,
+		inCache:  false,
 	}
 
 	offset := baseOffset
