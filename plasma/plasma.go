@@ -13,6 +13,14 @@ type PageReader func(offset lssOffset) (Page, error)
 
 const maxCtxBuffers = 3
 
+var (
+	dbInstances *skiplist.Skiplist
+)
+
+func init() {
+	dbInstances = skiplist.New()
+}
+
 type Plasma struct {
 	Config
 	*skiplist.Skiplist
@@ -199,6 +207,9 @@ func New(cfg Config) (*Plasma, error) {
 		}
 	}
 
+	sbuf := dbInstances.MakeBuf()
+	defer dbInstances.FreeBuf(sbuf)
+	dbInstances.Insert(unsafe.Pointer(s), ComparePlasma, sbuf, &dbInstances.Stats)
 	return s, err
 }
 
@@ -337,6 +348,14 @@ func (s *Plasma) Close() {
 	if s.Config.shouldPersist {
 		s.lss.Close()
 	}
+
+	sbuf := dbInstances.MakeBuf()
+	defer dbInstances.FreeBuf(sbuf)
+	dbInstances.Delete(unsafe.Pointer(s), ComparePlasma, sbuf, &dbInstances.Stats)
+}
+
+func ComparePlasma(a, b unsafe.Pointer) int {
+	return int(uintptr(a)) - int(uintptr(b))
 }
 
 type Writer struct {
@@ -388,6 +407,18 @@ func (s *Plasma) NewWriter() *Writer {
 
 	s.wlist = append(s.wlist, w)
 	return w
+}
+
+func (s *Plasma) MemoryInUse() int64 {
+	s.RLock()
+	defer s.RUnlock()
+
+	var memSz int64
+	for _, w := range s.wlist {
+		memSz += w.sts.MemSz
+	}
+
+	return memSz
 }
 
 func (s *Plasma) GetStats() Stats {
@@ -731,4 +762,16 @@ func (w *Writer) CompactAll() {
 	}
 
 	w.PageVisitor(callb, 1)
+}
+
+func MemoryInUse() (sz int64) {
+	buf := dbInstances.MakeBuf()
+	defer dbInstances.FreeBuf(buf)
+	iter := dbInstances.NewIterator(ComparePlasma, buf)
+	for iter.SeekFirst(); iter.Valid(); iter.Next() {
+		db := (*Plasma)(iter.Get())
+		sz += db.MemoryInUse()
+	}
+
+	return
 }
