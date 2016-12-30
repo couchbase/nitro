@@ -3,6 +3,7 @@ package plasma
 import (
 	"encoding/binary"
 	"fmt"
+	"github.com/t3rm1n4l/nitro/skiplist"
 	"os"
 	"sync"
 	"testing"
@@ -16,6 +17,9 @@ var testSnCfg = Config{
 	MinPageItems:     25,
 	Compare:          cmpItem,
 	ItemSize: func(itm unsafe.Pointer) uintptr {
+		if itm == skiplist.MinItem || itm == skiplist.MaxItem {
+			return 0
+		}
 		return uintptr((*item)(itm).Size())
 	},
 	File:                "teststore.data",

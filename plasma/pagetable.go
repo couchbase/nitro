@@ -128,6 +128,7 @@ retry:
 
 			pg.InCache(true)
 			atomic.AddInt64(&s.sts.NumPagesSwapIn, 1)
+			atomic.AddInt64(&s.sts.MemSz, int64(pg.ComputeMemUsed()))
 		}
 	} else {
 		pg = newPage(s.storeCtx, n.Item(), ptr)
@@ -145,6 +146,7 @@ func (s *pageTable) EvictPage(pid PageId, pg Page, offset lssOffset) bool {
 		pgi.prevHeadPtr = newPtr
 		if pg.IsInCache() {
 			atomic.AddInt64(&s.sts.NumPagesSwapOut, 1)
+			atomic.AddInt64(&s.sts.MemSz, -int64(pg.ComputeMemUsed()))
 		}
 		return true
 	}

@@ -306,6 +306,7 @@ func (s *Plasma) doRecovery() error {
 		}
 
 		lastPg = pg
+		w.sts.MemSz += int64(pg.ComputeMemUsed())
 		return err
 	}
 
@@ -472,6 +473,7 @@ func (s *Plasma) tryPageRemoval(pid PageId, pg Page, ctx *wCtx) {
 
 	if s.UpdateMapping(pPid, pPg) {
 		s.unindexPage(pid, ctx)
+		ctx.sts.MemSz += int64(pPg.GetMemUsed())
 
 		if s.shouldPersist {
 			ctx.sts.FlushDataSz += int64(fdSz) - int64(staleFdSz)
@@ -506,6 +508,7 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 		if updated {
 			ctx.sts.Compacts++
 			ctx.sts.FlushDataSz -= int64(staleFdSz)
+			ctx.sts.MemSz += int64(pg.GetMemUsed())
 		} else {
 			ctx.sts.CompactConflicts++
 		}
@@ -524,6 +527,7 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 			staleFdSz := pg.Compact()
 			if updated = s.UpdateMapping(pid, pg); updated {
 				ctx.sts.FlushDataSz -= int64(staleFdSz)
+				ctx.sts.MemSz += int64(pg.GetMemUsed())
 			}
 			return updated
 		}
@@ -554,6 +558,8 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 
 		s.CreateMapping(splitPid, newPg)
 		if updated = s.UpdateMapping(pid, pg); updated {
+			ctx.sts.MemSz += int64(pg.GetMemUsed())
+			ctx.sts.MemSz += int64(newPg.GetMemUsed())
 			s.indexPage(splitPid, ctx)
 			ctx.sts.Splits++
 
@@ -576,11 +582,14 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 		if updated = s.UpdateMapping(pid, pg); updated {
 			s.tryPageRemoval(pid, pg, ctx)
 			ctx.sts.Merges++
+			ctx.sts.MemSz += int64(pg.GetMemUsed())
 		} else {
 			ctx.sts.MergeConflicts++
 		}
 	} else if doUpdate {
-		updated = s.UpdateMapping(pid, pg)
+		if updated = s.UpdateMapping(pid, pg); updated {
+			ctx.sts.MemSz += int64(pg.GetMemUsed())
+		}
 	}
 
 	return updated
@@ -626,6 +635,7 @@ retry:
 		goto retry
 	}
 	w.sts.Inserts++
+	w.sts.MemSz += int64(pg.GetMemUsed())
 
 	return nil
 }
@@ -644,6 +654,7 @@ retry:
 		goto retry
 	}
 	w.sts.Deletes++
+	w.sts.MemSz += int64(pg.GetMemUsed())
 
 	return nil
 }
@@ -713,6 +724,7 @@ func (w *Writer) CompactAll() {
 			staleFdSz := pg.Compact()
 			if updated := w.UpdateMapping(pid, pg); updated {
 				w.wCtx.sts.FlushDataSz -= int64(staleFdSz)
+				w.wCtx.sts.MemSz += int64(pg.GetMemUsed())
 			}
 		}
 		return nil
