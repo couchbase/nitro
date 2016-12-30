@@ -77,6 +77,9 @@ func DefaultConfig() Config {
 		MinPageItems:     25,
 		Compare:          cmpItem,
 		ItemSize: func(itm unsafe.Pointer) uintptr {
+			if itm == skiplist.MinItem || itm == skiplist.MaxItem {
+				return 0
+			}
 			return uintptr((*item)(itm).Size())
 		},
 		FlushBufferSize:     1024 * 1024,
