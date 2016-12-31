@@ -120,7 +120,7 @@ loop:
 		default:
 		}
 
-		if s.TriggerSwapper() {
+		if s.TriggerSwapper() && s.GetStats().NumCachedPages > 0 {
 			fmt.Println("Swapper: started")
 			numEvicted := s.GetStats().NumPagesSwapOut
 			s.RunSwapper(s.ContinueSwapper)
