@@ -505,7 +505,7 @@ func (s *Plasma) tryPageRemoval(pid PageId, pg Page, ctx *wCtx) {
 		writeLSSBlock(wbufs[0], lssPageRemove, metaBuf)
 
 		writeLSSBlock(wbufs[1], lssPageData, pgBuf)
-		pPg.AddFlushRecord(offsets[0], fdSz, true)
+		pPg.AddFlushRecord(offsets[1], fdSz, true)
 	}
 
 	if s.UpdateMapping(pPid, pPg) {
