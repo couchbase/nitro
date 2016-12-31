@@ -593,6 +593,7 @@ func (pg *page) Append(p Page) {
 		*pg = *aPg
 	} else {
 		pg.tail.next = aPg.head
+		pg.tail = aPg.tail
 	}
 }
 
@@ -624,6 +625,9 @@ loop:
 			fmt.Println("-------merge-siblings------- ", stringify(pdm.itm))
 			prettyPrint(pdm.mergeSibling, stringify)
 			fmt.Println("-----------")
+		case opRollbackDelta:
+			rpd := (*rollbackDelta)(unsafe.Pointer(pd))
+			fmt.Println("-----rollback----", rpd.rb.start, rpd.rb.end)
 		}
 	}
 }
