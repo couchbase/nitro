@@ -65,6 +65,8 @@ type Stats struct {
 	FlushDataSz int64
 	MemSz       int64
 
+	NumCachedPages  int64
+	NumPages        int64
 	NumPagesSwapOut int64
 	NumPagesSwapIn  int64
 }
@@ -106,6 +108,8 @@ func (s Stats) String() string {
 		"swapin_conflicts  = %d\n"+
 		"flushdata_size    = %d\n"+
 		"memory_size       = %d\n"+
+		"num_cached_pages  = %d\n"+
+		"num_pages         = %d\n"+
 		"num_pages_swapout = %d\n"+
 		"num_pages_swapin  = %d\n",
 		s.Inserts-s.Deletes,
@@ -114,8 +118,8 @@ func (s Stats) String() string {
 		s.SplitConflicts, s.MergeConflicts,
 		s.InsertConflicts, s.DeleteConflicts,
 		s.SwapInConflicts, s.FlushDataSz,
-		s.MemSz, s.NumPagesSwapOut,
-		s.NumPagesSwapIn)
+		s.MemSz, s.NumCachedPages,
+		s.NumPages, s.NumPagesSwapOut, s.NumPagesSwapIn)
 }
 
 func New(cfg Config) (*Plasma, error) {
@@ -428,10 +432,11 @@ func (s *Plasma) GetStats() Stats {
 	s.RLock()
 	defer s.RUnlock()
 
+	sts.NumPages = int64(s.Skiplist.GetStats().NodeCount + 1)
 	for _, w := range s.wlist {
 		sts.Merge(w.sts)
 	}
-
+	sts.NumCachedPages = sts.NumPages - sts.NumPagesSwapOut + sts.NumPagesSwapIn
 	return sts
 }
 
