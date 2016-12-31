@@ -120,15 +120,13 @@ loop:
 		default:
 		}
 
-		if s.shouldSwap() {
+		if s.TriggerSwapper() {
 			fmt.Println("Swapper: started")
 			numEvicted := s.GetStats().NumPagesSwapOut
-			s.RunSwapper(s.shouldSwap)
+			s.RunSwapper(s.ContinueSwapper)
 			numEvicted = s.GetStats().NumPagesSwapOut - numEvicted
 			fmt.Printf("Swapper: (evicted: %d blocks, rss: %d) finished\n", numEvicted, ProcessRSS())
-			if s.shouldSwap() {
-				goto loop
-			}
+			goto loop
 		}
 
 		time.Sleep(time.Second)

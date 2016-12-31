@@ -28,8 +28,9 @@ type Config struct {
 	// TODO: Remove later
 	MaxMemoryUsage int
 
-	shouldSwap    func() bool
-	shouldPersist bool
+	ContinueSwapper func() bool
+	TriggerSwapper  func() bool
+	shouldPersist   bool
 
 	MaxSnSyncFrequency int
 }
@@ -44,12 +45,13 @@ func applyConfigDefaults(cfg Config) Config {
 	}
 
 	// TODO: Remove later
-	if cfg.shouldSwap == nil && cfg.MaxMemoryUsage > 0 {
-		cfg.shouldSwap = func() bool {
+	if cfg.TriggerSwapper == nil && cfg.ContinueSwapper == nil && cfg.MaxMemoryUsage > 0 {
+		swapper := func() bool {
 			return ProcessRSS() >= int(0.7*float32(cfg.MaxMemoryUsage))
 		}
-	} else {
-		cfg.shouldSwap = QuotaSwapper
+
+		cfg.TriggerSwapper = swapper
+		cfg.ContinueSwapper = swapper
 	}
 
 	if cfg.File == "" {
