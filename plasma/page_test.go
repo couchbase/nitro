@@ -124,7 +124,9 @@ func TestPageMergeMarshal(t *testing.T) {
 	pg3.Delete(skiplist.NewIntKeyItem(900))
 	pg3.Delete(skiplist.NewIntKeyItem(901))
 
+	pg3.Close()
 	pg2.Merge(pg3)
+	pg2.Close()
 	pg1.Merge(pg2)
 
 	var itmsE, itmsG []unsafe.Pointer

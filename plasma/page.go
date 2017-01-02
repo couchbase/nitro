@@ -339,7 +339,7 @@ func (pg *page) newRecordDelta(op pageOp, itm unsafe.Pointer) (*pageDelta, int) 
 
 	pd.op = op
 	pd.itm = itm
-	return (*pageDelta)(unsafe.Pointer(pd)), pageHeaderSize + int(pg.itemSize(itm))
+	return (*pageDelta)(unsafe.Pointer(pd)), pageHeaderSize + 8 + int(pg.itemSize(itm))
 }
 
 func (pg *page) newSplitPageDelta(itm unsafe.Pointer, pid PageId) (*pageDelta, int) {
@@ -353,7 +353,7 @@ func (pg *page) newSplitPageDelta(itm unsafe.Pointer, pid PageId) (*pageDelta, i
 	pd.hiItm = itm
 	pd.chainLen++
 	pd.rightSibling = pid
-	return (*pageDelta)(unsafe.Pointer(pd)), pageHeaderSize + int(pg.itemSize(itm))
+	return (*pageDelta)(unsafe.Pointer(pd)), pageHeaderSize + 8 + int(pg.itemSize(itm))
 }
 
 func (pg *page) newMergePageDelta(itm unsafe.Pointer, sibl *pageDelta) (*pageDelta, int) {
@@ -368,7 +368,7 @@ func (pg *page) newMergePageDelta(itm unsafe.Pointer, sibl *pageDelta) (*pageDel
 	pd.numItems += sibl.numItems
 	pd.rightSibling = sibl.rightSibling
 	pd.hiItm = pg.dup(sibl.hiItm)
-	return (*pageDelta)(unsafe.Pointer(pd)), pageHeaderSize + int(pg.itemSize(pd.hiItm))
+	return (*pageDelta)(unsafe.Pointer(pd)), pageHeaderSize + 8 + 8 + int(pg.itemSize(pd.hiItm))
 }
 
 func (pg *page) newRemovePageDelta() (*pageDelta, int) {
@@ -625,6 +625,8 @@ loop:
 			fmt.Println("-------merge-siblings------- ", stringify(pdm.itm))
 			prettyPrint(pdm.mergeSibling, stringify)
 			fmt.Println("-----------")
+		case opPageRemoveDelta:
+			fmt.Println("---remove-delta---")
 		case opRollbackDelta:
 			rpd := (*rollbackDelta)(unsafe.Pointer(pd))
 			fmt.Println("-----rollback----", rpd.rb.start, rpd.rb.end)
@@ -835,6 +837,9 @@ loop:
 			woffset += 8
 			binary.BigEndian.PutUint64(buf[woffset:woffset+8], uint64(rpd.rb.end))
 			woffset += 8
+		case opPageRemoveDelta:
+		default:
+			panic(fmt.Sprintf("unknown delta %d", pd.op))
 		}
 	}
 
@@ -1216,20 +1221,23 @@ loop:
 			break loop
 		case opInsertDelta, opDeleteDelta:
 			rpd := (*recordDelta)(unsafe.Pointer(pd))
-			size += int(itemSize(rpd.itm)) + pageHeaderSize
+			size += pageHeaderSize + int(itemSize(rpd.itm)) + 8
 		case opPageRemoveDelta:
 			size += pageHeaderSize
 		case opPageSplitDelta:
 			spd := (*splitPageDelta)(unsafe.Pointer(pd))
-			size += int(itemSize(spd.itm)) + pageHeaderSize
+			size += pageHeaderSize + 8 + int(itemSize(spd.itm))
 		case opPageMergeDelta:
 			pdm := (*mergePageDelta)(unsafe.Pointer(pd))
-			size += int(itemSize(pdm.hiItm)) + pageHeaderSize
+			size += pageHeaderSize + 8 + 8 + int(itemSize(pdm.hiItm))
 			size += computeMemUsed(pdm.mergeSibling, itemSize)
 		case opFlushPageDelta, opRelocPageDelta:
 			size += pageHeaderSize + 8 + 8
 		case opRollbackDelta:
 			size += pageHeaderSize + 8 + 8
+		case opMetaDelta:
+		default:
+			panic(fmt.Sprintf("unsupported delta %d", pd.op))
 		}
 	}
 
