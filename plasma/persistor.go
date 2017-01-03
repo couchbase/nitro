@@ -55,7 +55,9 @@ retry:
 			ok = s.EvictPage(pid, pg, offset)
 		} else {
 			pg.AddFlushRecord(offset, dataSz, false)
-			ok = s.UpdateMapping(pid, pg)
+			if ok = s.UpdateMapping(pid, pg); ok {
+				w.sts.MemSz += int64(pg.GetMemUsed())
+			}
 		}
 
 		if ok {
