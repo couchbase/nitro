@@ -837,7 +837,7 @@ loop:
 			woffset += 8
 			binary.BigEndian.PutUint64(buf[woffset:woffset+8], uint64(rpd.rb.end))
 			woffset += 8
-		case opPageRemoveDelta:
+		case opPageRemoveDelta, opMetaDelta:
 		default:
 			panic(fmt.Sprintf("unknown delta %d", pd.op))
 		}
