@@ -32,6 +32,8 @@ type LSS interface {
 	Sync()
 
 	RunCleaner(callb lssCleanerCallback, buf []byte) error
+
+	BytesWritten() int64
 }
 
 type lsStore struct {
@@ -52,6 +54,12 @@ type lsStore struct {
 	path        string
 	segmentSize int64
 	log         Log
+
+	bytesWritten int64
+}
+
+func (s *lsStore) BytesWritten() int64 {
+	return s.bytesWritten
 }
 
 func newLSStore(path string, segSize int64, bufSize int, nbufs int) (*lsStore, error) {
@@ -103,6 +111,7 @@ func (s *lsStore) flush(fb *flushBuffer) {
 	for {
 		err := s.log.Append(fb.Bytes())
 		if err == nil {
+			s.bytesWritten += int64(len(fb.Bytes()))
 			break
 		}
 
