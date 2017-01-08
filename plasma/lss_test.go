@@ -4,8 +4,11 @@ import (
 	"encoding/binary"
 	"fmt"
 	"os"
+	"runtime"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 const segmentSize = 1024 * 1024 * 10
@@ -196,4 +199,49 @@ func TestLSSSuperBlock(t *testing.T) {
 	if head != lss.log.Head() {
 		t.Errorf("head: expected %d, got %d", head, lss.log.Head())
 	}
+}
+
+func TestLSSPerf(t *testing.T) {
+	var wg sync.WaitGroup
+
+	os.RemoveAll("test.data")
+	BufSize := 1024 * 1024
+	nbuffers := 2
+	segmentSize := int64(1024 * 1024 * 1024)
+	lss, _ := newLSStore("test.data", segmentSize, BufSize, nbuffers)
+
+	var count int64
+	n := runtime.GOMAXPROCS(0)
+	limit := 10000000
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(id int) {
+			tbuf := make([]byte, 512)
+
+			defer wg.Done()
+			for x := 0; x < limit; x++ {
+				_, buf, res := lss.ReserveSpace(512)
+				binary.BigEndian.PutUint64(tbuf[:8], uint64(id+i))
+				copy(buf, tbuf)
+				runtime.Gosched()
+				lss.FinalizeWrite(res)
+				atomic.AddInt64(&count, 1)
+			}
+		}(i)
+	}
+
+	go func() {
+		var last int64
+		for {
+			time.Sleep(time.Second)
+			c := atomic.LoadInt64(&count)
+			fmt.Println(c - last)
+			last = c
+		}
+	}()
+	wg.Wait()
+
+	lss.Sync()
+	lss.Close()
+
 }
