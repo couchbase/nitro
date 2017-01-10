@@ -217,7 +217,9 @@ retry:
 }
 
 func (l *multiFilelog) Trim(offset int64) {
-	atomic.StoreInt64(&l.headOffset, offset)
+	if offset > 0 {
+		atomic.StoreInt64(&l.headOffset, offset)
+	}
 }
 
 func (l *multiFilelog) doGCSegments() {

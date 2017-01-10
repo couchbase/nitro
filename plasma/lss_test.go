@@ -18,7 +18,7 @@ func TestLSSBasic(t *testing.T) {
 	nbuffers := 4
 
 	os.RemoveAll("test.data")
-	lss, err := newLSStore("test.data", segmentSize, BufSize, nbuffers)
+	lss, err := newLSStore("test.data", segmentSize, BufSize, nbuffers, 0)
 	if err != nil {
 		panic(err)
 	}
@@ -57,7 +57,7 @@ func TestLSSConcurrent(t *testing.T) {
 	m := make(map[lssOffset]int)
 
 	os.RemoveAll("test.data")
-	lss, _ := newLSStore("test.data", segmentSize, BufSize, nbuffers)
+	lss, _ := newLSStore("test.data", segmentSize, BufSize, nbuffers, 0)
 
 	n := 10000
 	var wg sync.WaitGroup
@@ -90,7 +90,7 @@ func TestLSSCleaner(t *testing.T) {
 	nbuffers := 4
 
 	os.RemoveAll("test.data")
-	lss, _ := newLSStore("test.data", segmentSize, BufSize, nbuffers)
+	lss, _ := newLSStore("test.data", segmentSize, BufSize, nbuffers, 0)
 
 	n := 1000000
 	var lock sync.Mutex
@@ -132,7 +132,7 @@ func TestLSSCleaner(t *testing.T) {
 		}
 	}
 
-	lss.Sync()
+	lss.Sync(false)
 	wg.Wait()
 
 	empty := []byte{0, 0, 0, 0, 0, 0, 0, 0}
@@ -152,7 +152,7 @@ func TestLSSSuperBlock(t *testing.T) {
 	nbuffers := 2
 
 	os.RemoveAll("test.data")
-	lss, err := newLSStore("test.data", segmentSize, BufSize, nbuffers)
+	lss, err := newLSStore("test.data", segmentSize, BufSize, nbuffers, 0)
 	if err != nil {
 		panic(err)
 	}
@@ -182,12 +182,12 @@ func TestLSSSuperBlock(t *testing.T) {
 	}
 
 	wg.Wait()
-	lss.Sync()
+	lss.Sync(false)
 	tail := lss.log.Tail()
 	head := lss.log.Head()
 	lss.Close()
 
-	lss, err = newLSStore("test.data", segmentSize, BufSize, nbuffers)
+	lss, err = newLSStore("test.data", segmentSize, BufSize, nbuffers, 0)
 	if err != nil {
 		panic(err)
 	}
@@ -208,11 +208,11 @@ func TestLSSPerf(t *testing.T) {
 	BufSize := 1024 * 1024
 	nbuffers := 2
 	segmentSize := int64(1024 * 1024 * 1024)
-	lss, _ := newLSStore("test.data", segmentSize, BufSize, nbuffers)
+	lss, _ := newLSStore("test.data", segmentSize, BufSize, nbuffers, 0)
 
 	var count int64
 	n := runtime.GOMAXPROCS(0)
-	limit := 10000000
+	limit := 1000000
 	for i := 0; i < n; i++ {
 		wg.Add(1)
 		go func(id int) {
@@ -230,9 +230,16 @@ func TestLSSPerf(t *testing.T) {
 		}(i)
 	}
 
+	closed := make(chan bool)
 	go func() {
 		var last int64
 		for {
+			select {
+			case <-closed:
+				return
+			default:
+			}
+
 			time.Sleep(time.Second)
 			c := atomic.LoadInt64(&count)
 			fmt.Println(c - last)
@@ -241,7 +248,8 @@ func TestLSSPerf(t *testing.T) {
 	}()
 	wg.Wait()
 
-	lss.Sync()
+	close(closed)
+	lss.Sync(false)
 	lss.Close()
 
 }

@@ -295,7 +295,7 @@ func (s *Plasma) CreateRecoveryPoint(sn *Snapshot, meta []byte) error {
 		s.updateRecoveryPoints(rps)
 		s.mvcc.Unlock()
 
-		s.lss.Sync()
+		s.lss.Sync(true)
 	} else {
 		sn.Close()
 	}
@@ -345,7 +345,7 @@ func (s *Plasma) Rollback(rollRP *RecoveryPoint) (*Snapshot, error) {
 		return nil, err
 	}
 
-	s.lss.Sync()
+	s.lss.Sync(false)
 
 	newSnap := s.newSnapshot()
 	var newRpts []*RecoveryPoint
@@ -358,7 +358,7 @@ func (s *Plasma) Rollback(rollRP *RecoveryPoint) (*Snapshot, error) {
 	s.updateRecoveryPoints(newRpts)
 	s.gcSn = newSnap.sn
 
-	s.lss.Sync()
+	s.lss.Sync(true)
 	return newSnap, nil
 }
 
@@ -431,7 +431,7 @@ func (s *Plasma) updateMaxSn(sn uint64, force bool) {
 			_, wbuf, res := s.lss.ReserveSpace(len(bs) + lssBlockTypeSize)
 			writeLSSBlock(wbuf, lssMaxSn, bs[:])
 			s.lss.FinalizeWrite(res)
-			s.lss.Sync()
+			s.lss.Sync(true)
 			s.lastMaxSn = maxSn
 		}
 

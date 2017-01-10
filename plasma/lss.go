@@ -53,7 +53,11 @@ type lsStore struct {
 
 	path        string
 	segmentSize int64
-	log         Log
+
+	lastCommitTS   time.Time
+	commitDuration time.Duration
+	trimOffset     lssOffset
+	log            Log
 
 	bytesWritten int64
 }
@@ -62,15 +66,16 @@ func (s *lsStore) BytesWritten() int64 {
 	return s.bytesWritten
 }
 
-func newLSStore(path string, segSize int64, bufSize int, nbufs int) (*lsStore, error) {
+func newLSStore(path string, segSize int64, bufSize int, nbufs int, commitDur time.Duration) (*lsStore, error) {
 	var err error
 
 	s := &lsStore{
-		path:          path,
-		segmentSize:   segSize,
-		nbufs:         nbufs,
-		bufSize:       bufSize,
-		trimBatchSize: int64(bufSize),
+		path:           path,
+		segmentSize:    segSize,
+		nbufs:          nbufs,
+		bufSize:        bufSize,
+		trimBatchSize:  int64(bufSize),
+		commitDuration: commitDur,
 	}
 
 	if s.log, err = newLog(path, segSize); err != nil {
@@ -120,10 +125,16 @@ func (s *lsStore) flush(fb *flushBuffer) {
 	}
 
 	if trimOffset, doTrim := fb.GetTrimLogOffset(); doTrim {
-		s.log.Trim(int64(trimOffset))
+		s.trimOffset = trimOffset
 	}
 
-	s.log.Commit()
+	doCommit := fb.doCommit || time.Since(s.lastCommitTS) > s.commitDuration
+
+	if doCommit {
+		s.log.Trim(int64(s.trimOffset))
+		s.log.Commit()
+		s.lastCommitTS = time.Now()
+	}
 
 	nextFb := fb.NextBuffer()
 	atomic.StorePointer(&s.head, unsafe.Pointer(nextFb))
@@ -265,7 +276,7 @@ func (s *lsStore) visitor(start, end int64, callb lssBlockCallback, buf []byte) 
 	return nil
 }
 
-func (s *lsStore) Sync() {
+func (s *lsStore) Sync(commit bool) {
 retry:
 	fb := s.currBuf()
 
@@ -278,6 +289,7 @@ retry:
 	}
 
 	s.initNextBuffer(fb)
+	fb.doCommit = commit
 	fb.Done()
 
 	for {
@@ -302,6 +314,8 @@ type flushBuffer struct {
 	b          []byte
 	next       *flushBuffer
 	callb      flushCallback
+
+	doCommit bool
 
 	trimOffset lssOffset
 }
@@ -465,6 +479,8 @@ func (fb *flushBuffer) IsReset() bool {
 
 func (fb *flushBuffer) Reset() {
 	fb.baseOffset = 0
+	fb.doCommit = false
+	fb.trimOffset = 0
 	state := resetState(atomic.LoadUint64(&fb.state))
 	atomic.StoreUint64(&fb.state, state)
 }

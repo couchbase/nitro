@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"sync"
 	"sync/atomic"
+	"time"
 	"unsafe"
 )
 
@@ -191,7 +192,8 @@ func New(cfg Config) (*Plasma, error) {
 	s.CreateMapping(pid, pg)
 
 	if s.shouldPersist {
-		s.lss, err = newLSStore(cfg.File, cfg.LSSLogSegmentSize, cfg.FlushBufferSize, 2)
+		commitDur := time.Duration(cfg.SyncInterval) * time.Second
+		s.lss, err = newLSStore(cfg.File, cfg.LSSLogSegmentSize, cfg.FlushBufferSize, 2, commitDur)
 		if err != nil {
 			return nil, err
 		}

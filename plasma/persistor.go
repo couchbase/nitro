@@ -85,7 +85,7 @@ func (s *Plasma) PersistAll() {
 	}
 
 	s.PageVisitor(callb, s.NumPersistorThreads)
-	s.lss.Sync()
+	s.lss.Sync(false)
 }
 
 func (s *Plasma) EvictAll() {

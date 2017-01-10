@@ -33,6 +33,7 @@ type Config struct {
 	shouldPersist   bool
 
 	MaxSnSyncFrequency int
+	SyncInterval       int
 }
 
 func applyConfigDefaults(cfg Config) Config {
@@ -62,11 +63,11 @@ func applyConfigDefaults(cfg Config) Config {
 	}
 
 	if cfg.MaxSnSyncFrequency == 0 {
-		cfg.MaxSnSyncFrequency = 100
+		cfg.MaxSnSyncFrequency = 360000
 	}
 
 	if cfg.LSSLogSegmentSize == 0 {
-		cfg.LSSLogSegmentSize = 1024 * 1024 * 1024
+		cfg.LSSLogSegmentSize = 1024 * 1024 * 1024 * 4
 	}
 
 	return cfg
@@ -90,5 +91,6 @@ func DefaultConfig() Config {
 		AutoSwapper:         false,
 		EnableShapshots:     true,
 		MaxMemoryUsage:      1024 * 1024 * 1024 * 512,
+		SyncInterval:        300,
 	}
 }
