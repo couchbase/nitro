@@ -91,6 +91,6 @@ func DefaultConfig() Config {
 		AutoSwapper:         false,
 		EnableShapshots:     true,
 		MaxMemoryUsage:      1024 * 1024 * 1024 * 512,
-		SyncInterval:        300,
+		SyncInterval:        0,
 	}
 }
