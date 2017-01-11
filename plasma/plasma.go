@@ -449,7 +449,9 @@ func (s *Plasma) GetStats() Stats {
 		sts.Merge(w.sts)
 	}
 	sts.NumCachedPages = sts.NumPages - sts.NumPagesSwapOut + sts.NumPagesSwapIn
-	sts.BytesWritten = s.lss.BytesWritten()
+	if s.shouldPersist {
+		sts.BytesWritten = s.lss.BytesWritten()
+	}
 	return sts
 }
 
