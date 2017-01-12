@@ -52,9 +52,11 @@ type multiFilelog struct {
 	tailOffset int64
 
 	index *fileIndex
+
+	sync bool
 }
 
-func newLog(path string, segmentSize int64) (Log, error) {
+func newLog(path string, segmentSize int64, sync bool) (Log, error) {
 	var sbBuffer [logSBSize]byte
 	os.MkdirAll(path, 0755)
 	headerFile := filepath.Join(path, headerFileName)
@@ -76,6 +78,7 @@ func newLog(path string, segmentSize int64) (Log, error) {
 		basePath:    path,
 		headOffset:  h,
 		tailOffset:  t,
+		sync:        sync,
 	}
 
 	if err := log.initIndex(); err != nil {
@@ -167,12 +170,18 @@ func (l *multiFilelog) growLog() error {
 	idx := l.getIndex()
 	newFileId := (idx.endOffset + 1) / l.segmentSize
 	file := filepath.Join(l.basePath, fmt.Sprintf(segFileNameFormat, newFileId))
-	fd, err := os.OpenFile(file, os.O_RDWR|os.O_CREATE, 0755)
+
+	flags := os.O_RDWR | os.O_CREATE
+	if l.sync {
+		flags |= os.O_SYNC
+	} else {
+		idx.w.Sync()
+	}
+
+	fd, err := os.OpenFile(file, flags, 0755)
 	if err != nil {
 		return err
 	}
-
-	idx.w.Sync()
 
 	newIdx := *idx
 	newIdx.index = append(newIdx.index, fd)
@@ -252,8 +261,10 @@ func (l *multiFilelog) doGCSegments() {
 
 func (l *multiFilelog) Commit() error {
 	idx := l.getIndex()
-	if err := idx.w.Sync(); err != nil {
-		return err
+	if !l.sync {
+		if err := idx.w.Sync(); err != nil {
+			return err
+		}
 	}
 
 	marshalLogSB(l.sbBuffer[:], l.Head(), l.Tail(), l.sbGen)

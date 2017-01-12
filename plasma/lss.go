@@ -79,7 +79,7 @@ func newLSStore(path string, segSize int64, bufSize int, nbufs int, commitDur ti
 		commitDuration: commitDur,
 	}
 
-	if s.log, err = newLog(path, segSize); err != nil {
+	if s.log, err = newLog(path, segSize, commitDur == 0); err != nil {
 		return nil, err
 	}
 
