@@ -15,6 +15,7 @@ const lssVersion = 0
 const headerSize = superBlockSize * 2
 const superBlockSize = 4096
 const lssReclaimBlockSize = 1024 * 1024 * 8
+const forceFlushThreshold = 1024 * 512
 
 var ErrCorruptSuperBlock = errors.New("Superblock is corrupted")
 
@@ -136,8 +137,17 @@ func (s *lsStore) flush(fb *flushBuffer) {
 		s.lastCommitTS = time.Now()
 	}
 
+	fb.Reset()
 	nextFb := fb.NextBuffer()
 	atomic.StorePointer(&s.head, unsafe.Pointer(nextFb))
+
+	// If the next buffer is not full, still force flush it
+	if closed, _ := nextFb.TryClose(forceFlushThreshold); closed {
+		s.initNextBuffer(nextFb)
+		nextFb.Done()
+	}
+
+	nextFb.Done()
 }
 
 func (s *lsStore) initNextBuffer(currFb *flushBuffer) {
@@ -283,7 +293,7 @@ retry:
 	var endOffset int64
 	var closed bool
 
-	if closed, endOffset = fb.TryClose(); !closed {
+	if closed, endOffset = fb.TryClose(0); !closed {
 		runtime.Gosched()
 		goto retry
 	}
@@ -346,9 +356,12 @@ func (fb *flushBuffer) EndOffset() int64 {
 	return fb.baseOffset + int64(offset)
 }
 
-func (fb *flushBuffer) TryClose() (markedFull bool, lssOff int64) {
+func (fb *flushBuffer) TryClose(thr int) (markedFull bool, lssOff int64) {
 	state := atomic.LoadUint64(&fb.state)
 	isfull, reset, nw, offset := decodeState(state)
+	if offset < thr {
+		return false, 0
+	}
 	newState := encodeState(true, nw, offset)
 	if !isfull && !reset && atomic.CompareAndSwapUint64(&fb.state, state, newState) {
 		lssOff = fb.EndOffset()
@@ -460,9 +473,6 @@ retry:
 
 	if nw == 1 && isfull {
 		fb.callb(fb)
-		fb.Reset()
-		nextFb := fb.NextBuffer()
-		nextFb.Done()
 	}
 }
 
