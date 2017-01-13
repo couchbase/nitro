@@ -85,7 +85,7 @@ func DefaultConfig() Config {
 			}
 			return uintptr((*item)(itm).Size())
 		},
-		FlushBufferSize:     1024 * 1024 * 8,
+		FlushBufferSize:     1024 * 1024 * 1,
 		LSSCleanerThreshold: 10,
 		AutoLSSCleaning:     true,
 		AutoSwapper:         false,
