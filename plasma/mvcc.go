@@ -321,13 +321,13 @@ func (s *Plasma) Rollback(rollRP *RecoveryPoint) (*Snapshot, error) {
 	retry:
 		if pg, err := s.ReadPage(pid, w.pgRdrFn, true); err == nil {
 			pg.Rollback(start, end)
-			pgBuf, fdSz := pg.Marshal(pgBuf)
+			pgBuf, fdSz, staleFdSz, numSegments := pg.Marshal(pgBuf, s.Config.MaxPageLSSSegments)
 			offset, wbuf, res := s.lss.ReserveSpace(len(pgBuf) + lssBlockTypeSize)
-			typ := pgFlushLSSType(pg)
+			typ := pgFlushLSSType(pg, numSegments)
 			writeLSSBlock(wbuf, typ, pgBuf)
-			pg.AddFlushRecord(offset, fdSz, false)
+			pg.AddFlushRecord(offset, fdSz, numSegments)
 			s.lss.FinalizeWrite(res)
-			w.wCtx.sts.FlushDataSz += int64(fdSz)
+			w.wCtx.sts.FlushDataSz += int64(fdSz) - int64(staleFdSz)
 
 			// May conflict with cleaner
 			if !s.UpdateMapping(pid, pg) {

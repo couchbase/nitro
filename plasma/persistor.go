@@ -45,16 +45,16 @@ retry:
 	// Never read from lss
 	pg, _ := s.ReadPage(pid, nil, false)
 	if pg.NeedsFlush() {
-		bs, dataSz := pg.Marshal(buf)
+		bs, dataSz, staleFdSz, numSegments := pg.Marshal(buf, s.Config.MaxPageLSSSegments)
 		offset, wbuf, res := s.lss.ReserveSpace(lssBlockTypeSize + len(bs))
-		typ := pgFlushLSSType(pg)
+		typ := pgFlushLSSType(pg, numSegments)
 		writeLSSBlock(wbuf, typ, bs)
 
 		var ok bool
 		if evict {
 			ok = s.EvictPage(pid, pg, offset)
 		} else {
-			pg.AddFlushRecord(offset, dataSz, false)
+			pg.AddFlushRecord(offset, dataSz, numSegments)
 			if ok = s.UpdateMapping(pid, pg); ok {
 				w.sts.MemSz += int64(pg.GetMemUsed())
 			}
@@ -62,14 +62,14 @@ retry:
 
 		if ok {
 			s.lss.FinalizeWrite(res)
-			w.sts.FlushDataSz += int64(dataSz)
+			w.sts.FlushDataSz += int64(dataSz) - int64(staleFdSz)
 		} else {
 			discardLSSBlock(wbuf)
 			s.lss.FinalizeWrite(res)
 			goto retry
 		}
 	} else if evict && pg.IsEvictable() {
-		offset := pg.GetLSSOffset()
+		offset, _ := pg.GetLSSOffset()
 		if !s.EvictPage(pid, pg, offset) {
 			goto retry
 		}
@@ -136,10 +136,9 @@ loop:
 	}
 }
 
-func pgFlushLSSType(pg Page) lssBlockType {
-	if pg.IsFlushed() {
+func pgFlushLSSType(pg Page, numSegments int) lssBlockType {
+	if numSegments > 0 {
 		return lssPageUpdate
 	}
-
 	return lssPageData
 }

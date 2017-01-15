@@ -29,6 +29,11 @@ const (
 	opRollbackDelta
 )
 
+const (
+	FullMarshal   = 0
+	NoFullMarshal = ^0
+)
+
 var pageHeaderSize = int(unsafe.Sizeof(*new(pageDelta)))
 
 type PageId interface{}
@@ -58,8 +63,7 @@ type Page interface {
 	Rollback(s, end uint64)
 
 	Append(Page)
-	MarshalFull([]byte) (bs []byte, fdSz int, staleFdSz int)
-	Marshal([]byte) (bs []byte, fdSz int)
+	Marshal(buf []byte, maxSegments int) (bs []byte, fdSz int, staleFdSz int, numSegments int)
 
 	GetVersion() uint16
 	IsFlushed() bool
@@ -75,11 +79,12 @@ type Page interface {
 	GetMemUsed() int
 	GetFlushDataSize() int
 	ComputeMemUsed() int
-	AddFlushRecord(off lssOffset, dataSz int, reloc bool)
+	AddFlushRecord(off lssOffset, dataSz int, numSegments int)
 
 	// TODO: Clean up later
 	IsEmpty() bool
-	GetLSSOffset() lssOffset
+	GetLSSOffset() (lssOffset, int)
+	SetNumSegments(int)
 }
 
 type ItemIterator interface {
@@ -222,6 +227,7 @@ type flushPageDelta struct {
 	pageDelta
 	offset      lssOffset
 	flushDataSz int32
+	numSegments int32
 }
 
 type removePageDelta pageDelta
@@ -306,7 +312,7 @@ func (pg *page) Reset() {
 	pg.prevHeadPtr = nil
 }
 
-func (pg *page) newFlushPageDelta(offset lssOffset, dataSz int, reloc bool) (*flushPageDelta, int) {
+func (pg *page) newFlushPageDelta(offset lssOffset, dataSz int, numSegments int) (*flushPageDelta, int) {
 	pd := new(flushPageDelta)
 	var meta *pageDelta
 	if pg.head == nil {
@@ -317,11 +323,14 @@ func (pg *page) newFlushPageDelta(offset lssOffset, dataSz int, reloc bool) (*fl
 
 	*(*pageDelta)(unsafe.Pointer(pd)) = *meta
 	pd.next = pg.head
+	reloc := numSegments == -1
 	if reloc {
 		pd.op = opRelocPageDelta
 		pd.state.IncrVersion()
+		pd.numSegments = 1
 	} else {
 		pd.op = opFlushPageDelta
+		pd.numSegments = int32(numSegments + 1)
 	}
 
 	pd.offset = offset
@@ -685,67 +694,55 @@ func (pg *page) NewIterator() ItemIterator {
 	}
 }
 
-func (pg *page) MarshalFull(buf []byte) (bs []byte, dataSz, staleSz int) {
+func (pg *page) Marshal(buf []byte, maxSegments int) (bs []byte, dataSz, staleFdSz int, numSegments int) {
 	hiItm := pg.MaxItem()
-	pd := pg.head
-
-	offset, staleSz := pg.marshal(buf, 0, pd, hiItm, false, true)
-	return buf[:offset], offset, staleSz
+	offset, staleFdSz, numSegments := pg.marshal(buf, 0, pg.head, hiItm, false, maxSegments)
+	return buf[:offset], offset, staleFdSz, numSegments
 }
 
-func (pg *page) Marshal(buf []byte) (bs []byte, dataSz int) {
-	hiItm := pg.MaxItem()
-	pd := pg.head
+func (pg *page) marshal(buf []byte, woffset int, head *pageDelta,
+	hiItm unsafe.Pointer, child bool, maxSegments int) (offset int, staleFdSz int, numSegments int) {
 
-	offset, _ := pg.marshal(buf, 0, pd, hiItm, false, false)
-	return buf[:offset], offset
-}
+	if head == nil {
+		return
+	}
 
-func (pg *page) marshal(buf []byte, woffset int, pd *pageDelta,
-	hiItm unsafe.Pointer, child bool, full bool) (offset int, staleFdSz int) {
-
+	var isFullMarshal bool = maxSegments == 0
+	stateBuf := buf[woffset : woffset+2]
+	pd := head
 	hasReloc := false
 	if !child {
-		if pd != nil {
-			// pageVersion
-			state := pd.state
-			if full {
-				state.IncrVersion()
-			}
+		woffset += 2
 
-			binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(state))
+		if pg.low == skiplist.MinItem {
+			binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(0))
 			woffset += 2
-
-			if pg.low == skiplist.MinItem {
-				binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(0))
-				woffset += 2
-			} else {
-				l := int(pg.itemSize(pg.low))
-				binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(l))
-				woffset += 2
-				memcopy(unsafe.Pointer(&buf[woffset]), pg.low, l)
-				woffset += l
-			}
-
-			// chainlen
-			binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(pd.chainLen))
+		} else {
+			l := int(pg.itemSize(pg.low))
+			binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(l))
 			woffset += 2
+			memcopy(unsafe.Pointer(&buf[woffset]), pg.low, l)
+			woffset += l
+		}
 
-			// numItems
-			binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(pd.numItems))
+		// chainlen
+		binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(pd.chainLen))
+		woffset += 2
+
+		// numItems
+		binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(pd.numItems))
+		woffset += 2
+
+		// hiItm
+		if pd.hiItm == skiplist.MaxItem {
+			binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(0))
 			woffset += 2
-
-			// hiItm
-			if pd.hiItm == skiplist.MaxItem {
-				binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(0))
-				woffset += 2
-			} else {
-				l := int(pg.itemSize(pd.hiItm))
-				binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(l))
-				woffset += 2
-				memcopy(unsafe.Pointer(&buf[woffset]), pd.hiItm, l)
-				woffset += l
-			}
+		} else {
+			l := int(pg.itemSize(pd.hiItm))
+			binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(l))
+			woffset += 2
+			memcopy(unsafe.Pointer(&buf[woffset]), pd.hiItm, l)
+			woffset += l
 		}
 	}
 
@@ -773,7 +770,7 @@ loop:
 		case opPageMergeDelta:
 			pdm := (*mergePageDelta)(unsafe.Pointer(pd))
 			var fdSz int
-			woffset, fdSz = pg.marshal(buf, woffset, pdm.mergeSibling, hiItm, true, full)
+			woffset, fdSz, _ = pg.marshal(buf, woffset, pdm.mergeSibling, hiItm, true, 0)
 			if !hasReloc {
 				staleFdSz += fdSz
 			}
@@ -814,11 +811,14 @@ loop:
 			break loop
 		case opFlushPageDelta, opRelocPageDelta:
 			fpd := (*flushPageDelta)(unsafe.Pointer(pd))
-			if !full {
+			if int(fpd.numSegments) > maxSegments {
+				isFullMarshal = true
+			} else if !isFullMarshal {
 				binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(pd.op))
 				woffset += 2
 				binary.BigEndian.PutUint64(buf[woffset:woffset+8], uint64(fpd.offset))
 				woffset += 8
+				numSegments = int(fpd.numSegments)
 				break loop
 			}
 
@@ -843,7 +843,17 @@ loop:
 		}
 	}
 
-	return woffset, staleFdSz
+	if !child {
+		// pageVersion
+		state := head.state
+		if isFullMarshal {
+			state.IncrVersion()
+			numSegments = -1
+		}
+		binary.BigEndian.PutUint16(stateBuf, uint16(state))
+	}
+
+	return woffset, staleFdSz, numSegments
 }
 
 func getLSSPageMeta(data []byte) (itm unsafe.Pointer, pv uint16) {
@@ -1004,8 +1014,8 @@ loop:
 	return
 }
 
-func (pg *page) AddFlushRecord(offset lssOffset, dataSz int, reloc bool) {
-	fd, used := pg.newFlushPageDelta(offset, dataSz, reloc)
+func (pg *page) AddFlushRecord(offset lssOffset, dataSz int, numSegments int) {
+	fd, used := pg.newFlushPageDelta(offset, dataSz, numSegments)
 	pg.head = (*pageDelta)(unsafe.Pointer(fd))
 	pg.memUsed += used
 }
@@ -1187,13 +1197,25 @@ func (pg *page) NeedsFlush() bool {
 	return true
 }
 
-func (pg *page) GetLSSOffset() lssOffset {
+func (pg *page) GetLSSOffset() (lssOffset, int) {
 	if pg.head.op == opFlushPageDelta || pg.head.op == opRelocPageDelta {
 		fpd := (*flushPageDelta)(unsafe.Pointer(pg.head))
-		return fpd.offset
+		return fpd.offset, int(fpd.numSegments)
+	} else if pg.head.op == opMetaDelta {
+		return 0, 0
 	}
 
-	panic("invalid usage")
+	panic(fmt.Sprintf("invalid delta op:%d", pg.head.op))
+}
+
+func (pg *page) SetNumSegments(n int) {
+	if pg.head.op == opFlushPageDelta {
+		fpd := (*flushPageDelta)(unsafe.Pointer(pg.head))
+		fpd.numSegments = int32(n)
+		return
+	}
+
+	panic(fmt.Sprintf("invalid delta op:%d", pg.head.op))
 }
 
 func (pg *page) GetMemUsed() int {

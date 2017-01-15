@@ -81,26 +81,26 @@ func TestPageMarshalFull(t *testing.T) {
 	pg1.Compact()
 
 	buf := make([]byte, 1024*1024)
-	_, l1 := pg1.Marshal(buf)
+	_, l1, _, numSegs1 := pg1.Marshal(buf, 100)
 	pg1.Split(sp)
-	pg1.AddFlushRecord(0, l1, false)
+	pg1.AddFlushRecord(0, l1, numSegs1)
 
-	_, l2 := pg1.Marshal(buf)
-	pg1.AddFlushRecord(0, l2, false)
+	_, l2, _, numSegs2 := pg1.Marshal(buf, 100)
+	pg1.AddFlushRecord(0, l2, numSegs2)
 
-	_, l3, old := pg1.MarshalFull(buf)
+	_, l3, old, _ := pg1.Marshal(buf, FullMarshal)
 
 	if old != l1+l2 || l3 > old {
 		t.Errorf("expected %d == %d+%d", old, l1, l2)
 	}
 
-	pg1.AddFlushRecord(0, l3, true)
+	pg1.AddFlushRecord(0, l3, FullMarshal)
 	bk := skiplist.NewIntKeyItem(1)
 	pg1.Delete(bk)
-	_, l4 := pg1.Marshal(buf)
-	pg1.AddFlushRecord(0, l4, false)
+	_, l4, _, numSegs4 := pg1.Marshal(buf, 100)
+	pg1.AddFlushRecord(0, l4, numSegs4)
 
-	_, _, old2 := pg1.MarshalFull(buf)
+	_, _, old2, _ := pg1.Marshal(buf, FullMarshal)
 
 	if old2 != l3+l4 {
 		t.Errorf("expected %d == %d+%d", old2, l3, l4)
@@ -140,7 +140,7 @@ func TestPageMergeMarshal(t *testing.T) {
 	}
 
 	encb := make([]byte, 1024*1024)
-	encb, _ = pg1.Marshal(encb)
+	encb, _, _, _ = pg1.Marshal(encb, 100)
 
 	newPg, _ := newTestPage()
 	newPg.Unmarshal(encb, nil)
@@ -308,7 +308,7 @@ func TestPageMarshal(t *testing.T) {
 		pg.Delete(skiplist.NewIntKeyItem(i))
 	}
 
-	encb, _ := pg.Marshal(buf)
+	encb, _, _, _ := pg.Marshal(buf, 100)
 	newPg, _ := newTestPage()
 	newPg.Unmarshal(encb, nil)
 

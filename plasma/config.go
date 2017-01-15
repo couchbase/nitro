@@ -7,11 +7,12 @@ import (
 )
 
 type Config struct {
-	MaxDeltaChainLen int
-	MaxPageItems     int
-	MinPageItems     int
-	Compare          skiplist.CompareFn
-	ItemSize         ItemSizeFn
+	MaxDeltaChainLen   int
+	MaxPageItems       int
+	MinPageItems       int
+	MaxPageLSSSegments int
+	Compare            skiplist.CompareFn
+	ItemSize           ItemSizeFn
 
 	LSSLogSegmentSize   int64
 	File                string
@@ -68,6 +69,10 @@ func applyConfigDefaults(cfg Config) Config {
 
 	if cfg.LSSLogSegmentSize == 0 {
 		cfg.LSSLogSegmentSize = 1024 * 1024 * 1024 * 4
+	}
+
+	if cfg.MaxPageLSSSegments == 0 {
+		cfg.MaxPageLSSSegments = 8
 	}
 
 	return cfg
