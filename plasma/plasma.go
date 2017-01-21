@@ -10,7 +10,7 @@ import (
 	"unsafe"
 )
 
-type PageReader func(offset lssOffset) (Page, error)
+type PageReader func(offset LSSOffset) (Page, error)
 
 const maxCtxBuffers = 3
 
@@ -28,7 +28,7 @@ type Plasma struct {
 	*skiplist.Skiplist
 	*pageTable
 	wlist                  []*Writer
-	lss                    *lsStore
+	lss                    LSS
 	lssCleanerWriter       *Writer
 	persistWriters         []*Writer
 	evictWriters           []*Writer
@@ -193,7 +193,7 @@ func New(cfg Config) (*Plasma, error) {
 
 	if s.shouldPersist {
 		commitDur := time.Duration(cfg.SyncInterval) * time.Second
-		s.lss, err = newLSStore(cfg.File, cfg.LSSLogSegmentSize, cfg.FlushBufferSize, 2, commitDur)
+		s.lss, err = NewLSStore(cfg.File, cfg.LSSLogSegmentSize, cfg.FlushBufferSize, 2, commitDur)
 		if err != nil {
 			return nil, err
 		}
@@ -257,7 +257,7 @@ func (s *Plasma) doRecovery() error {
 
 	buf := w.wCtx.GetBuffer(0)
 
-	fn := func(offset lssOffset, bs []byte) (bool, error) {
+	fn := func(offset LSSOffset, bs []byte) (bool, error) {
 		typ := getLSSBlockType(bs)
 		bs = bs[lssBlockTypeSize:]
 		switch typ {
@@ -399,7 +399,7 @@ func (s *Plasma) newWCtx() *wCtx {
 		pgBuffers: make([][]byte, maxCtxBuffers),
 	}
 
-	ctx.pgRdrFn = func(offset lssOffset) (Page, error) {
+	ctx.pgRdrFn = func(offset LSSOffset) (Page, error) {
 		return s.fetchPageFromLSS(offset, ctx)
 	}
 
@@ -504,9 +504,9 @@ func (s *Plasma) tryPageRemoval(pid PageId, pg Page, ctx *wCtx) {
 
 	pPg.Merge(pg)
 
-	var offsets []lssOffset
+	var offsets []LSSOffset
 	var wbufs [][]byte
-	var res lssResource
+	var res LSSResource
 
 	if s.shouldPersist {
 		var numSegments int
@@ -587,9 +587,9 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 			return updated
 		}
 
-		var offsets []lssOffset
+		var offsets []LSSOffset
 		var wbufs [][]byte
-		var res lssResource
+		var res LSSResource
 
 		// Replace one page with two pages
 		if s.shouldPersist {
@@ -727,7 +727,7 @@ func (w *Writer) Lookup(itm unsafe.Pointer) (unsafe.Pointer, error) {
 	return ret, nil
 }
 
-func (s *Plasma) fetchPageFromLSS(baseOffset lssOffset, ctx *wCtx) (*page, error) {
+func (s *Plasma) fetchPageFromLSS(baseOffset LSSOffset, ctx *wCtx) (*page, error) {
 	pg := &page{
 		storeCtx: s.storeCtx,
 		inCache:  false,

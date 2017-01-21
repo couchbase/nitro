@@ -18,22 +18,26 @@ const lssReclaimBlockSize = 1024 * 1024 * 8
 
 var ErrCorruptSuperBlock = errors.New("Superblock is corrupted")
 
-type lssOffset uint64
-type lssResource interface{}
-type lssBlockCallback func(lssOffset, []byte) (bool, error)
-type lssCleanerCallback func(start, end lssOffset, bs []byte) (cont bool, cleanOff lssOffset, err error)
+type LSSOffset uint64
+type LSSResource interface{}
+type LSSBlockCallback func(LSSOffset, []byte) (bool, error)
+type LSSCleanerCallback func(start, end LSSOffset, bs []byte) (cont bool, cleanOff LSSOffset, err error)
 
 type LSS interface {
-	ReserveSpace(size int) (lssOffset, []byte, lssResource)
-	ReserveSpaceMulti(sizes []int) ([]lssOffset, [][]byte, lssResource)
-	FinalizeWrite(lssResource)
-	TrimLog(lssOffset)
-	Read(lssOffset, buf []byte) (int, error)
-	Sync()
-
-	RunCleaner(callb lssCleanerCallback, buf []byte) error
-
+	ReserveSpace(size int) (LSSOffset, []byte, LSSResource)
+	ReserveSpaceMulti(sizes []int) ([]LSSOffset, [][]byte, LSSResource)
+	FinalizeWrite(LSSResource)
+	TrimLog(LSSOffset)
+	Read(LSSOffset, []byte) (int, error)
+	Sync(bool)
+	Visitor(callb LSSBlockCallback, buf []byte) error
+	RunCleaner(callb LSSCleanerCallback, buf []byte) error
 	BytesWritten() int64
+
+	HeadOffset() LSSOffset
+	TailOffset() LSSOffset
+	UsedSpace() int64
+	Close()
 }
 
 type lsStore struct {
@@ -41,7 +45,7 @@ type lsStore struct {
 
 	startOffset int64
 
-	cleanerTrimOffset lssOffset
+	cleanerTrimOffset LSSOffset
 
 	head, tail unsafe.Pointer
 	bufSize    int
@@ -56,17 +60,25 @@ type lsStore struct {
 
 	lastCommitTS   time.Time
 	commitDuration time.Duration
-	trimOffset     lssOffset
+	trimOffset     LSSOffset
 	log            Log
 
 	bytesWritten int64
+}
+
+func (s *lsStore) HeadOffset() LSSOffset {
+	return LSSOffset(s.log.Head())
+}
+
+func (s *lsStore) TailOffset() LSSOffset {
+	return LSSOffset(s.log.Tail())
 }
 
 func (s *lsStore) BytesWritten() int64 {
 	return s.bytesWritten
 }
 
-func newLSStore(path string, segSize int64, bufSize int, nbufs int, commitDur time.Duration) (*lsStore, error) {
+func NewLSStore(path string, segSize int64, bufSize int, nbufs int, commitDur time.Duration) (LSS, error) {
 	var err error
 
 	s := &lsStore{
@@ -159,7 +171,7 @@ func (s *lsStore) initNextBuffer(currFb *flushBuffer) {
 	}
 }
 
-func (s *lsStore) TrimLog(off lssOffset) {
+func (s *lsStore) TrimLog(off LSSOffset) {
 retry:
 	fb := s.currBuf()
 	if !fb.SetTrimLogOffset(off) {
@@ -168,7 +180,7 @@ retry:
 	}
 }
 
-func (s *lsStore) ReserveSpace(size int) (lssOffset, []byte, lssResource) {
+func (s *lsStore) ReserveSpace(size int) (LSSOffset, []byte, LSSResource) {
 	offs, bs, res := s.ReserveSpaceMulti([]int{size})
 	return offs[0], bs[0], res
 }
@@ -177,7 +189,7 @@ func (s *lsStore) currBuf() *flushBuffer {
 	return (*flushBuffer)(atomic.LoadPointer(&s.tail))
 }
 
-func (s *lsStore) ReserveSpaceMulti(sizes []int) ([]lssOffset, [][]byte, lssResource) {
+func (s *lsStore) ReserveSpaceMulti(sizes []int) ([]LSSOffset, [][]byte, LSSResource) {
 retry:
 	fb := s.currBuf()
 	success, markedFull, offsets, bufs := fb.Alloc(sizes)
@@ -192,10 +204,10 @@ retry:
 		goto retry
 	}
 
-	return offsets, bufs, lssResource(fb)
+	return offsets, bufs, LSSResource(fb)
 }
 
-func (s *lsStore) Read(lssOf lssOffset, buf []byte) (int, error) {
+func (s *lsStore) Read(lssOf LSSOffset, buf []byte) (int, error) {
 	offset := int64(lssOf)
 retry:
 	tailOff := s.log.Tail()
@@ -222,19 +234,19 @@ retry:
 	return l, err
 }
 
-func (s *lsStore) FinalizeWrite(res lssResource) {
+func (s *lsStore) FinalizeWrite(res LSSResource) {
 	fb := res.(*flushBuffer)
 	fb.Done()
 }
 
-func (s *lsStore) RunCleaner(callb lssCleanerCallback, buf []byte) error {
+func (s *lsStore) RunCleaner(callb LSSCleanerCallback, buf []byte) error {
 	s.Lock()
 	defer s.Unlock()
 
 	tailOff := s.log.Tail()
 	startOff := s.startOffset
 
-	fn := func(offset lssOffset, b []byte) (bool, error) {
+	fn := func(offset LSSOffset, b []byte) (bool, error) {
 		cont, cleanOff, err := callb(offset, lssBlockEndOffset(offset, b), b)
 		if err != nil {
 			return false, err
@@ -252,19 +264,19 @@ func (s *lsStore) RunCleaner(callb lssCleanerCallback, buf []byte) error {
 	return s.visitor(startOff, tailOff, fn, buf)
 }
 
-func (s *lsStore) Visitor(callb lssBlockCallback, buf []byte) error {
+func (s *lsStore) Visitor(callb LSSBlockCallback, buf []byte) error {
 	return s.visitor(s.log.Head(), s.log.Tail(), callb, buf)
 }
 
-func (s *lsStore) visitor(start, end int64, callb lssBlockCallback, buf []byte) error {
+func (s *lsStore) visitor(start, end int64, callb LSSBlockCallback, buf []byte) error {
 	curr := start
 	for curr < end {
-		n, err := s.Read(lssOffset(curr), buf)
+		n, err := s.Read(LSSOffset(curr), buf)
 		if err != nil {
 			return err
 		}
 
-		if cont, err := callb(lssOffset(curr), buf[:n]); err == nil && !cont {
+		if cont, err := callb(LSSOffset(curr), buf[:n]); err == nil && !cont {
 			break
 		} else if err != nil {
 			return err
@@ -317,7 +329,7 @@ type flushBuffer struct {
 
 	doCommit bool
 
-	trimOffset lssOffset
+	trimOffset LSSOffset
 }
 
 func newFlushBuffer(sz int, callb flushCallback) *flushBuffer {
@@ -328,7 +340,7 @@ func newFlushBuffer(sz int, callb flushCallback) *flushBuffer {
 	}
 }
 
-func (fb *flushBuffer) GetTrimLogOffset() (lssOffset, bool) {
+func (fb *flushBuffer) GetTrimLogOffset() (LSSOffset, bool) {
 	return fb.trimOffset, fb.trimOffset > 0
 }
 
@@ -392,7 +404,7 @@ func (fb *flushBuffer) Read(off int64, buf []byte) (l int, err error) {
 	return
 }
 
-func (fb *flushBuffer) SetTrimLogOffset(off lssOffset) bool {
+func (fb *flushBuffer) SetTrimLogOffset(off LSSOffset) bool {
 	state := atomic.LoadUint64(&fb.state)
 	isfull, reset, nw, offset := decodeState(state)
 
@@ -406,7 +418,7 @@ func (fb *flushBuffer) SetTrimLogOffset(off lssOffset) bool {
 	return false
 }
 
-func (fb *flushBuffer) Alloc(sizes []int) (status bool, markedFull bool, offs []lssOffset, bufs [][]byte) {
+func (fb *flushBuffer) Alloc(sizes []int) (status bool, markedFull bool, offs []LSSOffset, bufs [][]byte) {
 retry:
 	state := atomic.LoadUint64(&fb.state)
 	isfull, reset, nw, offset := decodeState(state)
@@ -437,11 +449,11 @@ retry:
 	}
 
 	bufs = make([][]byte, len(sizes))
-	offs = make([]lssOffset, len(sizes))
+	offs = make([]LSSOffset, len(sizes))
 	for i, bufOffset := 0, offset; i < len(sizes); i++ {
 		binary.BigEndian.PutUint32(fb.b[bufOffset:bufOffset+headerFBSize], uint32(sizes[i]))
 		bufs[i] = fb.b[bufOffset+headerFBSize : bufOffset+headerFBSize+sizes[i]]
-		offs[i] = lssOffset(fb.baseOffset + int64(bufOffset))
+		offs[i] = LSSOffset(fb.baseOffset + int64(bufOffset))
 		bufOffset += sizes[i] + headerFBSize
 	}
 
@@ -518,6 +530,6 @@ func isResetState(state uint64) bool {
 	return state&0x2 > 0
 }
 
-func lssBlockEndOffset(off lssOffset, b []byte) lssOffset {
-	return headerFBSize + off + lssOffset(len(b))
+func lssBlockEndOffset(off LSSOffset, b []byte) LSSOffset {
+	return headerFBSize + off + LSSOffset(len(b))
 }

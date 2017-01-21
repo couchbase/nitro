@@ -18,13 +18,13 @@ func TestLSSBasic(t *testing.T) {
 	nbuffers := 4
 
 	os.RemoveAll("test.data")
-	lss, err := newLSStore("test.data", segmentSize, BufSize, nbuffers, 0)
+	lss, err := NewLSStore("test.data", segmentSize, BufSize, nbuffers, 0)
 	if err != nil {
 		panic(err)
 	}
 
 	n := 8000
-	var offs []lssOffset
+	var offs []LSSOffset
 	bufread := make([]byte, 1024*1024)
 	for i := 0; i < n; i++ {
 		offset, buf, res := lss.ReserveSpace(1024)
@@ -54,10 +54,10 @@ func TestLSSConcurrent(t *testing.T) {
 	nbuffers := 2
 
 	var mu sync.Mutex
-	m := make(map[lssOffset]int)
+	m := make(map[LSSOffset]int)
 
 	os.RemoveAll("test.data")
-	lss, _ := newLSStore("test.data", segmentSize, BufSize, nbuffers, 0)
+	lss, _ := NewLSStore("test.data", segmentSize, BufSize, nbuffers, 0)
 
 	n := 10000
 	var wg sync.WaitGroup
@@ -90,11 +90,11 @@ func TestLSSCleaner(t *testing.T) {
 	nbuffers := 4
 
 	os.RemoveAll("test.data")
-	lss, _ := newLSStore("test.data", segmentSize, BufSize, nbuffers, 0)
+	lss, _ := NewLSStore("test.data", segmentSize, BufSize, nbuffers, 0)
 
 	n := 1000000
 	var lock sync.Mutex
-	offs := make(map[int]lssOffset)
+	offs := make(map[int]LSSOffset)
 
 	wg.Add(1)
 	go func() {
@@ -102,7 +102,7 @@ func TestLSSCleaner(t *testing.T) {
 		buf := make([]byte, 1024*1024)
 		cleaned := 0
 		for cleaned < n/2 {
-			lss.RunCleaner(func(off, endOff lssOffset, bs []byte) (bool, lssOffset, error) {
+			lss.RunCleaner(func(off, endOff LSSOffset, bs []byte) (bool, LSSOffset, error) {
 				lock.Lock()
 				got := int(binary.BigEndian.Uint64(bs[:8]))
 				delete(offs, got)
@@ -152,7 +152,7 @@ func TestLSSSuperBlock(t *testing.T) {
 	nbuffers := 2
 
 	os.RemoveAll("test.data")
-	lss, err := newLSStore("test.data", segmentSize, BufSize, nbuffers, 0)
+	lss, err := NewLSStore("test.data", segmentSize, BufSize, nbuffers, 0)
 	if err != nil {
 		panic(err)
 	}
@@ -164,7 +164,7 @@ func TestLSSSuperBlock(t *testing.T) {
 		buf := make([]byte, 1024*1024)
 		cleaned := 0
 		for cleaned < n/2 {
-			lss.RunCleaner(func(off, endOff lssOffset, bs []byte) (bool, lssOffset, error) {
+			lss.RunCleaner(func(off, endOff LSSOffset, bs []byte) (bool, LSSOffset, error) {
 				cleaned++
 				if cleaned < n/2 {
 					return true, endOff, nil
@@ -183,21 +183,21 @@ func TestLSSSuperBlock(t *testing.T) {
 
 	wg.Wait()
 	lss.Sync(false)
-	tail := lss.log.Tail()
-	head := lss.log.Head()
+	tail := lss.TailOffset()
+	head := lss.HeadOffset()
 	lss.Close()
 
-	lss, err = newLSStore("test.data", segmentSize, BufSize, nbuffers, 0)
+	lss, err = NewLSStore("test.data", segmentSize, BufSize, nbuffers, 0)
 	if err != nil {
 		panic(err)
 	}
 
-	if tail != lss.log.Tail() {
-		t.Errorf("tail: expected %d, got %d", tail, lss.log.Tail())
+	if tail != lss.TailOffset() {
+		t.Errorf("tail: expected %d, got %d", tail, lss.TailOffset())
 	}
 
-	if head != lss.log.Head() {
-		t.Errorf("head: expected %d, got %d", head, lss.log.Head())
+	if head != lss.HeadOffset() {
+		t.Errorf("head: expected %d, got %d", head, lss.HeadOffset())
 	}
 }
 
@@ -208,7 +208,7 @@ func TestLSSPerf(t *testing.T) {
 	BufSize := 1024 * 1024
 	nbuffers := 2
 	segmentSize := int64(1024 * 1024 * 1024)
-	lss, _ := newLSStore("test.data", segmentSize, BufSize, nbuffers, 0)
+	lss, _ := NewLSStore("test.data", segmentSize, BufSize, nbuffers, 0)
 
 	var count int64
 	n := runtime.GOMAXPROCS(0)

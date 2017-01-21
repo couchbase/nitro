@@ -79,11 +79,11 @@ type Page interface {
 	GetMemUsed() int
 	GetFlushDataSize() int
 	ComputeMemUsed() int
-	AddFlushRecord(off lssOffset, dataSz int, numSegments int)
+	AddFlushRecord(off LSSOffset, dataSz int, numSegments int)
 
 	// TODO: Clean up later
 	IsEmpty() bool
-	GetLSSOffset() (lssOffset, int)
+	GetLSSOffset() (LSSOffset, int)
 	SetNumSegments(int)
 }
 
@@ -225,7 +225,7 @@ type mergePageDelta struct {
 
 type flushPageDelta struct {
 	pageDelta
-	offset      lssOffset
+	offset      LSSOffset
 	flushDataSz int32
 	numSegments int32
 }
@@ -312,7 +312,7 @@ func (pg *page) Reset() {
 	pg.prevHeadPtr = nil
 }
 
-func (pg *page) newFlushPageDelta(offset lssOffset, dataSz int, numSegments int) (*flushPageDelta, int) {
+func (pg *page) newFlushPageDelta(offset LSSOffset, dataSz int, numSegments int) (*flushPageDelta, int) {
 	pd := new(flushPageDelta)
 	var meta *pageDelta
 	if pg.head == nil {
@@ -876,7 +876,7 @@ func (pg *page) Unmarshal(data []byte, ctx *wCtx) {
 	pg.unmarshalDelta(data, ctx)
 }
 
-func (pg *page) unmarshalDelta(data []byte, ctx *wCtx) (offset lssOffset, hasChain bool) {
+func (pg *page) unmarshalDelta(data []byte, ctx *wCtx) (offset LSSOffset, hasChain bool) {
 	roffset := 0
 	state := pageState(binary.BigEndian.Uint16(data[roffset : roffset+2]))
 	state.SetFlushed()
@@ -967,7 +967,7 @@ loop:
 			bp.hiItm = hiItm
 			pd = (*pageDelta)(unsafe.Pointer(bp))
 		case opFlushPageDelta, opRelocPageDelta:
-			offset = lssOffset(binary.BigEndian.Uint64(data[roffset : roffset+8]))
+			offset = LSSOffset(binary.BigEndian.Uint64(data[roffset : roffset+8]))
 			hasChain = true
 			break loop
 		case opRollbackDelta:
@@ -1014,7 +1014,7 @@ loop:
 	return
 }
 
-func (pg *page) AddFlushRecord(offset lssOffset, dataSz int, numSegments int) {
+func (pg *page) AddFlushRecord(offset LSSOffset, dataSz int, numSegments int) {
 	fd, used := pg.newFlushPageDelta(offset, dataSz, numSegments)
 	pg.head = (*pageDelta)(unsafe.Pointer(fd))
 	pg.memUsed += used
@@ -1197,7 +1197,7 @@ func (pg *page) NeedsFlush() bool {
 	return true
 }
 
-func (pg *page) GetLSSOffset() (lssOffset, int) {
+func (pg *page) GetLSSOffset() (LSSOffset, int) {
 	if pg.head.op == opFlushPageDelta || pg.head.op == opRelocPageDelta {
 		fpd := (*flushPageDelta)(unsafe.Pointer(pg.head))
 		return fpd.offset, int(fpd.numSegments)

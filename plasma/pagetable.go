@@ -17,7 +17,7 @@ type PageTable interface {
 	UpdateMapping(PageId, Page) bool
 	ReadPage(PageId, PageReader, swapin bool) (Page, error)
 
-	EvictPage(PageId, Page, lssOffset) bool
+	EvictPage(PageId, Page, LSSOffset) bool
 }
 
 type pageTable struct {
@@ -114,7 +114,7 @@ retry:
 		}
 
 		var err error
-		off := lssOffset(offset & ^evictMask)
+		off := LSSOffset(offset & ^evictMask)
 		pg, err = pgRdr(off)
 		if err != nil {
 			return nil, err
@@ -137,7 +137,7 @@ retry:
 	return pg, nil
 }
 
-func (s *pageTable) EvictPage(pid PageId, pg Page, offset lssOffset) bool {
+func (s *pageTable) EvictPage(pid PageId, pg Page, offset LSSOffset) bool {
 	n := pid.(*skiplist.Node)
 	pgi := pg.(*page)
 

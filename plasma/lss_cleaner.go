@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-func (s *Plasma) tryPageRelocation(pid PageId, pg Page, buf []byte) (bool, lssOffset) {
+func (s *Plasma) tryPageRelocation(pid PageId, pg Page, buf []byte) (bool, LSSOffset) {
 	var ok bool
 	bs, dataSz, staleSz, numSegments := pg.Marshal(buf, FullMarshal)
 	offset, wbuf, res := s.lss.ReserveSpace(lssBlockTypeSize + len(bs))
@@ -43,7 +43,7 @@ func (s *Plasma) CleanLSS(proceed func() bool) error {
 	retries := 0
 	skipped := 0
 
-	callb := func(startOff, endOff lssOffset, bs []byte) (cont bool, headOff lssOffset, err error) {
+	callb := func(startOff, endOff LSSOffset, bs []byte) (cont bool, headOff LSSOffset, err error) {
 		typ := getLSSBlockType(bs)
 		switch typ {
 		case lssPageData, lssPageReloc:
@@ -96,13 +96,13 @@ func (s *Plasma) CleanLSS(proceed func() bool) error {
 	}
 
 	frag, ds, used := s.GetLSSInfo()
-	start := s.lss.log.Head()
-	end := s.lss.log.Tail()
+	start := s.lss.HeadOffset()
+	end := s.lss.TailOffset()
 	fmt.Printf("logCleaner: starting... frag %d, data: %d, used: %d log:(%d - %d)\n", frag, ds, used, start, end)
 	err := s.lss.RunCleaner(callb, cleanerBuf)
 	frag, ds, used = s.GetLSSInfo()
-	start = s.lss.log.Head()
-	end = s.lss.log.Tail()
+	start = s.lss.HeadOffset()
+	end = s.lss.TailOffset()
 	fmt.Printf("logCleaner: completed... frag %d, data: %d, used: %d, relocated: %d, retries: %d, skipped: %d log:(%d - %d)\n", frag, ds, used, relocated, retries, skipped, start, end)
 	return err
 }
