@@ -159,7 +159,7 @@ func (s *lsStore) initNextBuffer(currFb *flushBuffer) {
 		runtime.Gosched()
 	}
 
-	nextFb.baseOffset = currFb.EndOffset()
+	atomic.StoreInt64(&nextFb.baseOffset, currFb.EndOffset())
 	nextFb.seqno = currFb.seqno + 1
 
 	// 1 writer rc for parent to enforce ordering of flush callback
@@ -350,12 +350,12 @@ func (fb *flushBuffer) Bytes() []byte {
 }
 
 func (fb *flushBuffer) StartOffset() int64 {
-	return fb.baseOffset
+	return atomic.LoadInt64(&fb.baseOffset)
 }
 
 func (fb *flushBuffer) EndOffset() int64 {
 	_, _, _, offset := decodeState(fb.state)
-	return fb.baseOffset + int64(offset)
+	return atomic.LoadInt64(&fb.baseOffset) + int64(offset)
 }
 
 func (fb *flushBuffer) TryClose() (markedFull bool, lssOff int64) {
@@ -380,23 +380,20 @@ func (fb *flushBuffer) SetNext(nfb *flushBuffer) {
 
 func (fb *flushBuffer) Read(off int64, buf []byte) (l int, err error) {
 	state := atomic.LoadUint64(&fb.state)
-	isfull, reset, nw, offset := decodeState(state)
-	newState := encodeState(isfull, nw+1, offset)
+	_, _, _, offset := decodeState(state)
 
-	if nw > 0 && !reset && atomic.CompareAndSwapUint64(&fb.state, state, newState) {
-		start := fb.baseOffset
-		end := start + int64(offset)
+	startOff := atomic.LoadInt64(&fb.baseOffset)
+	endOff := startOff + int64(offset)
 
-		if off >= start && off < end {
-			payloadOffset := off - start
-			dataOffset := payloadOffset + headerFBSize
-			l = int(binary.BigEndian.Uint32(fb.b[payloadOffset:dataOffset]))
-			copy(buf, fb.b[dataOffset:dataOffset+int64(l)])
-		} else {
+	if off >= startOff && off < endOff {
+		payloadOffset := off - startOff
+		dataOffset := payloadOffset + headerFBSize
+		l = int(binary.BigEndian.Uint32(fb.b[payloadOffset:dataOffset]))
+		copy(buf, fb.b[dataOffset:dataOffset+int64(l)])
+
+		if startOff != atomic.LoadInt64(&fb.baseOffset) {
 			err = errFBReadFailed
 		}
-
-		fb.Done()
 	} else {
 		err = errFBReadFailed
 	}
@@ -490,7 +487,6 @@ func (fb *flushBuffer) IsReset() bool {
 }
 
 func (fb *flushBuffer) Reset() {
-	fb.baseOffset = 0
 	fb.doCommit = false
 	fb.trimOffset = 0
 	state := resetState(atomic.LoadUint64(&fb.state))
