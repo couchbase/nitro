@@ -8,12 +8,14 @@ import (
 	"os"
 	"path/filepath"
 	"sync/atomic"
+	"syscall"
 	"unsafe"
 )
 
 const (
 	logSBSize  = 4096
 	logVersion = 0
+	enableMmap = true
 )
 
 var segFileNameFormat = "log.%014d.data"
@@ -33,10 +35,15 @@ type Log interface {
 	Close() error
 }
 
+type logFile struct {
+	fd   *os.File
+	data []byte
+}
+
 type fileIndex struct {
 	startOffset int64
 	endOffset   int64
-	index       []*os.File
+	index       []*logFile
 	w           *os.File
 }
 
@@ -88,6 +95,33 @@ func newLog(path string, segmentSize int64, sync bool) (Log, error) {
 	return log, err
 }
 
+func newLogFile(file string, flags int, maxSize int) (*logFile, error) {
+	var err error
+	lf := new(logFile)
+	lf.fd, err = os.OpenFile(file, os.O_RDWR|flags, 0755)
+	if err != nil {
+		return nil, err
+	}
+
+	if enableMmap {
+		lf.data, err = syscall.Mmap(int(lf.fd.Fd()), 0, maxSize, syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
+	}
+
+	return lf, err
+}
+
+func (lf *logFile) Close() error {
+	err := lf.fd.Close()
+	if err != nil {
+		return err
+	}
+	if enableMmap {
+		return syscall.Munmap(lf.data)
+	}
+
+	return nil
+}
+
 func (l *multiFilelog) initIndex() error {
 	fi := new(fileIndex)
 	files, _ := filepath.Glob(filepath.Join(l.basePath, segFilePattern))
@@ -102,14 +136,14 @@ func (l *multiFilelog) initIndex() error {
 	}
 
 	for i, f := range files {
-		if fd, err := os.OpenFile(f, os.O_RDWR, 0755); err == nil {
-			fi.index = append(fi.index, fd)
+		if lf, err := newLogFile(f, 0, int(l.segmentSize)); err == nil {
+			fi.index = append(fi.index, lf)
 			if i == len(files)-1 {
-				fi.w = fd
+				fi.w = lf.fd
 			}
 		} else {
-			for _, fd := range fi.index {
-				fd.Close()
+			for _, lf := range fi.index {
+				lf.Close()
 			}
 			return err
 		}
@@ -141,8 +175,12 @@ retry:
 		bs = bs[:avail]
 	}
 
-	if _, err := idx.index[fdIdx].ReadAt(bs, fdOffset); err != nil {
-		return err
+	if enableMmap {
+		copy(bs, idx.index[fdIdx].data[fdOffset:])
+	} else {
+		if _, err := idx.index[fdIdx].fd.ReadAt(bs, fdOffset); err != nil {
+			return err
+		}
 	}
 
 	if len(residue) > 0 {
@@ -167,6 +205,7 @@ func (l *multiFilelog) getIndex() *fileIndex {
 }
 
 func (l *multiFilelog) growLog() error {
+	var err error
 	idx := l.getIndex()
 	newFileId := (idx.endOffset + 1) / l.segmentSize
 	file := filepath.Join(l.basePath, fmt.Sprintf(segFileNameFormat, newFileId))
@@ -178,14 +217,14 @@ func (l *multiFilelog) growLog() error {
 		idx.w.Sync()
 	}
 
-	fd, err := os.OpenFile(file, flags, 0755)
+	lf, err := newLogFile(file, flags, int(l.segmentSize))
 	if err != nil {
 		return err
 	}
 
 	newIdx := *idx
-	newIdx.index = append(newIdx.index, fd)
-	newIdx.w = fd
+	newIdx.index = append(newIdx.index, lf)
+	newIdx.w = lf.fd
 	newIdx.endOffset += l.segmentSize
 
 	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&l.index)), unsafe.Pointer(&newIdx))
@@ -216,7 +255,10 @@ retry:
 	}
 
 	if len(residue) > 0 {
-		l.growLog()
+		if err := l.growLog(); err != nil {
+			return err
+		}
+
 		bs = residue
 		goto retry
 	}
@@ -238,11 +280,11 @@ func (l *multiFilelog) doGCSegments() {
 		n := free / l.segmentSize
 		toRemove := idx.index[:n]
 		var rmList []string
-		for _, fd := range toRemove {
-			rmList = append(rmList, fd.Name())
-			fd.Close()
+		for _, lf := range toRemove {
+			rmList = append(rmList, lf.fd.Name())
+			lf.Close()
 		}
-		toRetain := append([]*os.File(nil), idx.index[n:]...)
+		toRetain := append([]*logFile(nil), idx.index[n:]...)
 
 		newIdx := *idx
 		newIdx.startOffset += free
