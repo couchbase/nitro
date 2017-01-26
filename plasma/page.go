@@ -700,6 +700,27 @@ func (pg *page) Marshal(buf []byte, maxSegments int) (bs []byte, dataSz, staleFd
 	return buf[:offset], offset, staleFdSz, numSegments
 }
 
+func (pg *page) marshalIndexKey(key unsafe.Pointer, woffset int, buf []byte) int {
+	if key == skiplist.MinItem || key == skiplist.MaxItem {
+		binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(0))
+		woffset += 2
+	} else {
+		return pg.marshalItem(key, woffset, buf)
+	}
+
+	return woffset
+}
+
+func (pg *page) marshalItem(itm unsafe.Pointer, woffset int, buf []byte) int {
+	l := int(pg.itemSize(itm))
+	binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(l))
+	woffset += 2
+	memcopy(unsafe.Pointer(&buf[woffset]), itm, l)
+	woffset += l
+
+	return woffset
+}
+
 func (pg *page) marshal(buf []byte, woffset int, head *pageDelta,
 	hiItm unsafe.Pointer, child bool, maxSegments int) (offset int, staleFdSz int, numSegments int) {
 
@@ -714,16 +735,8 @@ func (pg *page) marshal(buf []byte, woffset int, head *pageDelta,
 	if !child {
 		woffset += 2
 
-		if pg.low == skiplist.MinItem {
-			binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(0))
-			woffset += 2
-		} else {
-			l := int(pg.itemSize(pg.low))
-			binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(l))
-			woffset += 2
-			memcopy(unsafe.Pointer(&buf[woffset]), pg.low, l)
-			woffset += l
-		}
+		// pageLow
+		woffset = pg.marshalIndexKey(pg.MinItem(), woffset, buf)
 
 		// chainlen
 		binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(pd.chainLen))
@@ -733,17 +746,8 @@ func (pg *page) marshal(buf []byte, woffset int, head *pageDelta,
 		binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(pd.numItems))
 		woffset += 2
 
-		// hiItm
-		if pd.hiItm == skiplist.MaxItem {
-			binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(0))
-			woffset += 2
-		} else {
-			l := int(pg.itemSize(pd.hiItm))
-			binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(l))
-			woffset += 2
-			memcopy(unsafe.Pointer(&buf[woffset]), pd.hiItm, l)
-			woffset += l
-		}
+		// pageHigh
+		woffset = pg.marshalIndexKey(pg.MaxItem(), woffset, buf)
 	}
 
 loop:
@@ -754,11 +758,7 @@ loop:
 			if pg.cmp(rpd.itm, hiItm) < 0 {
 				binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(pd.op))
 				woffset += 2
-				sz := int(pg.itemSize(rpd.itm))
-				binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(sz))
-				woffset += 2
-				memcopy(unsafe.Pointer(&buf[woffset]), rpd.itm, sz)
-				woffset += sz
+				woffset = pg.marshalItem(rpd.itm, woffset, buf)
 			}
 		case opPageSplitDelta:
 			pds := (*splitPageDelta)(unsafe.Pointer(pd))
@@ -783,11 +783,8 @@ loop:
 					if pg.cmp(itm, hiItm) < 0 {
 						binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(opInsertDelta))
 						woffset += 2
-						sz := int(pg.itemSize(itm))
-						binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(sz))
-						woffset += 2
-						memcopy(unsafe.Pointer(&buf[woffset]), itm, sz)
-						woffset += sz
+
+						woffset = pg.marshalItem(itm, woffset, buf)
 					}
 				}
 			} else {
@@ -798,11 +795,7 @@ loop:
 				woffset += 2
 				for _, itm := range bp.items {
 					if pg.cmp(itm, hiItm) < 0 {
-						sz := int(pg.itemSize(itm))
-						binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(sz))
-						woffset += 2
-						memcopy(unsafe.Pointer(&buf[woffset]), itm, sz)
-						woffset += sz
+						woffset = pg.marshalItem(itm, woffset, buf)
 						nItms++
 					}
 				}
