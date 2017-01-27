@@ -171,27 +171,63 @@ func (i *basePageItem) At(int) PageItem {
 	return i
 }
 
-// Base page interator
+type insertPageItem struct{}
+
+func (pi *insertPageItem) IsInsert() bool {
+	return true
+}
+
+func (pi *insertPageItem) Len() int {
+	return 1
+}
+
+func (pi *insertPageItem) At(int) PageItem {
+	return pi
+}
+
+func (pi *insertPageItem) Item() unsafe.Pointer {
+	return unsafe.Pointer(pi)
+}
+
+type removePageItem struct{}
+
+func (pi *removePageItem) IsInsert() bool {
+	return false
+}
+
+func (pi *removePageItem) Len() int {
+	return 1
+}
+
+func (pi *removePageItem) At(int) PageItem {
+	return pi
+}
+
+func (pi *removePageItem) Item() unsafe.Pointer {
+	return unsafe.Pointer(pi)
+}
+
+// Base page iterator
 type basePgIterator struct {
 	cmp       skiplist.CompareFn
 	low, high unsafe.Pointer
-	bp        *basePage
+	items     []unsafe.Pointer
 	i, j      int
 }
 
 func (bpi *basePgIterator) Init() {
-	n := len(bpi.bp.items)
+	n := len(bpi.items)
 	bpi.i = sort.Search(n, func(i int) bool {
-		return bpi.cmp(bpi.bp.items[i], bpi.low) >= 0
+		return bpi.cmp(bpi.items[i], bpi.low) >= 0
 	})
 
 	bpi.j = sort.Search(n, func(i int) bool {
-		return bpi.cmp(bpi.bp.items[i], bpi.high) >= 0
+		return bpi.cmp(bpi.items[i], bpi.high) >= 0
 	})
 }
 
 func (bpi *basePgIterator) Get() PageItem {
-	return (*basePageItem)(bpi.bp.items[bpi.i])
+	return (*basePageItem)(bpi.items[bpi.i])
 }
 
 func (bpi *basePgIterator) Valid() bool {
@@ -313,38 +349,39 @@ func (pdm *pdMergeIterator) Valid() bool {
 	return pdm.offset < pdm.items.Len()
 }
 
-func newPgOpIterator(pd *pageDelta, cmp skiplist.CompareFn,
+func newPgOpIterator(head *pageDelta, cmp skiplist.CompareFn,
 	low, high unsafe.Pointer, filter ItemFilter) (iter pgOpIterator, fdSz int) {
 
 	var hasReloc bool
 	m := &pdMergeIterator{cmp: cmp, ItemFilter: filter}
-	startPd := pd
 	pdCount := 0
 
 	pdi := &pdIterator{}
+	pw := newPgDeltaWalker(head)
 loop:
-	for pd != nil {
-		switch pd.op {
+	for ; !pw.End(); pw.Next() {
+		op := pw.Op()
+		switch op {
 		case opRelocPageDelta:
-			fpd := (*flushPageDelta)(unsafe.Pointer(pd))
 			if !hasReloc {
-				fdSz = int(fpd.flushDataSz)
+				_, d, _ := pw.FlushInfo()
+				fdSz = int(d)
 				hasReloc = true
 			}
 		case opFlushPageDelta:
 			if !hasReloc {
-				fpd := (*flushPageDelta)(unsafe.Pointer(pd))
-				fdSz += int(fpd.flushDataSz)
+				_, d, _ := pw.FlushInfo()
+				fdSz += int(d)
 			}
 		case opPageSplitDelta:
-			itm := (*splitPageDelta)(unsafe.Pointer(pd)).itm
-			if cmp(itm, high) < 0 {
-				high = itm
+			sitm := pw.Item()
+			if cmp(sitm, high) < 0 {
+				high = sitm
 			}
 		case opPageMergeDelta:
-			deltaItr, fdSz1 := newPgOpIterator(pd.next, cmp, low, high, filter)
+			deltaItr, fdSz1 := newPgOpIterator(pw.NextPd(), cmp, low, high, filter)
 			mergeItr, fdSz2 := newPgOpIterator(
-				(*mergePageDelta)(unsafe.Pointer(pd)).mergeSibling,
+				pw.MergeSibling(),
 				cmp, low, high, filter)
 
 			if !hasReloc {
@@ -357,29 +394,28 @@ loop:
 			break loop
 		case opBasePage:
 			m.itrs[1] = &basePgIterator{
-				bp:   (*basePage)(unsafe.Pointer(pd)),
-				cmp:  cmp,
-				low:  low,
-				high: high,
+				items: pw.BaseItems(),
+				cmp:   cmp,
+				low:   low,
+				high:  high,
 			}
 
 			break loop
 		case opInsertDelta, opDeleteDelta:
 			pdCount++
 		case opRollbackDelta:
-			rpd := (*rollbackDelta)(unsafe.Pointer(pd))
-			filter.AddFilter(rpd.Filter())
+			filter.AddFilter(pw.RollbackFilter())
 		}
-		pd = pd.next
 	}
 
 	if pdCount > 0 {
 		pdi.deltas = make([]PageItem, 0, pdCount)
-		for x := startPd; x != pd; x = x.next {
-			if x.op == opInsertDelta || x.op == opDeleteDelta {
-				rec := (*recordDelta)(unsafe.Pointer(x))
-				if cmp(rec.itm, high) < 0 && cmp(rec.itm, low) >= 0 {
-					pdi.deltas = append(pdi.deltas, x)
+		for pw.SetEndAndRestart(); !pw.End(); pw.Next() {
+			op := pw.Op()
+			if op == opInsertDelta || op == opDeleteDelta {
+				itm := pw.Item()
+				if cmp(itm, high) < 0 && cmp(itm, low) >= 0 {
+					pdi.deltas = append(pdi.deltas, pw.PageItem())
 				}
 			}
 		}

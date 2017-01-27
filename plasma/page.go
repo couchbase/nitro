@@ -443,62 +443,62 @@ func (pg *page) equal(itm0, itm1, hi unsafe.Pointer) bool {
 }
 
 func (pg *page) Lookup(itm unsafe.Pointer) unsafe.Pointer {
-	pd := pg.head
 	hiItm := pg.MaxItem()
 	filter := pg.getLookupFilter()
+	head := pg.head
 
 loop:
-	for pd != nil {
-		switch pd.op {
+	for pw := newPgDeltaWalker(head); !pw.End(); pw.Next() {
+		op := pw.Op()
+		switch op {
 		case opInsertDelta:
-			pdr := (*recordDelta)(unsafe.Pointer(pd))
-			if filter.Process(pdr).Len() > 0 && pg.equal(pdr.itm, itm, hiItm) {
-				return pdr.itm
+			ritm := pw.Item()
+			pgItm := pw.PageItem()
+			if filter.Process(pgItm).Len() > 0 && pg.equal(ritm, itm, hiItm) {
+				return ritm
 			}
 		case opDeleteDelta:
-			pdr := (*recordDelta)(unsafe.Pointer(pd))
-			if filter.Process(pdr).Len() > 0 && pg.equal(pdr.itm, itm, hiItm) {
+			ritm := pw.Item()
+			pgItm := pw.PageItem()
+			if filter.Process(pgItm).Len() > 0 && pg.equal(ritm, itm, hiItm) {
 				return nil
 			}
 		case opBasePage:
-			bp := (*basePage)(unsafe.Pointer(pd))
-			n := int(bp.numItems)
+			items := pw.BaseItems()
+			n := len(items)
 			index := sort.Search(n, func(i int) bool {
-				return pg.cmp(bp.items[i], itm) >= 0
+				return pg.cmp(items[i], itm) >= 0
 			})
 
-			for ; index < n && pg.equal(bp.items[index], itm, hiItm); index++ {
-				bpItm := (*basePageItem)(bp.items[index])
+			for ; index < n && pg.equal(items[index], itm, hiItm); index++ {
+				bpItm := (*basePageItem)(items[index])
 				if filter.Process(bpItm).Len() > 0 {
-					return bp.items[index]
+					return items[index]
 				}
 			}
 
 			return nil
 		case opPageSplitDelta:
-			pds := (*splitPageDelta)(unsafe.Pointer(pd))
-			if pg.cmp(pds.itm, hiItm) < 0 {
-				hiItm = pds.itm
+			sitm := pw.Item()
+			if pg.cmp(sitm, hiItm) < 0 {
+				hiItm = sitm
 			}
 		case opPageMergeDelta:
-			pdm := (*mergePageDelta)(unsafe.Pointer(pd))
-			if pg.cmp(itm, pdm.itm) >= 0 {
-				pd = pdm.mergeSibling
-				continue loop
+			if pg.cmp(itm, pw.Item()) >= 0 {
+				head = pw.MergeSibling()
+				goto loop
 			}
 
 		case opRollbackDelta:
-			rpd := (*rollbackDelta)(unsafe.Pointer(pd))
-			filter.AddFilter(rpd.Filter())
+			filter.AddFilter(pw.RollbackFilter())
 
 		case opFlushPageDelta:
 		case opRelocPageDelta:
 		case opPageRemoveDelta:
 		case opMetaDelta:
 		default:
-			panic(fmt.Sprint("should not happen op:", pd.op))
+			panic(fmt.Sprint("should not happen op:", op))
 		}
-		pd = pd.next
 	}
 
 	return nil
@@ -610,35 +610,32 @@ func (pg *page) inRange(lo, hi unsafe.Pointer, itm unsafe.Pointer) bool {
 	return pg.cmp(itm, hi) < 0 && pg.cmp(itm, lo) >= 0
 }
 
-func prettyPrint(pd *pageDelta, stringify func(unsafe.Pointer) string) {
+func prettyPrint(head *pageDelta, stringify func(unsafe.Pointer) string) {
 loop:
-	for ; pd != nil; pd = pd.next {
-		switch pd.op {
+	for pw := newPgDeltaWalker(head); !pw.End(); pw.Next() {
+		op := pw.Op()
+		switch op {
 		case opInsertDelta, opDeleteDelta:
-			rec := (*recordDelta)(unsafe.Pointer(pd))
-			fmt.Printf("Delta op:%d, itm:%s\n", pd.op, stringify(rec.itm))
+			fmt.Printf("Delta op:%d, itm:%s\n", op, stringify(pw.Item()))
 		case opBasePage:
-			bp := (*basePage)(unsafe.Pointer(pd))
-			for _, itm := range bp.items {
+			for _, itm := range pw.BaseItems() {
 				fmt.Printf("Basepage itm:%s\n", stringify(itm))
 			}
 			break loop
 		case opFlushPageDelta:
-			fpd := (*flushPageDelta)(unsafe.Pointer(pd))
-			fmt.Printf("-------flush------ max:%s, offset:%d\n", stringify(pd.hiItm), fpd.offset)
+			offset, _, _ := pw.FlushInfo()
+			fmt.Printf("-------flush------ max:%s, offset:%d\n", stringify(pw.HighItem()), offset)
 		case opPageSplitDelta:
-			pds := (*splitPageDelta)(unsafe.Pointer(pd))
-			fmt.Println("-------split------ ", stringify(pds.itm))
+			fmt.Println("-------split------ ", stringify(pw.Item()))
 		case opPageMergeDelta:
-			pdm := (*mergePageDelta)(unsafe.Pointer(pd))
-			fmt.Println("-------merge-siblings------- ", stringify(pdm.itm))
-			prettyPrint(pdm.mergeSibling, stringify)
+			fmt.Println("-------merge-siblings------- ", stringify(pw.Item()))
+			prettyPrint(pw.MergeSibling(), stringify)
 			fmt.Println("-----------")
 		case opPageRemoveDelta:
 			fmt.Println("---remove-delta---")
 		case opRollbackDelta:
-			rpd := (*rollbackDelta)(unsafe.Pointer(pd))
-			fmt.Println("-----rollback----", rpd.rb.start, rpd.rb.end)
+			start, end := pw.RollbackInfo()
+			fmt.Println("-----rollback----", start, end)
 		}
 	}
 }
@@ -730,8 +727,8 @@ func (pg *page) marshal(buf []byte, woffset int, head *pageDelta,
 
 	var isFullMarshal bool = maxSegments == 0
 	stateBuf := buf[woffset : woffset+2]
-	pd := head
 	hasReloc := false
+
 	if !child {
 		woffset += 2
 
@@ -739,11 +736,11 @@ func (pg *page) marshal(buf []byte, woffset int, head *pageDelta,
 		woffset = pg.marshalIndexKey(pg.MinItem(), woffset, buf)
 
 		// chainlen
-		binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(pd.chainLen))
+		binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(head.chainLen))
 		woffset += 2
 
 		// numItems
-		binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(pd.numItems))
+		binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(head.numItems))
 		woffset += 2
 
 		// pageHigh
@@ -751,35 +748,34 @@ func (pg *page) marshal(buf []byte, woffset int, head *pageDelta,
 	}
 
 loop:
-	for ; pd != nil; pd = pd.next {
-		switch pd.op {
+	for pw := newPgDeltaWalker(head); !pw.End(); pw.Next() {
+		op := pw.Op()
+		switch op {
 		case opInsertDelta, opDeleteDelta:
-			rpd := (*recordDelta)(unsafe.Pointer(pd))
-			if pg.cmp(rpd.itm, hiItm) < 0 {
-				binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(pd.op))
+			itm := pw.Item()
+			if pg.cmp(itm, hiItm) < 0 {
+				binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(op))
 				woffset += 2
-				woffset = pg.marshalItem(rpd.itm, woffset, buf)
+				woffset = pg.marshalItem(itm, woffset, buf)
 			}
 		case opPageSplitDelta:
-			pds := (*splitPageDelta)(unsafe.Pointer(pd))
-			if pg.cmp(pds.itm, hiItm) < 0 {
-				hiItm = pds.itm
+			itm := pw.Item()
+			if pg.cmp(itm, hiItm) < 0 {
+				hiItm = itm
 			}
-			binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(pd.op))
+			binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(op))
 			woffset += 2
 		case opPageMergeDelta:
-			pdm := (*mergePageDelta)(unsafe.Pointer(pd))
+			mergeSibling := pw.MergeSibling()
 			var fdSz int
-			woffset, fdSz, _ = pg.marshal(buf, woffset, pdm.mergeSibling, hiItm, true, 0)
+			woffset, fdSz, _ = pg.marshal(buf, woffset, mergeSibling, hiItm, true, 0)
 			if !hasReloc {
 				staleFdSz += fdSz
 			}
 		case opBasePage:
-			bp := (*basePage)(unsafe.Pointer(pd))
-
 			if child {
 				// Encode items as insertDelta
-				for _, itm := range bp.items {
+				for _, itm := range pw.BaseItems() {
 					if pg.cmp(itm, hiItm) < 0 {
 						binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(opInsertDelta))
 						woffset += 2
@@ -788,12 +784,12 @@ loop:
 					}
 				}
 			} else {
-				binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(pd.op))
+				binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(op))
 				woffset += 2
 				bufnitm := buf[woffset : woffset+2]
 				nItms := 0
 				woffset += 2
-				for _, itm := range bp.items {
+				for _, itm := range pw.BaseItems() {
 					if pg.cmp(itm, hiItm) < 0 {
 						woffset = pg.marshalItem(itm, woffset, buf)
 						nItms++
@@ -803,36 +799,36 @@ loop:
 			}
 			break loop
 		case opFlushPageDelta, opRelocPageDelta:
-			fpd := (*flushPageDelta)(unsafe.Pointer(pd))
-			if int(fpd.numSegments) > maxSegments {
+			offset, dataSz, numSegs := pw.FlushInfo()
+			if int(numSegs) > maxSegments {
 				isFullMarshal = true
 			} else if !isFullMarshal {
-				binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(pd.op))
+				binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(op))
 				woffset += 2
-				binary.BigEndian.PutUint64(buf[woffset:woffset+8], uint64(fpd.offset))
+				binary.BigEndian.PutUint64(buf[woffset:woffset+8], uint64(offset))
 				woffset += 8
-				numSegments = int(fpd.numSegments)
+				numSegments = int(numSegs)
 				break loop
 			}
 
 			if !hasReloc {
-				staleFdSz += int(fpd.flushDataSz)
+				staleFdSz += int(dataSz)
 			}
 
-			if pd.op == opRelocPageDelta {
+			if op == opRelocPageDelta {
 				hasReloc = true
 			}
 		case opRollbackDelta:
-			rpd := (*rollbackDelta)(unsafe.Pointer(pd))
-			binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(pd.op))
+			start, end := pw.RollbackInfo()
+			binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(op))
 			woffset += 2
-			binary.BigEndian.PutUint64(buf[woffset:woffset+8], uint64(rpd.rb.start))
+			binary.BigEndian.PutUint64(buf[woffset:woffset+8], uint64(start))
 			woffset += 8
-			binary.BigEndian.PutUint64(buf[woffset:woffset+8], uint64(rpd.rb.end))
+			binary.BigEndian.PutUint64(buf[woffset:woffset+8], uint64(end))
 			woffset += 8
 		case opPageRemoveDelta, opMetaDelta:
 		default:
-			panic(fmt.Sprintf("unknown delta %d", pd.op))
+			panic(fmt.Sprintf("unknown delta %d", op))
 		}
 	}
 
@@ -1054,26 +1050,26 @@ func (pg *page) GetFlushDataSize() int {
 	return getFdSize(pg.head)
 }
 
-func getFdSize(pd *pageDelta) int {
+func getFdSize(head *pageDelta) int {
 	hasReloc := false
 	flushDataSz := 0
 loop:
-	for ; pd != nil; pd = pd.next {
-		switch pd.op {
+	for pw := newPgDeltaWalker(head); !pw.End(); pw.Next() {
+		op := pw.Op()
+		switch op {
 		case opBasePage:
 			break loop
 		case opFlushPageDelta, opRelocPageDelta:
-			fpd := (*flushPageDelta)(unsafe.Pointer(pd))
 			if !hasReloc {
-				flushDataSz += int(fpd.flushDataSz)
+				_, d, _ := pw.FlushInfo()
+				flushDataSz += int(d)
 			}
 
-			if pd.op == opRelocPageDelta {
+			if op == opRelocPageDelta {
 				hasReloc = true
 			}
 		case opPageMergeDelta:
-			pdm := (*mergePageDelta)(unsafe.Pointer(pd))
-			fdSz := getFdSize(pdm.mergeSibling)
+			fdSz := getFdSize(pw.MergeSibling())
 			if !hasReloc {
 				flushDataSz += fdSz
 			}
