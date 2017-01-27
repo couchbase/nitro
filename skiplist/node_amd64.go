@@ -24,8 +24,9 @@ import (
 //                                  +----------------------+--------------+--------------+--------------+
 
 var nodeHdrSize = unsafe.Sizeof(struct {
-	itm    unsafe.Pointer
-	GClink *Node
+	itm     unsafe.Pointer
+	GClink  *Node
+	DataPtr unsafe.Pointer
 }{})
 
 var nodeRefSize = unsafe.Sizeof(NodeRef{})
@@ -36,9 +37,10 @@ const deletedFlag = 0xff
 
 // Node represents skiplist node header
 type Node struct {
-	itm    unsafe.Pointer
-	GClink *Node
-	level  uint16
+	itm     unsafe.Pointer
+	GClink  *Node
+	DataPtr unsafe.Pointer
+	level   uint16
 }
 
 // Level returns the level of a node in the skiplist
@@ -56,6 +58,11 @@ func (n *Node) Item() unsafe.Pointer {
 	return n.itm
 }
 
+// SetItem sets itm ptr
+func (n *Node) SetItem(itm unsafe.Pointer) {
+	n.itm = itm
+}
+
 // SetLink can be used to set link pointer for the node
 func (n *Node) SetLink(l *Node) {
 	n.GClink = l
@@ -64,6 +71,17 @@ func (n *Node) SetLink(l *Node) {
 // GetLink returns link pointer from the node
 func (n *Node) GetLink() *Node {
 	return n.GClink
+}
+
+// GetNext returns next node in level 0
+func (n *Node) GetNext() *Node {
+	var next *Node
+	var del bool
+
+	for next, del = n.getNext(0); del; next, del = next.getNext(0) {
+	}
+
+	return next
 }
 
 // NodeRef is a wrapper for node pointer

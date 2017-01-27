@@ -19,10 +19,11 @@ import (
 
 // Node represents skiplist entry
 type Node struct {
-	level  int
-	next   unsafe.Pointer // Points to [level+1]unsafe.Pointer
-	itm    unsafe.Pointer
-	GClink *Node
+	level   int
+	next    unsafe.Pointer // Points to [level+1]unsafe.Pointer
+	itm     unsafe.Pointer
+	GClink  *Node
+	DataPtr unsafe.Pointer
 }
 
 func (n *Node) nextArray() (s []unsafe.Pointer) {
