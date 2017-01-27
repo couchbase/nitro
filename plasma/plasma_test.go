@@ -325,7 +325,6 @@ func TestPlasmaRecovery(t *testing.T) {
 	var wg sync.WaitGroup
 	os.RemoveAll("teststore.data")
 	s := newTestIntPlasmaStore(testCfg)
-	defer s.Close()
 
 	numThreads := 8
 	n := 1000000
@@ -388,6 +387,7 @@ func TestPlasmaRecovery(t *testing.T) {
 	if count != n-m {
 		t.Errorf("Expected %d, got %d", n-m, count)
 	}
+	s.Close()
 }
 
 func TestPlasmaLSSCleaner(t *testing.T) {
@@ -413,7 +413,7 @@ func TestPlasmaLSSCleaner(t *testing.T) {
 		for {
 			select {
 			case <-donech:
-				break
+				return
 			default:
 			}
 			s.PersistAll()
