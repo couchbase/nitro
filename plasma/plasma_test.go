@@ -566,8 +566,8 @@ func TestPlasmaSwapper(t *testing.T) {
 	for i := 0; i < n; i++ {
 		w.Insert(skiplist.NewIntKeyItem(i))
 	}
-	s.RunSwapper(func() bool { return true })
 
+	s.EvictAll()
 	for i := 0; i < n; i++ {
 		itm := skiplist.NewIntKeyItem(i)
 		got, _ := w.Lookup(itm)
