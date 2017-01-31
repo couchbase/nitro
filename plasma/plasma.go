@@ -77,6 +77,10 @@ type Stats struct {
 	NumPages        int64
 	NumPagesSwapOut int64
 	NumPagesSwapIn  int64
+
+	LSSFrag      int
+	LSSDataSize  int64
+	LSSUsedSpace int64
 }
 
 func (s *Stats) Merge(o *Stats) {
@@ -93,7 +97,6 @@ func (s *Stats) Merge(o *Stats) {
 	s.DeleteConflicts += o.DeleteConflicts
 	s.SwapInConflicts += o.SwapInConflicts
 
-	s.FlushDataSz += o.FlushDataSz
 	s.MemSz += o.MemSz
 
 	s.NumPagesSwapOut += o.NumPagesSwapOut
@@ -116,7 +119,6 @@ func (s Stats) String() string {
 		"insert_conflicts  = %d\n"+
 		"delete_conflicts  = %d\n"+
 		"swapin_conflicts  = %d\n"+
-		"flushdata_size    = %d\n"+
 		"memory_size       = %d\n"+
 		"num_cached_pages  = %d\n"+
 		"num_pages         = %d\n"+
@@ -124,17 +126,21 @@ func (s Stats) String() string {
 		"num_pages_swapin  = %d\n"+
 		"bytes_incoming    = %d\n"+
 		"bytes_written     = %d\n"+
-		"write_amp         = %.2f\n",
+		"write_amp         = %.2f\n"+
+		"lss_fragmentation = %d\n"+
+		"lss_data_size     = %d\n"+
+		"lss_used_space    = %d\n",
 		s.Inserts-s.Deletes,
 		s.Compacts, s.Splits, s.Merges,
 		s.Inserts, s.Deletes, s.CompactConflicts,
 		s.SplitConflicts, s.MergeConflicts,
 		s.InsertConflicts, s.DeleteConflicts,
-		s.SwapInConflicts, s.FlushDataSz,
-		s.MemSz, s.NumCachedPages,
-		s.NumPages, s.NumPagesSwapOut,
-		s.NumPagesSwapIn, s.BytesIncoming,
-		s.BytesWritten, float64(s.BytesWritten)/float64(s.BytesIncoming))
+		s.SwapInConflicts, s.MemSz,
+		s.NumCachedPages, s.NumPages,
+		s.NumPagesSwapOut, s.NumPagesSwapIn,
+		s.BytesIncoming, s.BytesWritten,
+		float64(s.BytesWritten)/float64(s.BytesIncoming),
+		s.LSSFrag, s.LSSDataSize, s.LSSUsedSpace)
 }
 
 func New(cfg Config) (*Plasma, error) {
@@ -466,6 +472,7 @@ func (s *Plasma) GetStats() Stats {
 	sts.NumCachedPages = sts.NumPages - sts.NumPagesSwapOut + sts.NumPagesSwapIn
 	if s.shouldPersist {
 		sts.BytesWritten = s.lss.BytesWritten()
+		sts.LSSFrag, sts.LSSDataSize, sts.LSSUsedSpace = s.GetLSSInfo()
 	}
 	return sts
 }
