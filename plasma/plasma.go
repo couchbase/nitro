@@ -245,8 +245,9 @@ func New(cfg Config) (*Plasma, error) {
 }
 
 func (s *Plasma) monitorMemUsage() {
+	sctx := s.newWCtx().SwapperContext()
 	for {
-		s.hasMemoryPressure = s.TriggerSwapper()
+		s.hasMemoryPressure = s.TriggerSwapper(sctx)
 		time.Sleep(time.Millisecond * 100)
 	}
 }
@@ -410,6 +411,10 @@ type wCtx struct {
 	sts       *Stats
 
 	pgRdrFn PageReader
+}
+
+func (ctx *wCtx) SwapperContext() SwapperContext {
+	return ctx.buf
 }
 
 func (s *Plasma) newWCtx() *wCtx {
@@ -672,9 +677,9 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 	return updated
 }
 
-func (s *Plasma) tryThrottleForMemory() {
+func (s *Plasma) tryThrottleForMemory(ctx *wCtx) {
 	if s.hasMemoryPressure {
-		for s.TriggerSwapper() {
+		for s.TriggerSwapper(ctx.SwapperContext()) {
 			time.Sleep(swapperWaitInterval)
 		}
 	}
@@ -689,7 +694,7 @@ retry:
 	}
 
 refresh:
-	s.tryThrottleForMemory()
+	s.tryThrottleForMemory(ctx)
 
 	if pg, err = s.ReadPage(pid, ctx.pgRdrFn, true); err != nil {
 		return nil, nil, err
@@ -829,13 +834,13 @@ func SetMemoryQuota(m int64) {
 	atomic.StoreInt64(&memQuota, m)
 }
 
-func QuotaSwapper() bool {
-	return MemoryInUse() >= int64(float64(atomic.LoadInt64(&memQuota))*0.7)
-}
-
 func MemoryInUse() (sz int64) {
 	buf := dbInstances.MakeBuf()
 	defer dbInstances.FreeBuf(buf)
+	return MemoryInUse2(buf)
+}
+
+func MemoryInUse2(buf *skiplist.ActionBuffer) (sz int64) {
 	iter := dbInstances.NewIterator(ComparePlasma, buf)
 	for iter.SeekFirst(); iter.Valid(); iter.Next() {
 		db := (*Plasma)(iter.Get())

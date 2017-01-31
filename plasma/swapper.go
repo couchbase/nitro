@@ -2,8 +2,10 @@ package plasma
 
 import (
 	"errors"
+	"github.com/t3rm1n4l/nitro/skiplist"
 	"math/rand"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -50,12 +52,11 @@ func (s *Plasma) runSwapperVisitor(workCh chan []PageId, killch chan struct{}) {
 }
 
 func (s *Plasma) tryEvictPages(workCh chan []PageId, ctx *wCtx) {
-	if s.TriggerSwapper != nil {
-		for s.TriggerSwapper() {
-			pids := <-workCh
-			for _, pid := range pids {
-				s.Persist(pid, true, ctx)
-			}
+	sctx := ctx.SwapperContext()
+	for s.TriggerSwapper(sctx) {
+		pids := <-workCh
+		for _, pid := range pids {
+			s.Persist(pid, true, ctx)
 		}
 	}
 }
@@ -69,13 +70,14 @@ func (s *Plasma) swapperDaemon() {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
+			sctx := s.evictWriters[i].wCtx.SwapperContext()
 			for {
 				select {
 				case <-killch:
 					return
 				default:
 				}
-				if s.TriggerSwapper() && s.GetStats().NumCachedPages > 0 {
+				if s.TriggerSwapper(sctx) && s.GetStats().NumCachedPages > 0 {
 					s.tryEvictPages(workCh, s.evictWriters[i].wCtx)
 				} else {
 					time.Sleep(swapperWaitInterval)
@@ -98,4 +100,10 @@ func (s *Plasma) swapperDaemon() {
 	wg.Wait()
 
 	s.stopswapper <- struct{}{}
+}
+
+type SwapperContext *skiplist.ActionBuffer
+
+func QuotaSwapper(ctx SwapperContext) bool {
+	return MemoryInUse() >= int64(float64(atomic.LoadInt64(&memQuota))*0.7)
 }
