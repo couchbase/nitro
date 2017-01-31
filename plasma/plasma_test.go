@@ -589,6 +589,7 @@ func TestPlasmaSwapper(t *testing.T) {
 }
 
 func TestPlasmaAutoSwapper(t *testing.T) {
+	defer SetMemoryQuota(maxMemoryQuota)
 	var wg sync.WaitGroup
 
 	os.RemoveAll("teststore.data")
@@ -599,7 +600,8 @@ func TestPlasmaAutoSwapper(t *testing.T) {
 	cfg.LSSCleanerThreshold = 10
 	cfg.AutoLSSCleaning = true
 	cfg.AutoSwapper = true
-	cfg.MaxMemoryUsage = 1024 * 1024 * 1024
+	SetMemoryQuota(1024 * 1024 * 1024)
+
 	s := newTestIntPlasmaStore(cfg)
 	defer s.Close()
 	total := numThreads * nPerThr

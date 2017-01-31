@@ -10,6 +10,7 @@ import (
 const (
 	swapperWorkChanBufSize = 40
 	swapperWorkBatchSize   = 4
+	swapperWaitInterval    = time.Microsecond * 10
 )
 
 func (s *Plasma) runSwapperVisitor(workCh chan []PageId, killch chan struct{}) {
@@ -77,7 +78,7 @@ func (s *Plasma) swapperDaemon() {
 				if s.TriggerSwapper() && s.GetStats().NumCachedPages > 0 {
 					s.tryEvictPages(workCh, s.evictWriters[i].wCtx)
 				} else {
-					time.Sleep(time.Microsecond * 10)
+					time.Sleep(swapperWaitInterval)
 				}
 			}
 		}(i)

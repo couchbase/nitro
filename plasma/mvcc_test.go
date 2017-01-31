@@ -28,7 +28,6 @@ var testSnCfg = Config{
 	AutoLSSCleaning:     true,
 	AutoSwapper:         true,
 	EnableShapshots:     true,
-	MaxMemoryUsage:      5 * 1024 * 1024 * 1024,
 }
 
 func TestMVCCSimple(t *testing.T) {

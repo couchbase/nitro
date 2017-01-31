@@ -15,12 +15,14 @@ type PageReader func(offset LSSOffset) (Page, error)
 const maxCtxBuffers = 3
 
 var (
-	memQuota    int64
-	dbInstances *skiplist.Skiplist
+	memQuota       int64
+	maxMemoryQuota = int64(1024 * 1024 * 1024 * 1024)
+	dbInstances    *skiplist.Skiplist
 )
 
 func init() {
 	dbInstances = skiplist.New()
+	SetMemoryQuota(maxMemoryQuota)
 }
 
 type Plasma struct {
@@ -47,6 +49,8 @@ type Plasma struct {
 	rpSns          unsafe.Pointer
 	rpVersion      uint16
 	recoveryPoints []*RecoveryPoint
+
+	hasMemoryPressure bool
 }
 
 type Stats struct {
@@ -227,7 +231,16 @@ func New(cfg Config) (*Plasma, error) {
 	sbuf := dbInstances.MakeBuf()
 	defer dbInstances.FreeBuf(sbuf)
 	dbInstances.Insert(unsafe.Pointer(s), ComparePlasma, sbuf, &dbInstances.Stats)
+
+	go s.monitorMemUsage()
 	return s, err
+}
+
+func (s *Plasma) monitorMemUsage() {
+	for {
+		s.hasMemoryPressure = s.TriggerSwapper()
+		time.Sleep(time.Millisecond * 100)
+	}
 }
 
 func (s *Plasma) doInit() {
@@ -650,6 +663,14 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 	return updated
 }
 
+func (s *Plasma) tryThrottleForMemory() {
+	if s.hasMemoryPressure {
+		for s.TriggerSwapper() {
+			time.Sleep(swapperWaitInterval)
+		}
+	}
+}
+
 func (s *Plasma) fetchPage(itm unsafe.Pointer, ctx *wCtx) (pid PageId, pg Page, err error) {
 retry:
 	if prev, curr, found := s.Skiplist.Lookup(itm, s.cmp, ctx.buf, ctx.slSts); found {
@@ -659,6 +680,8 @@ retry:
 	}
 
 refresh:
+	s.tryThrottleForMemory()
+
 	if pg, err = s.ReadPage(pid, ctx.pgRdrFn, true); err != nil {
 		return nil, nil, err
 	}

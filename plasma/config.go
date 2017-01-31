@@ -26,12 +26,8 @@ type Config struct {
 
 	EnableShapshots bool
 
-	// TODO: Remove later
-	MaxMemoryUsage int
-
-	ContinueSwapper func() bool
-	TriggerSwapper  func() bool
-	shouldPersist   bool
+	TriggerSwapper func() bool
+	shouldPersist  bool
 
 	MaxSnSyncFrequency int
 	SyncInterval       int
@@ -46,14 +42,8 @@ func applyConfigDefaults(cfg Config) Config {
 		cfg.NumEvictorThreads = runtime.NumCPU()
 	}
 
-	// TODO: Remove later
-	if cfg.TriggerSwapper == nil && cfg.ContinueSwapper == nil && cfg.MaxMemoryUsage > 0 {
-		swapper := func() bool {
-			return ProcessRSS() >= int(0.7*float32(cfg.MaxMemoryUsage))
-		}
-
-		cfg.TriggerSwapper = swapper
-		cfg.ContinueSwapper = swapper
+	if cfg.TriggerSwapper == nil {
+		cfg.TriggerSwapper = QuotaSwapper
 	}
 
 	if cfg.File == "" {
@@ -95,7 +85,6 @@ func DefaultConfig() Config {
 		AutoLSSCleaning:     true,
 		AutoSwapper:         false,
 		EnableShapshots:     true,
-		MaxMemoryUsage:      1024 * 1024 * 1024 * 512,
 		SyncInterval:        0,
 	}
 }
