@@ -128,7 +128,7 @@ func (s Stats) String() string {
 		"bytes_incoming    = %d\n"+
 		"bytes_written     = %d\n"+
 		"write_amp         = %.2f\n"+
-		"lss_fragmentation = %d %\n"+
+		"lss_fragmentation = %d%%\n"+
 		"lss_data_size     = %d\n"+
 		"lss_used_space    = %d\n",
 		atomic.LoadInt64(&memQuota),
