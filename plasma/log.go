@@ -15,7 +15,7 @@ import (
 const (
 	logSBSize  = 4096
 	logVersion = 0
-	enableMmap = true
+	enableMmap = false
 )
 
 var segFileNameFormat = "log.%014d.data"

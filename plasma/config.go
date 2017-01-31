@@ -62,7 +62,7 @@ func applyConfigDefaults(cfg Config) Config {
 	}
 
 	if cfg.MaxPageLSSSegments == 0 {
-		cfg.MaxPageLSSSegments = 8
+		cfg.MaxPageLSSSegments = 4
 	}
 
 	return cfg
