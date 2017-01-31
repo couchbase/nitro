@@ -107,6 +107,7 @@ func (s *Stats) Merge(o *Stats) {
 
 func (s Stats) String() string {
 	return fmt.Sprintf("===== Stats =====\n"+
+		"memory_quota      = %d\n"+
 		"count             = %d\n"+
 		"compacts          = %d\n"+
 		"splits            = %d\n"+
@@ -127,9 +128,10 @@ func (s Stats) String() string {
 		"bytes_incoming    = %d\n"+
 		"bytes_written     = %d\n"+
 		"write_amp         = %.2f\n"+
-		"lss_fragmentation = %d\n"+
+		"lss_fragmentation = %d %\n"+
 		"lss_data_size     = %d\n"+
 		"lss_used_space    = %d\n",
+		atomic.LoadInt64(&memQuota),
 		s.Inserts-s.Deletes,
 		s.Compacts, s.Splits, s.Merges,
 		s.Inserts, s.Deletes, s.CompactConflicts,
