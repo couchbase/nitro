@@ -29,12 +29,12 @@ type Plasma struct {
 	Config
 	*skiplist.Skiplist
 	*pageTable
-	wlist                  []*Writer
-	lss                    LSS
-	lssCleanerWriter       *Writer
-	persistWriters         []*Writer
-	evictWriters           []*Writer
-	stoplssgc, stopswapper chan struct{}
+	wlist                           []*Writer
+	lss                             LSS
+	lssCleanerWriter                *Writer
+	persistWriters                  []*Writer
+	evictWriters                    []*Writer
+	stoplssgc, stopswapper, stopmon chan struct{}
 	sync.RWMutex
 
 	// MVCC data structures
@@ -226,6 +226,7 @@ func New(cfg Config) (*Plasma, error) {
 
 		s.stoplssgc = make(chan struct{})
 		s.stopswapper = make(chan struct{})
+		s.stopmon = make(chan struct{})
 
 		if cfg.AutoLSSCleaning {
 			go s.lssCleanerDaemon()
@@ -247,6 +248,11 @@ func New(cfg Config) (*Plasma, error) {
 func (s *Plasma) monitorMemUsage() {
 	sctx := s.newWCtx().SwapperContext()
 	for {
+		select {
+		case <-s.stopmon:
+			return
+		default:
+		}
 		s.hasMemoryPressure = s.TriggerSwapper(sctx)
 		time.Sleep(time.Millisecond * 100)
 	}
@@ -376,6 +382,7 @@ func (s *Plasma) doRecovery() error {
 }
 
 func (s *Plasma) Close() {
+	close(s.stopmon)
 	if s.Config.AutoLSSCleaning {
 		s.stoplssgc <- struct{}{}
 		<-s.stoplssgc
