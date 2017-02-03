@@ -18,7 +18,12 @@ const (
 func (s *Plasma) runSwapperVisitor(workCh chan []PageId, killch chan struct{}) {
 	numThreads := 1
 	sweepBatch := make([][]PageId, s.NumEvictorThreads)
-	numThreads = s.NumEvictorThreads
+
+	if s.ClockLRUEviction {
+		numThreads = 1
+	} else {
+		numThreads = s.NumEvictorThreads
+	}
 
 	random := make([]*rand.Rand, numThreads)
 	for i, _ := range random {
@@ -26,11 +31,14 @@ func (s *Plasma) runSwapperVisitor(workCh chan []PageId, killch chan struct{}) {
 	}
 
 	callb := func(pid PageId, partn RangePartition) error {
+		eligible := true
 		if sweepBatch[partn.Shard] == nil {
 			sweepBatch[partn.Shard] = make([]PageId, 0, swapperWorkBatchSize)
 		}
 
-		eligible := random[partn.Shard].Float32() <= 0.3
+		if !s.ClockLRUEviction {
+			eligible = random[partn.Shard].Float32() <= 0.3
+		}
 
 		if eligible {
 			sweepBatch[partn.Shard] = append(sweepBatch[partn.Shard], pid)
@@ -56,7 +64,9 @@ func (s *Plasma) tryEvictPages(workCh chan []PageId, ctx *wCtx) {
 	for s.TriggerSwapper(sctx) {
 		pids := <-workCh
 		for _, pid := range pids {
-			s.Persist(pid, true, ctx)
+			if s.canEvict(pid) {
+				s.Persist(pid, true, ctx)
+			}
 		}
 	}
 }
@@ -106,4 +116,21 @@ type SwapperContext *skiplist.Iterator
 
 func QuotaSwapper(ctx SwapperContext) bool {
 	return MemoryInUse2(ctx) >= int64(float64(atomic.LoadInt64(&memQuota))*0.7)
+}
+
+func (s *Plasma) canEvict(pid PageId) bool {
+	ok := true
+	if s.ClockLRUEviction {
+		n := pid.(*skiplist.Node)
+		ok = n.Cache == 0
+		n.Cache = 0
+	}
+
+	return ok
+}
+
+func (s *Plasma) updateCacheMeta(pid PageId) {
+	if s.ClockLRUEviction {
+		pid.(*skiplist.Node).Cache = 1
+	}
 }

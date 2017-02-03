@@ -735,6 +735,8 @@ refresh:
 		goto retry
 	}
 
+	s.updateCacheMeta(pid)
+
 	return
 }
 
