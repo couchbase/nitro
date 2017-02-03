@@ -430,12 +430,13 @@ type wCtx struct {
 	pgBuffers [][]byte
 	slSts     *skiplist.Stats
 	sts       *Stats
+	dbIter    *skiplist.Iterator
 
 	pgRdrFn PageReader
 }
 
 func (ctx *wCtx) SwapperContext() SwapperContext {
-	return ctx.buf
+	return ctx.dbIter
 }
 
 func (s *Plasma) newWCtx() *wCtx {
@@ -446,6 +447,7 @@ func (s *Plasma) newWCtx() *wCtx {
 		pgBuffers: make([][]byte, maxCtxBuffers),
 	}
 
+	ctx.dbIter = dbInstances.NewIterator(ComparePlasma, ctx.buf)
 	ctx.pgRdrFn = func(offset LSSOffset) (Page, error) {
 		return s.fetchPageFromLSS(offset, ctx)
 	}
@@ -863,11 +865,13 @@ func SetMemoryQuota(m int64) {
 func MemoryInUse() (sz int64) {
 	buf := dbInstances.MakeBuf()
 	defer dbInstances.FreeBuf(buf)
-	return MemoryInUse2(buf)
+
+	ctx := dbInstances.NewIterator(ComparePlasma, buf)
+	return MemoryInUse2(ctx)
 }
 
-func MemoryInUse2(buf *skiplist.ActionBuffer) (sz int64) {
-	iter := dbInstances.NewIterator(ComparePlasma, buf)
+func MemoryInUse2(ctx SwapperContext) (sz int64) {
+	iter := (*skiplist.Iterator)(ctx)
 	for iter.SeekFirst(); iter.Valid(); iter.Next() {
 		db := (*Plasma)(iter.Get())
 		sz += db.MemoryInUse()

@@ -102,7 +102,7 @@ func (s *Plasma) swapperDaemon() {
 	s.stopswapper <- struct{}{}
 }
 
-type SwapperContext *skiplist.ActionBuffer
+type SwapperContext *skiplist.Iterator
 
 func QuotaSwapper(ctx SwapperContext) bool {
 	return MemoryInUse2(ctx) >= int64(float64(atomic.LoadInt64(&memQuota))*0.7)
