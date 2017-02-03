@@ -83,6 +83,9 @@ type Stats struct {
 	LSSUsedSpace int64
 	NumLSSReads  int64
 	LSSReadBytes int64
+
+	NumLSSCleanerReads  int64
+	LSSCleanerReadBytes int64
 }
 
 func (s *Stats) Merge(o *Stats) {
@@ -137,7 +140,9 @@ func (s Stats) String() string {
 		"lss_data_size     = %d\n"+
 		"lss_used_space    = %d\n"+
 		"lss_num_reads     = %d\n"+
-		"lss_read_bytes    = %d\n",
+		"lss_read_bytes    = %d\n"+
+		"lss_gc_reads      = %d\n"+
+		"lss_gc_num_reads  = %d",
 		atomic.LoadInt64(&memQuota),
 		s.Inserts-s.Deletes,
 		s.Compacts, s.Splits, s.Merges,
@@ -150,7 +155,8 @@ func (s Stats) String() string {
 		s.BytesIncoming, s.BytesWritten,
 		float64(s.BytesWritten)/float64(s.BytesIncoming),
 		s.LSSFrag, s.LSSDataSize, s.LSSUsedSpace,
-		s.NumLSSReads, s.LSSReadBytes)
+		s.NumLSSReads, s.LSSReadBytes,
+		s.NumLSSCleanerReads, s.LSSCleanerReadBytes)
 }
 
 func New(cfg Config) (*Plasma, error) {
@@ -495,6 +501,8 @@ func (s *Plasma) GetStats() Stats {
 	if s.shouldPersist {
 		sts.BytesWritten = s.lss.BytesWritten()
 		sts.LSSFrag, sts.LSSDataSize, sts.LSSUsedSpace = s.GetLSSInfo()
+		sts.NumLSSCleanerReads = s.lssCleanerWriter.sts.NumLSSCleanerReads
+		sts.LSSCleanerReadBytes = s.lssCleanerWriter.sts.LSSCleanerReadBytes
 	}
 	return sts
 }
