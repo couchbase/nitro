@@ -140,9 +140,9 @@ func (s Stats) String() string {
 		"lss_data_size     = %d\n"+
 		"lss_used_space    = %d\n"+
 		"lss_num_reads     = %d\n"+
-		"lss_read_bytes    = %d\n"+
-		"lss_gc_reads      = %d\n"+
-		"lss_gc_num_reads  = %d",
+		"lss_read_bs       = %d\n"+
+		"lss_gc_reads_bs   = %d\n"+
+		"lss_gc_num_reads  = %d\n",
 		atomic.LoadInt64(&memQuota),
 		s.Inserts-s.Deletes,
 		s.Compacts, s.Splits, s.Merges,
