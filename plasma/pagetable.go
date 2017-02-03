@@ -82,7 +82,7 @@ func (s *pageTable) CreateMapping(pid PageId, pg Page) {
 
 	newPtr := unsafe.Pointer(pgi.head)
 	n.SetItem(pgi.dup(pgi.low))
-	n.DataPtr = newPtr
+	n.Link = newPtr
 	pgi.prevHeadPtr = newPtr
 }
 
@@ -91,7 +91,7 @@ func (s *pageTable) UpdateMapping(pid PageId, pg Page) bool {
 	pgi := pg.(*page)
 
 	newPtr := unsafe.Pointer(pgi.head)
-	if atomic.CompareAndSwapPointer(&n.DataPtr, pgi.prevHeadPtr, newPtr) {
+	if atomic.CompareAndSwapPointer(&n.Link, pgi.prevHeadPtr, newPtr) {
 		pgi.prevHeadPtr = newPtr
 		return true
 	}
@@ -104,7 +104,7 @@ func (s *pageTable) ReadPage(pid PageId, pgRdr PageReader, swapin bool) (Page, e
 	n := pid.(*skiplist.Node)
 
 retry:
-	ptr := atomic.LoadPointer(&n.DataPtr)
+	ptr := atomic.LoadPointer(&n.Link)
 
 	if offset := uint64(uintptr(ptr)); offset&evictMask > 0 {
 		if pgRdr == nil {
@@ -142,7 +142,7 @@ func (s *pageTable) EvictPage(pid PageId, pg Page, offset LSSOffset) bool {
 	pgi := pg.(*page)
 
 	newPtr := unsafe.Pointer(uintptr(uint64(offset) | evictMask))
-	if atomic.CompareAndSwapPointer(&n.DataPtr, pgi.prevHeadPtr, newPtr) {
+	if atomic.CompareAndSwapPointer(&n.Link, pgi.prevHeadPtr, newPtr) {
 		pgi.prevHeadPtr = newPtr
 		if pg.IsInCache() {
 			atomic.AddInt64(&s.sts.NumPagesSwapOut, 1)

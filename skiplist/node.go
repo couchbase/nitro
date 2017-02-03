@@ -19,11 +19,10 @@ import (
 
 // Node represents skiplist entry
 type Node struct {
-	level   int
-	next    unsafe.Pointer // Points to [level+1]unsafe.Pointer
-	itm     unsafe.Pointer
-	GClink  *Node
-	DataPtr unsafe.Pointer
+	level int
+	next  unsafe.Pointer // Points to [level+1]unsafe.Pointer
+	itm   unsafe.Pointer
+	Link  unsafe.Pointer
 }
 
 func (n *Node) nextArray() (s []unsafe.Pointer) {
@@ -53,12 +52,12 @@ func (n *Node) Item() unsafe.Pointer {
 
 // SetLink can be used to set link pointer for the node
 func (n *Node) SetLink(l *Node) {
-	n.GClink = l
+	n.Link = unsafe.Pointer(l)
 }
 
 // GetLink returns link pointer from the node
 func (n *Node) GetLink() *Node {
-	return n.GClink
+	return (*Node)(n.Link)
 }
 
 // NodeRef is a wrapper for node pointer

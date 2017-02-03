@@ -241,7 +241,7 @@ func (w *Writer) DeleteNode(x *skiplist.Node) (success bool) {
 		}
 	}()
 
-	x.GClink = nil
+	x.SetLink(nil)
 	sn := w.getCurrSn()
 	gotItem := (*Item)(x.Item())
 	if gotItem.bornSn == sn {
@@ -258,7 +258,7 @@ func (w *Writer) DeleteNode(x *skiplist.Node) (success bool) {
 			w.gctail = x
 			w.gchead = w.gctail
 		} else {
-			w.gctail.GClink = x
+			w.gctail.SetLink(x)
 			w.gctail = x
 		}
 	}
@@ -602,7 +602,7 @@ func (m *Nitro) NewSnapshot() (*Snapshot, error) {
 			head = w.gchead
 			tail = w.gctail
 		} else if w.gchead != nil {
-			tail.GClink = w.gchead
+			tail.SetLink(w.gchead)
 			tail = w.gctail
 		}
 
@@ -645,7 +645,7 @@ func (m *Nitro) collectionWorker(w *Writer) {
 				close(w.dwrCtx.closed)
 				return
 			}
-			for n := gclist; n != nil; n = n.GClink {
+			for n := gclist; n != nil; n = n.GetLink() {
 				w.doDeltaWrite((*Item)(n.Item()))
 				m.store.DeleteNode(n, m.insCmp, buf, &w.slSts2)
 			}
@@ -662,7 +662,7 @@ func (m *Nitro) freeWorker(w *Writer) {
 	for freelist := range m.freechan {
 		for n := freelist; n != nil; {
 			dnode := n
-			n = n.GClink
+			n = n.GetLink()
 
 			itm := (*Item)(dnode.Item())
 			m.freeItem(itm)

@@ -51,232 +51,232 @@ var nodeTypes = [33]reflect.Type{
 }
 
 var node0 struct {
-	itm unsafe.Pointer
-	gc  unsafe.Pointer
-	dp  unsafe.Pointer
-	buf [1]NodeRef
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	buf   [1]NodeRef
 }
 
 var node1 struct {
-	itm unsafe.Pointer
-	gc  unsafe.Pointer
-	dp  unsafe.Pointer
-	buf [2]NodeRef
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	buf   [2]NodeRef
 }
 
 var node2 struct {
-	itm unsafe.Pointer
-	gc  unsafe.Pointer
-	dp  unsafe.Pointer
-	buf [3]NodeRef
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	buf   [3]NodeRef
 }
 
 var node3 struct {
-	itm unsafe.Pointer
-	gc  unsafe.Pointer
-	dp  unsafe.Pointer
-	buf [4]NodeRef
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	buf   [4]NodeRef
 }
 
 var node4 struct {
-	itm unsafe.Pointer
-	gc  unsafe.Pointer
-	dp  unsafe.Pointer
-	buf [5]NodeRef
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	buf   [5]NodeRef
 }
 
 var node5 struct {
-	itm unsafe.Pointer
-	gc  unsafe.Pointer
-	dp  unsafe.Pointer
-	buf [6]NodeRef
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	buf   [6]NodeRef
 }
 
 var node6 struct {
-	itm unsafe.Pointer
-	gc  unsafe.Pointer
-	dp  unsafe.Pointer
-	buf [7]NodeRef
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	buf   [7]NodeRef
 }
 
 var node7 struct {
-	itm unsafe.Pointer
-	gc  unsafe.Pointer
-	dp  unsafe.Pointer
-	buf [8]NodeRef
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	buf   [8]NodeRef
 }
 
 var node8 struct {
-	itm unsafe.Pointer
-	gc  unsafe.Pointer
-	dp  unsafe.Pointer
-	buf [9]NodeRef
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	buf   [9]NodeRef
 }
 
 var node9 struct {
-	itm unsafe.Pointer
-	gc  unsafe.Pointer
-	dp  unsafe.Pointer
-	buf [10]NodeRef
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	buf   [10]NodeRef
 }
 
 var node10 struct {
-	itm unsafe.Pointer
-	gc  unsafe.Pointer
-	dp  unsafe.Pointer
-	buf [11]NodeRef
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	buf   [11]NodeRef
 }
 var node11 struct {
-	itm unsafe.Pointer
-	gc  unsafe.Pointer
-	dp  unsafe.Pointer
-	buf [12]NodeRef
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	buf   [12]NodeRef
 }
 
 var node12 struct {
-	itm unsafe.Pointer
-	gc  unsafe.Pointer
-	dp  unsafe.Pointer
-	buf [13]NodeRef
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	buf   [13]NodeRef
 }
 
 var node13 struct {
-	itm unsafe.Pointer
-	gc  unsafe.Pointer
-	dp  unsafe.Pointer
-	buf [14]NodeRef
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	buf   [14]NodeRef
 }
 
 var node14 struct {
-	itm unsafe.Pointer
-	gc  unsafe.Pointer
-	dp  unsafe.Pointer
-	buf [15]NodeRef
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	buf   [15]NodeRef
 }
 
 var node15 struct {
-	itm unsafe.Pointer
-	gc  unsafe.Pointer
-	dp  unsafe.Pointer
-	buf [16]NodeRef
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	buf   [16]NodeRef
 }
 
 var node16 struct {
-	itm unsafe.Pointer
-	gc  unsafe.Pointer
-	dp  unsafe.Pointer
-	buf [17]NodeRef
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	buf   [17]NodeRef
 }
 
 var node17 struct {
-	itm unsafe.Pointer
-	gc  unsafe.Pointer
-	dp  unsafe.Pointer
-	buf [18]NodeRef
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	buf   [18]NodeRef
 }
 
 var node18 struct {
-	itm unsafe.Pointer
-	gc  unsafe.Pointer
-	dp  unsafe.Pointer
-	buf [19]NodeRef
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	buf   [19]NodeRef
 }
 
 var node19 struct {
-	itm unsafe.Pointer
-	gc  unsafe.Pointer
-	dp  unsafe.Pointer
-	buf [20]NodeRef
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	buf   [20]NodeRef
 }
 
 var node20 struct {
-	itm unsafe.Pointer
-	gc  unsafe.Pointer
-	dp  unsafe.Pointer
-	buf [21]NodeRef
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	buf   [21]NodeRef
 }
 
 var node21 struct {
-	itm unsafe.Pointer
-	gc  unsafe.Pointer
-	dp  unsafe.Pointer
-	buf [22]NodeRef
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	buf   [22]NodeRef
 }
 
 var node22 struct {
-	itm unsafe.Pointer
-	gc  unsafe.Pointer
-	dp  unsafe.Pointer
-	buf [23]NodeRef
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	buf   [23]NodeRef
 }
 
 var node23 struct {
-	itm unsafe.Pointer
-	gc  unsafe.Pointer
-	dp  unsafe.Pointer
-	buf [24]NodeRef
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	buf   [24]NodeRef
 }
 
 var node24 struct {
-	itm unsafe.Pointer
-	gc  unsafe.Pointer
-	dp  unsafe.Pointer
-	buf [25]NodeRef
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	buf   [25]NodeRef
 }
 
 var node25 struct {
-	itm unsafe.Pointer
-	gc  unsafe.Pointer
-	dp  unsafe.Pointer
-	buf [26]NodeRef
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	buf   [26]NodeRef
 }
 
 var node26 struct {
-	itm unsafe.Pointer
-	gc  unsafe.Pointer
-	dp  unsafe.Pointer
-	buf [27]NodeRef
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	buf   [27]NodeRef
 }
 
 var node27 struct {
-	itm unsafe.Pointer
-	gc  unsafe.Pointer
-	dp  unsafe.Pointer
-	buf [28]NodeRef
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	buf   [28]NodeRef
 }
 
 var node28 struct {
-	itm unsafe.Pointer
-	gc  unsafe.Pointer
-	dp  unsafe.Pointer
-	buf [29]NodeRef
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	buf   [29]NodeRef
 }
 
 var node29 struct {
-	itm unsafe.Pointer
-	gc  unsafe.Pointer
-	dp  unsafe.Pointer
-	buf [30]NodeRef
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	buf   [30]NodeRef
 }
 
 var node30 struct {
-	itm unsafe.Pointer
-	gc  unsafe.Pointer
-	dp  unsafe.Pointer
-	buf [31]NodeRef
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	buf   [31]NodeRef
 }
 var node31 struct {
-	itm unsafe.Pointer
-	gc  unsafe.Pointer
-	dp  unsafe.Pointer
-	buf [32]NodeRef
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	buf   [32]NodeRef
 }
 
 var node32 struct {
-	itm unsafe.Pointer
-	gc  unsafe.Pointer
-	dp  unsafe.Pointer
-	buf [33]NodeRef
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	buf   [33]NodeRef
 }
 
 func allocNode(itm unsafe.Pointer, level int, malloc MallocFn) *Node {
@@ -290,7 +290,8 @@ func allocNode(itm unsafe.Pointer, level int, malloc MallocFn) *Node {
 	n := (*Node)(block)
 	n.level = uint16(level)
 	n.itm = itm
-	n.GClink = nil
+	n.Link = nil
+	n.Cache = 0
 	return n
 }
 

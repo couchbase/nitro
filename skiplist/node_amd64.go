@@ -37,10 +37,10 @@ const deletedFlag = 0xff
 
 // Node represents skiplist node header
 type Node struct {
-	itm     unsafe.Pointer
-	GClink  *Node
-	DataPtr unsafe.Pointer
-	level   uint16
+	itm   unsafe.Pointer
+	Link  unsafe.Pointer
+	Cache int64
+	level uint16
 }
 
 // Level returns the level of a node in the skiplist
@@ -65,12 +65,12 @@ func (n *Node) SetItem(itm unsafe.Pointer) {
 
 // SetLink can be used to set link pointer for the node
 func (n *Node) SetLink(l *Node) {
-	n.GClink = l
+	n.Link = unsafe.Pointer(l)
 }
 
 // GetLink returns link pointer from the node
 func (n *Node) GetLink() *Node {
-	return n.GClink
+	return (*Node)(n.Link)
 }
 
 // GetNext returns next node in level 0
