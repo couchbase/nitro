@@ -81,6 +81,8 @@ type Stats struct {
 	LSSFrag      int
 	LSSDataSize  int64
 	LSSUsedSpace int64
+	NumLSSReads  int64
+	LSSReadBytes int64
 }
 
 func (s *Stats) Merge(o *Stats) {
@@ -103,6 +105,9 @@ func (s *Stats) Merge(o *Stats) {
 	s.NumPagesSwapIn += o.NumPagesSwapIn
 
 	s.BytesIncoming += o.BytesIncoming
+
+	s.NumLSSReads += o.NumLSSReads
+	s.LSSReadBytes += o.LSSReadBytes
 }
 
 func (s Stats) String() string {
@@ -130,7 +135,9 @@ func (s Stats) String() string {
 		"write_amp         = %.2f\n"+
 		"lss_fragmentation = %d%%\n"+
 		"lss_data_size     = %d\n"+
-		"lss_used_space    = %d\n",
+		"lss_used_space    = %d\n"+
+		"lss_num_reads     = %d\n"+
+		"lss_read_bytes    = %d\n",
 		atomic.LoadInt64(&memQuota),
 		s.Inserts-s.Deletes,
 		s.Compacts, s.Splits, s.Merges,
@@ -142,7 +149,8 @@ func (s Stats) String() string {
 		s.NumPagesSwapOut, s.NumPagesSwapIn,
 		s.BytesIncoming, s.BytesWritten,
 		float64(s.BytesWritten)/float64(s.BytesIncoming),
-		s.LSSFrag, s.LSSDataSize, s.LSSUsedSpace)
+		s.LSSFrag, s.LSSDataSize, s.LSSUsedSpace,
+		s.NumLSSReads, s.LSSReadBytes)
 }
 
 func New(cfg Config) (*Plasma, error) {
@@ -786,6 +794,9 @@ loop:
 		if err != nil {
 			return nil, err
 		}
+
+		ctx.sts.NumLSSReads++
+		ctx.sts.LSSReadBytes += int64(l)
 
 		typ := getLSSBlockType(data)
 		switch typ {
