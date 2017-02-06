@@ -18,7 +18,7 @@ import "math/rand"
 import "sync"
 import "runtime"
 import "encoding/binary"
-import "github.com/t3rm1n4l/nitro/mm"
+import "github.com/couchbase/nitro/mm"
 
 var testConf Config
 

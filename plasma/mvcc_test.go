@@ -3,7 +3,7 @@ package plasma
 import (
 	"encoding/binary"
 	"fmt"
-	"github.com/t3rm1n4l/nitro/skiplist"
+	"github.com/couchbase/nitro/skiplist"
 	"os"
 	"sync"
 	"testing"

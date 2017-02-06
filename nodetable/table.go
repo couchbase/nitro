@@ -22,7 +22,7 @@ package nodetable
 
 import "unsafe"
 import "fmt"
-import "github.com/t3rm1n4l/nitro/skiplist"
+import "github.com/couchbase/nitro/skiplist"
 
 var emptyResult ntResult
 

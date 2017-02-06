@@ -2,7 +2,7 @@ package plasma
 
 import (
 	"errors"
-	"github.com/t3rm1n4l/nitro/skiplist"
+	"github.com/couchbase/nitro/skiplist"
 	"math/rand"
 	"sync"
 	"sync/atomic"
