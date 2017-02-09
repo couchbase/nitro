@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"github.com/t3rm1n4l/nitro"
+	"github.com/couchbase/nitro"
 )
 
 func main() {

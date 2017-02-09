@@ -4,9 +4,9 @@ A high performance in-memory key-value item storage engine written in golang.
 The storage engine is based lock-free data structures and scales well with
 multicore CPUs.
 
-[![Build Status](https://travis-ci.org/t3rm1n4l/nitro.svg?branch=master)](https://travis-ci.org/t3rm1n4l/nitro)
-[![Go Report Card](https://goreportcard.com/badge/github.com/t3rm1n4l/nitro)](https://goreportcard.com/report/github.com/t3rm1n4l/nitro)
-[![GoDoc](https://godoc.org/github.com/t3rm1n4l/nitro?status.svg)](https://godoc.org/github.com/t3rm1n4l/nitro)
+[![Build Status](https://travis-ci.org/couchbase/nitro.svg?branch=master)](https://travis-ci.org/couchbase/nitro)
+[![Go Report Card](https://goreportcard.com/badge/github.com/couchbase/nitro)](https://goreportcard.com/report/github.com/couchbase/nitro)
+[![GoDoc](https://godoc.org/github.com/couchbase/nitro?status.svg)](https://godoc.org/github.com/couchbase/nitro)
 
 
 ### Features

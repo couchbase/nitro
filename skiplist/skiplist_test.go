@@ -63,7 +63,7 @@ func doInsert(sl *Skiplist, wg *sync.WaitGroup, n int, isRand bool) {
 			val = i
 		}
 
-		itm := intKeyItem(val)
+		itm := IntKeyItem(val)
 		sl.Insert2(unsafe.Pointer(&itm), cmp, nil, buf, rnd.Float32, &sl.Stats)
 	}
 }
@@ -78,7 +78,7 @@ func doGet(sl *Skiplist, wg *sync.WaitGroup, n int) {
 	itr := sl.NewIterator(cmp, buf)
 	for i := 0; i < n; i++ {
 		val := rnd.Int() % n
-		itm := intKeyItem(val)
+		itm := IntKeyItem(val)
 		itr.Seek(unsafe.Pointer(&itm))
 	}
 
@@ -135,7 +135,7 @@ func TestGetRangeSplitItems(t *testing.T) {
 	var diff []int
 	var curr int
 	for i, itm := range sl.GetRangeSplitItems(8) {
-		k := int(*(*intKeyItem)(itm))
+		k := int(*(*IntKeyItem)(itm))
 		keys = append(keys, k)
 		diff = append(diff, keys[i]-curr)
 		curr = keys[i]
@@ -165,7 +165,7 @@ func TestBuilder(t *testing.T) {
 		go func(wg *sync.WaitGroup, shard int) {
 			defer wg.Done()
 			for x := 0; x < perSplit; x++ {
-				itm := intKeyItem(perSplit*shard + x)
+				itm := IntKeyItem(perSplit*shard + x)
 				segs[shard].Add(unsafe.Pointer(&itm))
 			}
 		}(&wg, i)
@@ -184,7 +184,7 @@ func TestBuilder(t *testing.T) {
 	t0 = time.Now()
 	itr := sl.NewIterator(CompareInt, buf)
 	for itr.SeekFirst(); itr.Valid(); itr.Next() {
-		if int(*(*intKeyItem)(itr.Get())) != count {
+		if int(*(*IntKeyItem)(itr.Get())) != count {
 			t.Errorf("Expected %d, got %d", count, itr.Get())
 		}
 		count++

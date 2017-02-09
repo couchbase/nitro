@@ -11,7 +11,7 @@ package nitro
 
 import (
 	"bytes"
-	"github.com/t3rm1n4l/nitro/skiplist"
+	"github.com/couchbase/nitro/skiplist"
 )
 
 // NodeList is a linked list of skiplist nodes
