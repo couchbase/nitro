@@ -10,14 +10,14 @@ import (
 const evictMask = uint64(0x8000000000000000)
 
 type PageTable interface {
-	AllocPageId() PageId
-	FreePageId(PageId)
+	AllocPageId(*wCtx) PageId
+	FreePageId(PageId, *wCtx)
 
-	CreateMapping(PageId, Page)
-	UpdateMapping(PageId, Page) bool
+	CreateMapping(PageId, Page, *wCtx)
+	UpdateMapping(PageId, Page, *wCtx) bool
 	ReadPage(PageId, PageReader, swapin bool) (Page, error)
 
-	EvictPage(PageId, Page, LSSOffset) bool
+	EvictPage(PageId, Page, LSSOffset, *wCtx) bool
 }
 
 type pageTable struct {
@@ -67,16 +67,16 @@ func newPageTable(sl *skiplist.Skiplist, itmSize ItemSizeFn,
 	return pt
 }
 
-func (s *pageTable) AllocPageId() PageId {
+func (s *pageTable) AllocPageId(*wCtx) PageId {
 	itemLevel := s.Skiplist.NewLevel(rand.Float32)
 	return s.Skiplist.NewNode(itemLevel)
 }
 
-func (s *pageTable) FreePageId(pid PageId) {
+func (s *pageTable) FreePageId(pid PageId, ctx *wCtx) {
 	s.Skiplist.FreeNode(pid.(*skiplist.Node), &s.Skiplist.Stats)
 }
 
-func (s *pageTable) CreateMapping(pid PageId, pg Page) {
+func (s *pageTable) CreateMapping(pid PageId, pg Page, ctx *wCtx) {
 	n := pid.(*skiplist.Node)
 	pgi := pg.(*page)
 
@@ -86,7 +86,7 @@ func (s *pageTable) CreateMapping(pid PageId, pg Page) {
 	pgi.prevHeadPtr = newPtr
 }
 
-func (s *pageTable) UpdateMapping(pid PageId, pg Page) bool {
+func (s *pageTable) UpdateMapping(pid PageId, pg Page, ctx *wCtx) bool {
 	n := pid.(*skiplist.Node)
 	pgi := pg.(*page)
 
@@ -99,7 +99,7 @@ func (s *pageTable) UpdateMapping(pid PageId, pg Page) bool {
 	return false
 }
 
-func (s *pageTable) ReadPage(pid PageId, pgRdr PageReader, swapin bool) (Page, error) {
+func (s *pageTable) ReadPage(pid PageId, pgRdr PageReader, swapin bool, ctx *wCtx) (Page, error) {
 	var pg Page
 	n := pid.(*skiplist.Node)
 
@@ -121,7 +121,7 @@ retry:
 		}
 
 		if swapin {
-			if !s.UpdateMapping(pid, pg) {
+			if !s.UpdateMapping(pid, pg, ctx) {
 				atomic.AddInt64(&s.sts.SwapInConflicts, 1)
 				goto retry
 			}
@@ -137,7 +137,7 @@ retry:
 	return pg, nil
 }
 
-func (s *pageTable) EvictPage(pid PageId, pg Page, offset LSSOffset) bool {
+func (s *pageTable) EvictPage(pid PageId, pg Page, offset LSSOffset, ctx *wCtx) bool {
 	n := pid.(*skiplist.Node)
 	pgi := pg.(*page)
 

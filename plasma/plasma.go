@@ -215,7 +215,7 @@ func New(cfg Config) (*Plasma, error) {
 
 	pid := s.StartPageId()
 	pg := s.newSeedPage()
-	s.CreateMapping(pid, pg)
+	s.CreateMapping(pid, pg, ptWr.wCtx)
 
 	if s.shouldPersist {
 		commitDur := time.Duration(cfg.SyncInterval) * time.Second
@@ -312,7 +312,7 @@ func (s *Plasma) doRecovery() error {
 			rmPglow := unmarshalPageSMO(pg, bs)
 			pid := s.getPageId(rmPglow, w.wCtx)
 			if pid != nil {
-				currPg, err := s.ReadPage(pid, w.wCtx.pgRdrFn, true)
+				currPg, err := s.ReadPage(pid, w.wCtx.pgRdrFn, true, w.wCtx)
 				if err != nil {
 					return false, err
 				}
@@ -328,8 +328,8 @@ func (s *Plasma) doRecovery() error {
 
 			if pid == nil {
 				if newPageData {
-					pid = s.AllocPageId()
-					s.CreateMapping(pid, pg)
+					pid = s.AllocPageId(w.wCtx)
+					s.CreateMapping(pid, pg, w.wCtx)
 					s.indexPage(pid, w.wCtx)
 				} else {
 					break
@@ -339,7 +339,7 @@ func (s *Plasma) doRecovery() error {
 			flushDataSz := len(bs)
 			w.sts.FlushDataSz += int64(flushDataSz)
 
-			currPg, err := s.ReadPage(pid, w.wCtx.pgRdrFn, true)
+			currPg, err := s.ReadPage(pid, w.wCtx.pgRdrFn, true, w.wCtx)
 			if err != nil {
 				return false, err
 			}
@@ -353,7 +353,7 @@ func (s *Plasma) doRecovery() error {
 				pg.AddFlushRecord(offset, flushDataSz, numSegments)
 			}
 
-			s.CreateMapping(pid, pg)
+			s.CreateMapping(pid, pg, w.wCtx)
 		}
 
 		pg.Reset()
@@ -368,7 +368,7 @@ func (s *Plasma) doRecovery() error {
 	// Initialize rightSiblings for all pages
 	var lastPg Page
 	callb := func(pid PageId, partn RangePartition) error {
-		pg, err := s.ReadPage(pid, w.pgRdrFn, true)
+		pg, err := s.ReadPage(pid, w.pgRdrFn, true, w.wCtx)
 		if lastPg != nil {
 			if err == nil && s.cmp(lastPg.MaxItem(), pg.MinItem()) != 0 {
 				panic("found missing page")
@@ -425,6 +425,7 @@ type Writer struct {
 	*wCtx
 }
 
+// TODO: Refactor wCtx and Writer
 type wCtx struct {
 	buf       *skiplist.ActionBuffer
 	pgBuffers [][]byte
@@ -544,7 +545,7 @@ func (s *Plasma) tryPageRemoval(pid PageId, pg Page, ctx *wCtx) {
 	}
 
 	pPid := PageId(prev)
-	pPg, err := s.ReadPage(pPid, ctx.pgRdrFn, true)
+	pPg, err := s.ReadPage(pPid, ctx.pgRdrFn, true, ctx)
 	if err != nil {
 		s.logError(fmt.Sprintf("tryPageRemove: err=%v", err))
 		return
@@ -578,7 +579,7 @@ func (s *Plasma) tryPageRemoval(pid PageId, pg Page, ctx *wCtx) {
 		pPg.AddFlushRecord(offsets[1], fdSz, numSegments)
 	}
 
-	if s.UpdateMapping(pPid, pPg) {
+	if s.UpdateMapping(pPid, pPg, ctx) {
 		s.unindexPage(pid, ctx)
 		ctx.sts.MemSz += int64(pPg.GetMemUsed())
 
@@ -611,7 +612,7 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 
 	if pg.NeedCompaction(s.Config.MaxDeltaChainLen) {
 		staleFdSz := pg.Compact()
-		updated = s.UpdateMapping(pid, pg)
+		updated = s.UpdateMapping(pid, pg, ctx)
 		if updated {
 			ctx.sts.Compacts++
 			ctx.sts.FlushDataSz -= int64(staleFdSz)
@@ -620,7 +621,7 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 			ctx.sts.CompactConflicts++
 		}
 	} else if pg.NeedSplit(s.Config.MaxPageItems) {
-		splitPid := s.AllocPageId()
+		splitPid := s.AllocPageId(ctx)
 
 		var fdSz, splitFdSz, staleFdSz, numSegments, numSegmentsSplit int
 		var pgBuf = ctx.GetBuffer(0)
@@ -630,9 +631,9 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 
 		// Skip split, but compact
 		if newPg == nil {
-			s.FreePageId(splitPid)
+			s.FreePageId(splitPid, ctx)
 			staleFdSz := pg.Compact()
-			if updated = s.UpdateMapping(pid, pg); updated {
+			if updated = s.UpdateMapping(pid, pg, ctx); updated {
 				ctx.sts.FlushDataSz -= int64(staleFdSz)
 				ctx.sts.MemSz += int64(pg.GetMemUsed())
 			}
@@ -663,8 +664,8 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 			newPg.AddFlushRecord(offsets[1], splitFdSz, numSegmentsSplit)
 		}
 
-		s.CreateMapping(splitPid, newPg)
-		if updated = s.UpdateMapping(pid, pg); updated {
+		s.CreateMapping(splitPid, newPg, ctx)
+		if updated = s.UpdateMapping(pid, pg, ctx); updated {
 			ctx.sts.MemSz += int64(pg.GetMemUsed())
 			ctx.sts.MemSz += int64(newPg.GetMemUsed())
 			s.indexPage(splitPid, ctx)
@@ -676,7 +677,7 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 			}
 		} else {
 			ctx.sts.SplitConflicts++
-			s.FreePageId(splitPid)
+			s.FreePageId(splitPid, ctx)
 
 			if s.shouldPersist {
 				discardLSSBlock(wbufs[0])
@@ -686,7 +687,7 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 		}
 	} else if !s.isStartPage(pid) && pg.NeedMerge(s.Config.MinPageItems) {
 		pg.Close()
-		if updated = s.UpdateMapping(pid, pg); updated {
+		if updated = s.UpdateMapping(pid, pg, ctx); updated {
 			s.tryPageRemoval(pid, pg, ctx)
 			ctx.sts.Merges++
 			ctx.sts.MemSz += int64(pg.GetMemUsed())
@@ -694,7 +695,7 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 			ctx.sts.MergeConflicts++
 		}
 	} else if doUpdate {
-		if updated = s.UpdateMapping(pid, pg); updated {
+		if updated = s.UpdateMapping(pid, pg, ctx); updated {
 			ctx.sts.MemSz += int64(pg.GetMemUsed())
 		}
 	}
@@ -721,7 +722,7 @@ retry:
 refresh:
 	s.tryThrottleForMemory(ctx)
 
-	if pg, err = s.ReadPage(pid, ctx.pgRdrFn, true); err != nil {
+	if pg, err = s.ReadPage(pid, ctx.pgRdrFn, true, ctx); err != nil {
 		return nil, nil, err
 	}
 
@@ -847,9 +848,9 @@ func (s *Plasma) logError(err string) {
 
 func (w *Writer) CompactAll() {
 	callb := func(pid PageId, partn RangePartition) error {
-		if pg, err := w.ReadPage(pid, nil, false); err == nil {
+		if pg, err := w.ReadPage(pid, nil, false, w.wCtx); err == nil {
 			staleFdSz := pg.Compact()
-			if updated := w.UpdateMapping(pid, pg); updated {
+			if updated := w.UpdateMapping(pid, pg, w.wCtx); updated {
 				w.wCtx.sts.FlushDataSz -= int64(staleFdSz)
 				w.wCtx.sts.MemSz += int64(pg.GetMemUsed())
 			}

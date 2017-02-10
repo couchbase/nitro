@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-func (s *Plasma) tryPageRelocation(pid PageId, pg Page, buf []byte) (bool, LSSOffset) {
+func (s *Plasma) tryPageRelocation(pid PageId, pg Page, buf []byte, ctx *wCtx) (bool, LSSOffset) {
 	var ok bool
 	bs, dataSz, staleSz, numSegments := pg.Marshal(buf, FullMarshal)
 	offset, wbuf, res := s.lss.ReserveSpace(lssBlockTypeSize + len(bs))
@@ -14,11 +14,11 @@ func (s *Plasma) tryPageRelocation(pid PageId, pg Page, buf []byte) (bool, LSSOf
 
 	if pg.IsInCache() {
 		pg.AddFlushRecord(offset, dataSz, numSegments)
-		if ok = s.UpdateMapping(pid, pg); ok {
+		if ok = s.UpdateMapping(pid, pg, ctx); ok {
 			s.lssCleanerWriter.sts.MemSz += int64(pg.GetMemUsed())
 		}
 	} else {
-		ok = s.EvictPage(pid, pg, offset)
+		ok = s.EvictPage(pid, pg, offset, ctx)
 	}
 
 	if !ok {
@@ -50,7 +50,7 @@ func (s *Plasma) CleanLSS(proceed func() bool) error {
 			state, key := decodePageState(bs[lssBlockTypeSize:])
 		retry:
 			if pid := s.getPageId(key, w.wCtx); pid != nil {
-				if pg, err = s.ReadPage(pid, w.wCtx.pgRdrFn, false); err != nil {
+				if pg, err = s.ReadPage(pid, w.wCtx.pgRdrFn, false, w.wCtx); err != nil {
 					return false, 0, err
 				}
 
@@ -60,7 +60,7 @@ func (s *Plasma) CleanLSS(proceed func() bool) error {
 				}
 
 				if pg.GetVersion() == state.GetVersion() || !pg.IsFlushed() {
-					if ok, _ := s.tryPageRelocation(pid, pg, relocBuf); !ok {
+					if ok, _ := s.tryPageRelocation(pid, pg, relocBuf, w.wCtx); !ok {
 						retries++
 						goto retry
 					}

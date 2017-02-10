@@ -319,7 +319,7 @@ func (s *Plasma) Rollback(rollRP *RecoveryPoint) (*Snapshot, error) {
 		w := s.persistWriters[partn.Shard]
 		pgBuf := w.GetBuffer(0)
 	retry:
-		if pg, err := s.ReadPage(pid, w.pgRdrFn, true); err == nil {
+		if pg, err := s.ReadPage(pid, w.pgRdrFn, true, w.wCtx); err == nil {
 			pg.Rollback(start, end)
 			pgBuf, fdSz, staleFdSz, numSegments := pg.Marshal(pgBuf, s.Config.MaxPageLSSSegments)
 			offset, wbuf, res := s.lss.ReserveSpace(len(pgBuf) + lssBlockTypeSize)
@@ -330,7 +330,7 @@ func (s *Plasma) Rollback(rollRP *RecoveryPoint) (*Snapshot, error) {
 			w.wCtx.sts.FlushDataSz += int64(fdSz) - int64(staleFdSz)
 
 			// May conflict with cleaner
-			if !s.UpdateMapping(pid, pg) {
+			if !s.UpdateMapping(pid, pg, w.wCtx) {
 				goto retry
 			}
 

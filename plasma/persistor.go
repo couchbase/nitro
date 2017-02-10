@@ -40,7 +40,7 @@ func (s *Plasma) Persist(pid PageId, evict bool, ctx *wCtx) Page {
 retry:
 
 	// Never read from lss
-	pg, _ := s.ReadPage(pid, nil, false)
+	pg, _ := s.ReadPage(pid, nil, false, ctx)
 	if pg.NeedsFlush() {
 		bs, dataSz, staleFdSz, numSegments := pg.Marshal(buf, s.Config.MaxPageLSSSegments)
 		offset, wbuf, res := s.lss.ReserveSpace(lssBlockTypeSize + len(bs))
@@ -49,10 +49,10 @@ retry:
 
 		var ok bool
 		if evict {
-			ok = s.EvictPage(pid, pg, offset)
+			ok = s.EvictPage(pid, pg, offset, ctx)
 		} else {
 			pg.AddFlushRecord(offset, dataSz, numSegments)
-			if ok = s.UpdateMapping(pid, pg); ok {
+			if ok = s.UpdateMapping(pid, pg, ctx); ok {
 				ctx.sts.MemSz += int64(pg.GetMemUsed())
 			}
 		}
@@ -67,7 +67,7 @@ retry:
 		}
 	} else if evict && pg.IsEvictable() {
 		offset, _ := pg.GetLSSOffset()
-		if !s.EvictPage(pid, pg, offset) {
+		if !s.EvictPage(pid, pg, offset, ctx) {
 			goto retry
 		}
 	}
