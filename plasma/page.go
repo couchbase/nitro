@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"github.com/couchbase/nitro/skiplist"
-	"reflect"
 	"sort"
 	"unsafe"
 )
@@ -76,7 +75,7 @@ type Page interface {
 	SetNext(PageId)
 	Next() PageId
 
-	GetMemUsed() int
+	GetMallocOps() ([]*pageDelta, []*pageDelta, int)
 	GetFlushDataSize() int
 	ComputeMemUsed() int
 	AddFlushRecord(off LSSOffset, dataSz int, numSegments int)
@@ -244,34 +243,9 @@ func (rpd *rollbackDelta) Filter() interface{} {
 type ItemSizeFn func(unsafe.Pointer) uintptr
 type FilterGetter func() ItemFilter
 
-type storeCtx struct {
-	itemSize         ItemSizeFn
-	cmp              skiplist.CompareFn
-	getPageId        func(unsafe.Pointer, *wCtx) PageId
-	getItem          func(PageId) unsafe.Pointer
-	getCompactFilter FilterGetter
-	getLookupFilter  FilterGetter
-}
-
-func (ctx *storeCtx) alloc(sz uintptr) unsafe.Pointer {
-	b := make([]byte, int(sz))
-	hdr := (*reflect.SliceHeader)(unsafe.Pointer(&b))
-	return unsafe.Pointer(hdr.Data)
-}
-
-func (ctx *storeCtx) dup(itm unsafe.Pointer) unsafe.Pointer {
-	if itm == skiplist.MinItem || itm == skiplist.MaxItem {
-		return itm
-	}
-
-	l := ctx.itemSize(itm)
-	p := ctx.alloc(l)
-	memcopy(p, itm, int(l))
-	return p
-}
-
 type page struct {
 	*storeCtx
+	*allocCtx
 
 	meta *pageDelta
 
@@ -312,8 +286,8 @@ func (pg *page) Reset() {
 	pg.prevHeadPtr = nil
 }
 
-func (pg *page) newFlushPageDelta(offset LSSOffset, dataSz int, numSegments int) (*flushPageDelta, int) {
-	pd := new(flushPageDelta)
+func (pg *page) newFlushPageDelta(offset LSSOffset, dataSz int, numSegments int) *flushPageDelta {
+	pd := pg.allocFlushPageDelta()
 	var meta *pageDelta
 	if pg.head == nil {
 		meta = pg.meta
@@ -336,69 +310,76 @@ func (pg *page) newFlushPageDelta(offset LSSOffset, dataSz int, numSegments int)
 	pd.offset = offset
 	pd.state.SetFlushed()
 	pd.flushDataSz = int32(dataSz)
-	return pd, pageHeaderSize + 8 + 8
+	return pd
 }
 
-func (pg *page) newRecordDelta(op pageOp, itm unsafe.Pointer) (*pageDelta, int) {
-	pd := new(recordDelta)
+func (pg *page) newRecordDelta(op pageOp, itm unsafe.Pointer) *pageDelta {
+	pd := pg.allocRecordDelta(itm)
 	*(*pageDelta)(unsafe.Pointer(pd)) = *pg.head
 	pd.next = pg.head
-
-	pd.chainLen++
 
 	pd.op = op
-	pd.itm = itm
-	return (*pageDelta)(unsafe.Pointer(pd)), pageHeaderSize + 8 + int(pg.itemSize(itm))
+	pd.chainLen++
+	return (*pageDelta)(unsafe.Pointer(pd))
 }
 
-func (pg *page) newSplitPageDelta(itm unsafe.Pointer, pid PageId) (*pageDelta, int) {
-	pd := new(splitPageDelta)
+func (pg *page) newSplitPageDelta(itm unsafe.Pointer, pid PageId) *pageDelta {
+	pd := pg.allocSplitPageDelta(itm)
+	itm = pd.itm
+	hiItm := pd.hiItm
 	*(*pageDelta)(unsafe.Pointer(pd)) = *pg.head
 	pd.next = pg.head
 
-	itm = pg.dup(itm)
 	pd.op = opPageSplitDelta
 	pd.itm = itm
-	pd.hiItm = itm
+	pd.hiItm = hiItm
 	pd.chainLen++
 	pd.rightSibling = pid
-	return (*pageDelta)(unsafe.Pointer(pd)), pageHeaderSize + 8 + int(pg.itemSize(itm))
+	return (*pageDelta)(unsafe.Pointer(pd))
 }
 
-func (pg *page) newMergePageDelta(itm unsafe.Pointer, sibl *pageDelta) (*pageDelta, int) {
-	pd := new(mergePageDelta)
+func (pg *page) newMergePageDelta(itm unsafe.Pointer, sibl *pageDelta) *pageDelta {
+	pd := pg.allocMergePageDelta(sibl.hiItm)
+	hiItm := pd.hiItm
 	*(*pageDelta)(unsafe.Pointer(pd)) = *pg.head
 	pd.next = pg.head
 
 	pd.op = opPageMergeDelta
-	pd.itm = itm
 	pd.mergeSibling = sibl
+	pd.itm = itm
+	pd.hiItm = hiItm
 	pd.chainLen += sibl.chainLen + 1
 	pd.numItems += sibl.numItems
 	pd.rightSibling = sibl.rightSibling
-	pd.hiItm = pg.dup(sibl.hiItm)
-	return (*pageDelta)(unsafe.Pointer(pd)), pageHeaderSize + 8 + 8 + int(pg.itemSize(pd.hiItm))
+	return (*pageDelta)(unsafe.Pointer(pd))
 }
 
-func (pg *page) newRemovePageDelta() (*pageDelta, int) {
-	pd := new(removePageDelta)
+func (pg *page) newRemovePageDelta() *pageDelta {
+	pd := pg.allocRemovePageDelta()
 	*(*pageDelta)(unsafe.Pointer(pd)) = *pg.head
 	pd.next = pg.head
 
 	pd.op = opPageRemoveDelta
-	return (*pageDelta)(unsafe.Pointer(pd)), pageHeaderSize
+	return (*pageDelta)(unsafe.Pointer(pd))
 }
 
-func (pg *page) newBasePage(itms []unsafe.Pointer) (*pageDelta, int) {
+func (pg *page) newBasePage(itms []unsafe.Pointer) *pageDelta {
 	var sz uintptr
+	var hiItm unsafe.Pointer
+
+	if pg.head != nil {
+		hiItm = pg.head.hiItm
+	}
+
+	n := len(itms)
 	for _, itm := range itms {
 		sz += pg.itemSize(itm)
 	}
 
-	bp := &basePage{op: opBasePage, numItems: uint16(len(itms))}
-	bp.items = make([]unsafe.Pointer, len(itms))
+	bp := pg.allocBasePage(n, sz, hiItm)
+	bp.op = opBasePage
+	bp.numItems = uint16(n)
 
-	bp.data = pg.alloc(sz)
 	var offset uintptr
 	for i, itm := range itms {
 		itmsz := pg.itemSize(itm)
@@ -408,13 +389,12 @@ func (pg *page) newBasePage(itms []unsafe.Pointer) (*pageDelta, int) {
 		offset += itmsz
 	}
 
-	bp.numItems = uint16(len(itms))
+	bp.numItems = uint16(n)
 	if pg.head != nil {
 		bp.rightSibling = pg.head.rightSibling
-		bp.hiItm = pg.dup(pg.head.hiItm)
 	}
 
-	return (*pageDelta)(unsafe.Pointer(bp)), pageHeaderSize + int(sz) + int(unsafe.Sizeof(bp.items)) + int(pg.itemSize(bp.hiItm))
+	return (*pageDelta)(unsafe.Pointer(bp))
 }
 
 // TODO: Fix the low bound check ?
@@ -427,15 +407,11 @@ func (pg *page) InRange(itm unsafe.Pointer) bool {
 }
 
 func (pg *page) Insert(itm unsafe.Pointer) {
-	var memUsed int
-	pg.head, memUsed = pg.newRecordDelta(opInsertDelta, itm)
-	pg.memUsed += memUsed
+	pg.head = pg.newRecordDelta(opInsertDelta, itm)
 }
 
 func (pg *page) Delete(itm unsafe.Pointer) {
-	var memUsed int
-	pg.head, memUsed = pg.newRecordDelta(opDeleteDelta, itm)
-	pg.memUsed += memUsed
+	pg.head = pg.newRecordDelta(opDeleteDelta, itm)
 }
 
 func (pg *page) equal(itm0, itm1, hi unsafe.Pointer) bool {
@@ -521,9 +497,7 @@ func (pg *page) NeedRemoval() bool {
 }
 
 func (pg *page) Close() {
-	var memUsed int
-	pg.head, memUsed = pg.newRemovePageDelta()
-	pg.memUsed += memUsed
+	pg.head = pg.newRemovePageDelta()
 }
 
 func (pg *page) Split(pid PageId) Page {
@@ -559,12 +533,10 @@ func (pg *page) doSplit(itm unsafe.Pointer, pid PageId, numItems int) *page {
 	*splitPage = *pg
 	splitPage.prevHeadPtr = nil
 	itms, _ := pg.collectItems(pg.head, itm, pg.head.hiItm)
-	splitPage.head, splitPage.memUsed = pg.newBasePage(itms)
+	splitPage.head = pg.newBasePage(itms)
 
-	splitPage.low = pg.dup(itm)
-	var memUsed int
-	pg.head, memUsed = pg.newSplitPageDelta(itm, pid)
-	pg.memUsed += memUsed
+	splitPage.low = itm
+	pg.head = pg.newSplitPageDelta(itm, pid)
 
 	if numItems >= 0 {
 		pg.head.numItems = uint16(numItems)
@@ -575,14 +547,18 @@ func (pg *page) doSplit(itm unsafe.Pointer, pid PageId, numItems int) *page {
 	return splitPage
 }
 
+func (pg *page) freePageData() {
+	if pg.head != nil {
+		pg.freePageList = append(pg.freePageList, pg.head)
+	}
+}
+
 func (pg *page) Compact() int {
 	state := pg.head.state
 
 	itms, fdataSz := pg.collectItems(pg.head, nil, pg.head.hiItm)
-	memUsed := pg.ComputeMemUsed()
-	pg.memUsed -= memUsed
-	pg.head, memUsed = pg.newBasePage(itms)
-	pg.memUsed += memUsed
+	pg.freePageData()
+	pg.head = pg.newBasePage(itms)
 	state.IncrVersion()
 	pg.head.state = state
 	return fdataSz
@@ -590,8 +566,7 @@ func (pg *page) Compact() int {
 
 func (pg *page) Merge(sp Page) {
 	siblPage := (sp.(*page)).head
-	pdm, memUsed := pg.newMergePageDelta(pg.head.hiItm, siblPage)
-	pg.memUsed += memUsed
+	pdm := pg.newMergePageDelta(pg.head.hiItm, siblPage)
 	pdm.next = pg.head
 	pg.head = pdm
 }
@@ -951,7 +926,7 @@ loop:
 				size += l
 			}
 
-			bp, _ := pg.newBasePage(itms)
+			bp := pg.newBasePage(itms)
 			bp.state = state
 			bp.hiItm = hiItm
 			pd = (*pageDelta)(unsafe.Pointer(bp))
@@ -1004,13 +979,12 @@ loop:
 }
 
 func (pg *page) AddFlushRecord(offset LSSOffset, dataSz int, numSegments int) {
-	fd, used := pg.newFlushPageDelta(offset, dataSz, numSegments)
+	fd := pg.newFlushPageDelta(offset, dataSz, numSegments)
 	pg.head = (*pageDelta)(unsafe.Pointer(fd))
-	pg.memUsed += used
 }
 
 func (pg *page) Rollback(startSn, endSn uint64) {
-	pd := new(rollbackDelta)
+	pd := pg.allocRollbackPageDelta()
 	*(*pageDelta)(unsafe.Pointer(pd)) = *pg.head
 	pd.next = pg.head
 
@@ -1019,7 +993,6 @@ func (pg *page) Rollback(startSn, endSn uint64) {
 	pd.rb.start = startSn
 	pd.rb.end = endSn
 	pg.head = (*pageDelta)(unsafe.Pointer(pd))
-	pg.memUsed += pageHeaderSize + 8 + 8
 }
 
 func marshalPageSMO(pg Page, buf []byte) []byte {
@@ -1132,9 +1105,10 @@ func (pg *page) Next() PageId {
 	return pg.head.rightSibling
 }
 
-func newPage(ctx *storeCtx, low unsafe.Pointer, ptr unsafe.Pointer) Page {
+func newPage(ctx *wCtx, low unsafe.Pointer, ptr unsafe.Pointer) Page {
 	pg := &page{
-		storeCtx:    ctx,
+		storeCtx:    ctx.storeCtx,
+		allocCtx:    ctx.pgAllocCtx,
 		head:        (*pageDelta)(ptr),
 		low:         low,
 		inCache:     true,
@@ -1144,9 +1118,11 @@ func newPage(ctx *storeCtx, low unsafe.Pointer, ptr unsafe.Pointer) Page {
 	return pg
 }
 
-func (s *Plasma) newSeedPage() Page {
+func (s *Plasma) newSeedPage(ctx *wCtx) Page {
 	return &page{
-		low: skiplist.MinItem,
+		storeCtx: ctx.storeCtx,
+		allocCtx: ctx.pgAllocCtx,
+		low:      skiplist.MinItem,
 		head: &pageDelta{
 			op:           opMetaDelta,
 			hiItm:        skiplist.MaxItem,
@@ -1207,10 +1183,15 @@ func (pg *page) SetNumSegments(n int) {
 	panic(fmt.Sprintf("invalid delta op:%d", pg.head.op))
 }
 
-func (pg *page) GetMemUsed() int {
+func (pg *page) GetMallocOps() ([]*pageDelta, []*pageDelta, int) {
+	a := pg.allocDeltaList
+	f := pg.freePageList
 	m := pg.memUsed
+
 	pg.memUsed = 0
-	return m
+	pg.allocDeltaList = pg.allocDeltaList[:0]
+	pg.freePageList = pg.freePageList[:0]
+	return a, f, m
 }
 
 func (pg *page) ComputeMemUsed() int {

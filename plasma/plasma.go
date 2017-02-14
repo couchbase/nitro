@@ -12,7 +12,7 @@ import (
 
 type PageReader func(offset LSSOffset) (Page, error)
 
-const maxCtxBuffers = 3
+const maxCtxBuffers = 4
 
 var (
 	memQuota       int64
@@ -28,7 +28,6 @@ func init() {
 type Plasma struct {
 	Config
 	*skiplist.Skiplist
-	*pageTable
 	wlist                           []*Writer
 	lss                             LSS
 	lssCleanerWriter                *Writer
@@ -51,6 +50,8 @@ type Plasma struct {
 	recoveryPoints []*RecoveryPoint
 
 	hasMemoryPressure bool
+
+	*storeCtx
 }
 
 type Stats struct {
@@ -169,8 +170,6 @@ func New(cfg Config) (*Plasma, error) {
 		Skiplist: sl,
 	}
 
-	ptWr := s.NewWriter()
-
 	var cfGetter, lfGetter FilterGetter
 	if cfg.EnableShapshots {
 		cfGetter = func() ItemFilter {
@@ -211,11 +210,13 @@ func New(cfg Config) (*Plasma, error) {
 		}
 	}
 
-	s.pageTable = newPageTable(sl, cfg.ItemSize, cfg.Compare, cfGetter, lfGetter, ptWr.wCtx.sts)
+	s.storeCtx = newStoreContext(sl, cfg.ItemSize, cfg.Compare, cfGetter,
+		lfGetter)
 
+	gWr := s.NewWriter()
 	pid := s.StartPageId()
-	pg := s.newSeedPage()
-	s.CreateMapping(pid, pg, ptWr.wCtx)
+	pg := s.newSeedPage(gWr.wCtx)
+	s.CreateMapping(pid, pg, gWr.wCtx)
 
 	if s.shouldPersist {
 		commitDur := time.Duration(cfg.SyncInterval) * time.Second
@@ -291,11 +292,9 @@ func (s *Plasma) doInit() {
 }
 
 func (s *Plasma) doRecovery() error {
-	pg := &page{
-		storeCtx: s.storeCtx,
-	}
 
 	w := s.NewWriter()
+	pg := newPage(w.wCtx, nil, nil).(*page)
 
 	buf := w.wCtx.GetBuffer(0)
 
@@ -421,12 +420,12 @@ func ComparePlasma(a, b unsafe.Pointer) int {
 }
 
 type Writer struct {
-	*Plasma
 	*wCtx
 }
 
 // TODO: Refactor wCtx and Writer
 type wCtx struct {
+	*Plasma
 	buf       *skiplist.ActionBuffer
 	pgBuffers [][]byte
 	slSts     *skiplist.Stats
@@ -434,6 +433,18 @@ type wCtx struct {
 	dbIter    *skiplist.Iterator
 
 	pgRdrFn PageReader
+
+	pgAllocCtx *allocCtx
+}
+
+func (ctx *wCtx) freePages(pages []*pageDelta) {
+	for _, pg := range pages {
+		if ctx.useMemMgmt {
+			ctx.sts.MemSz -= int64(computeMemUsed(pg, ctx.itemSize))
+		}
+
+		// TODO: Follow SMR qeueue
+	}
 }
 
 func (ctx *wCtx) SwapperContext() SwapperContext {
@@ -442,10 +453,12 @@ func (ctx *wCtx) SwapperContext() SwapperContext {
 
 func (s *Plasma) newWCtx() *wCtx {
 	ctx := &wCtx{
-		buf:       s.Skiplist.MakeBuf(),
-		slSts:     &s.Skiplist.Stats,
-		sts:       new(Stats),
-		pgBuffers: make([][]byte, maxCtxBuffers),
+		Plasma:     s,
+		pgAllocCtx: new(allocCtx),
+		buf:        s.Skiplist.MakeBuf(),
+		slSts:      &s.Skiplist.Stats,
+		sts:        new(Stats),
+		pgBuffers:  make([][]byte, maxCtxBuffers),
 	}
 
 	ctx.dbIter = dbInstances.NewIterator(ComparePlasma, ctx.buf)
@@ -455,6 +468,13 @@ func (s *Plasma) newWCtx() *wCtx {
 
 	return ctx
 }
+
+const (
+	bufEncPage int = 0
+	bufEncMeta
+	bufEncSMO
+	bufTempItem
+)
 
 func (ctx *wCtx) GetBuffer(id int) []byte {
 	if ctx.pgBuffers[id] == nil {
@@ -467,8 +487,7 @@ func (ctx *wCtx) GetBuffer(id int) []byte {
 func (s *Plasma) NewWriter() *Writer {
 
 	w := &Writer{
-		Plasma: s,
-		wCtx:   s.newWCtx(),
+		wCtx: s.newWCtx(),
 	}
 
 	s.Lock()
@@ -581,7 +600,6 @@ func (s *Plasma) tryPageRemoval(pid PageId, pg Page, ctx *wCtx) {
 
 	if s.UpdateMapping(pPid, pPg, ctx) {
 		s.unindexPage(pid, ctx)
-		ctx.sts.MemSz += int64(pPg.GetMemUsed())
 
 		if s.shouldPersist {
 			ctx.sts.FlushDataSz += int64(fdSz) - int64(staleFdSz)
@@ -616,7 +634,6 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 		if updated {
 			ctx.sts.Compacts++
 			ctx.sts.FlushDataSz -= int64(staleFdSz)
-			ctx.sts.MemSz += int64(pg.GetMemUsed())
 		} else {
 			ctx.sts.CompactConflicts++
 		}
@@ -635,7 +652,6 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 			staleFdSz := pg.Compact()
 			if updated = s.UpdateMapping(pid, pg, ctx); updated {
 				ctx.sts.FlushDataSz -= int64(staleFdSz)
-				ctx.sts.MemSz += int64(pg.GetMemUsed())
 			}
 			return updated
 		}
@@ -666,8 +682,6 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 
 		s.CreateMapping(splitPid, newPg, ctx)
 		if updated = s.UpdateMapping(pid, pg, ctx); updated {
-			ctx.sts.MemSz += int64(pg.GetMemUsed())
-			ctx.sts.MemSz += int64(newPg.GetMemUsed())
 			s.indexPage(splitPid, ctx)
 			ctx.sts.Splits++
 
@@ -690,14 +704,11 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 		if updated = s.UpdateMapping(pid, pg, ctx); updated {
 			s.tryPageRemoval(pid, pg, ctx)
 			ctx.sts.Merges++
-			ctx.sts.MemSz += int64(pg.GetMemUsed())
 		} else {
 			ctx.sts.MergeConflicts++
 		}
 	} else if doUpdate {
-		if updated = s.UpdateMapping(pid, pg, ctx); updated {
-			ctx.sts.MemSz += int64(pg.GetMemUsed())
-		}
+		updated = s.UpdateMapping(pid, pg, ctx)
 	}
 
 	return updated
@@ -756,7 +767,6 @@ retry:
 	}
 	w.sts.BytesIncoming += int64(w.itemSize(itm))
 	w.sts.Inserts++
-	w.sts.MemSz += int64(pg.GetMemUsed())
 
 	return nil
 }
@@ -776,7 +786,6 @@ retry:
 	}
 	w.sts.BytesIncoming += int64(w.itemSize(itm))
 	w.sts.Deletes++
-	w.sts.MemSz += int64(pg.GetMemUsed())
 
 	return nil
 }
@@ -794,7 +803,8 @@ func (w *Writer) Lookup(itm unsafe.Pointer) (unsafe.Pointer, error) {
 
 func (s *Plasma) fetchPageFromLSS(baseOffset LSSOffset, ctx *wCtx) (*page, error) {
 	pg := &page{
-		storeCtx: s.storeCtx,
+		storeCtx: ctx.storeCtx,
+		allocCtx: ctx.pgAllocCtx,
 		inCache:  false,
 	}
 
@@ -815,7 +825,8 @@ loop:
 		switch typ {
 		case lssPageData, lssPageReloc, lssPageUpdate:
 			currPgDelta := &page{
-				storeCtx: s.storeCtx,
+				storeCtx: ctx.storeCtx,
+				allocCtx: ctx.pgAllocCtx,
 			}
 			data := data[lssBlockTypeSize:l]
 			nextOffset, hasChain := currPgDelta.unmarshalDelta(data, ctx)
@@ -852,7 +863,6 @@ func (w *Writer) CompactAll() {
 			staleFdSz := pg.Compact()
 			if updated := w.UpdateMapping(pid, pg, w.wCtx); updated {
 				w.wCtx.sts.FlushDataSz -= int64(staleFdSz)
-				w.wCtx.sts.MemSz += int64(pg.GetMemUsed())
 			}
 		}
 		return nil

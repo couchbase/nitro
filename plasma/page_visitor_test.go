@@ -14,16 +14,20 @@ func TestPlasmaPageVisitor(t *testing.T) {
 	s := newTestIntPlasmaStore(testCfg)
 	defer s.Close()
 
-	w := s.NewWriter()
-	for i := 0; i < 10000000; i++ {
-		w.Insert(skiplist.NewIntKeyItem(i))
+	concurr := 16
+	var w []*Writer
+	for i := 0; i < concurr; i++ {
+		w = append(w, s.NewWriter())
+	}
+
+	for i := 0; i < 1000000; i++ {
+		w[0].Insert(skiplist.NewIntKeyItem(i))
 	}
 
 	var pidKeys []int
 	var gotKeys []int
 	var mu sync.Mutex
 
-	concurr := 16
 	counts := make([]int, concurr)
 
 	for pid := s.StartPageId(); pid != s.EndPageId(); pid = NextPid(pid) {
@@ -31,13 +35,13 @@ func TestPlasmaPageVisitor(t *testing.T) {
 			pidKeys = append(pidKeys, 0)
 		} else {
 
-			pg, _ := s.ReadPage(pid, nil, false, w.wCtx)
+			pg, _ := s.ReadPage(pid, nil, false, w[0].wCtx)
 			pidKeys = append(pidKeys, skiplist.IntFromItem(pg.MinItem()))
 		}
 	}
 
 	callb := func(pid PageId, partn RangePartition) error {
-		pg, _ := s.ReadPage(pid, nil, false, w.wCtx)
+		pg, _ := s.ReadPage(pid, nil, false, w[partn.Shard].wCtx)
 		mu.Lock()
 		defer mu.Unlock()
 
@@ -61,8 +65,7 @@ func TestPlasmaPageVisitor(t *testing.T) {
 
 	for i, k := range pidKeys {
 		if k != gotKeys[i] {
-			t.Errorf("Mismatch %v != %v", pidKeys, gotKeys)
-			break
+			t.Errorf("Mismatch %v != %v", pidKeys[i], gotKeys[i])
 		}
 	}
 

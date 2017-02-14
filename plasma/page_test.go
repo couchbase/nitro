@@ -13,7 +13,8 @@ type storePtr struct {
 func newTestPage() (*page, *storePtr) {
 	sp := new(storePtr)
 	pg := &page{
-		low: skiplist.MinItem,
+		allocCtx: new(allocCtx),
+		low:      skiplist.MinItem,
 		head: &pageDelta{
 			op:           opMetaDelta,
 			hiItm:        skiplist.MaxItem,
@@ -28,10 +29,6 @@ func newTestPage() (*page, *storePtr) {
 		cmp: skiplist.CompareInt,
 		getPageId: func(unsafe.Pointer, *wCtx) PageId {
 			return nil
-		},
-
-		getItem: func(PageId) unsafe.Pointer {
-			return skiplist.MaxItem
 		},
 		getCompactFilter: func() ItemFilter {
 			return new(defaultFilter)

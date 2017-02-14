@@ -96,7 +96,7 @@ func (itm *item) Value() (bs []byte) {
 	return
 }
 
-func (s *Plasma) newItem(k, v []byte, sn uint64, del bool) *item {
+func (s *Plasma) newItem(k, v []byte, sn uint64, del bool, buf []byte) *item {
 	kl := len(k)
 	vl := len(v)
 
@@ -105,8 +105,9 @@ func (s *Plasma) newItem(k, v []byte, sn uint64, del bool) *item {
 		sz += itmKlenSize
 	}
 
-	ptr := s.alloc(sz)
+	ptr := unsafe.Pointer(&buf[0])
 	hdr := (*uint32)(ptr)
+	*hdr = 0
 	if !del {
 		*hdr |= itmInsertMask
 	}

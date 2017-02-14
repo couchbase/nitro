@@ -145,13 +145,14 @@ func (s *Snapshot) Close() {
 
 type MVCCIterator struct {
 	snap *Snapshot
-	ItemIterator
+	*Iterator
 }
 
 func (itr *MVCCIterator) Seek(k []byte) {
 	sn := atomic.LoadUint64(&itr.snap.db.currSn)
-	itm := unsafe.Pointer(itr.snap.db.newItem(k, nil, sn, false))
-	itr.ItemIterator.Seek(itm)
+	kbuf := itr.Iterator.GetBuffer(bufTempItem)
+	itm := unsafe.Pointer(itr.snap.db.newItem(k, nil, sn, false, kbuf))
+	itr.Iterator.Seek(itm)
 }
 
 func (itr *MVCCIterator) Key() []byte {
@@ -174,8 +175,8 @@ func (s *Snapshot) NewIterator() *MVCCIterator {
 	}
 
 	return &MVCCIterator{
-		snap:         s,
-		ItemIterator: itr,
+		snap:     s,
+		Iterator: itr,
 	}
 }
 
@@ -212,18 +213,21 @@ func (s *Plasma) newSnapshot() (snap *Snapshot) {
 
 func (w *Writer) InsertKV(k, v []byte) error {
 	sn := atomic.LoadUint64(&w.currSn)
-	itm := w.newItem(k, v, sn, false)
+	itmBuf := w.GetBuffer(bufTempItem)
+	itm := w.newItem(k, v, sn, false, itmBuf)
 	return w.Insert(unsafe.Pointer(itm))
 }
 
 func (w *Writer) DeleteKV(k []byte) error {
 	sn := atomic.LoadUint64(&w.currSn)
-	itm := w.newItem(k, nil, sn, true)
+	itmBuf := w.GetBuffer(bufTempItem)
+	itm := w.newItem(k, nil, sn, true, itmBuf)
 	return w.Insert(unsafe.Pointer(itm))
 }
 
 func (w *Writer) LookupKV(k []byte) ([]byte, error) {
-	itm := w.newItem(k, nil, 0, false)
+	itmBuf := w.GetBuffer(bufTempItem)
+	itm := w.newItem(k, nil, 0, false, itmBuf)
 	o, err := w.Lookup(unsafe.Pointer(itm))
 	itm = (*item)(o)
 
