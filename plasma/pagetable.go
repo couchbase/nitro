@@ -99,11 +99,18 @@ func (s *Plasma) UpdateMapping(pid PageId, pg Page, ctx *wCtx) bool {
 	n := pid.(*skiplist.Node)
 	pgi := pg.(*page)
 
+	beforeInCache := pg.InCache()
 	allocs, frees, memUsed := pg.GetMallocOps()
 	newPtr := unsafe.Pointer(pgi.head)
 	if atomic.CompareAndSwapPointer(&n.Link, pgi.prevHeadPtr, newPtr) {
 		pgi.prevHeadPtr = newPtr
-		ctx.sts.MemSz += int64(memUsed)
+
+		if pg.InCache() {
+			ctx.sts.MemSz += int64(memUsed)
+		} else if beforeInCache {
+			ctx.sts.NumPagesSwapOut += 1
+		}
+
 		ctx.freePages(frees)
 		return true
 	}
@@ -155,24 +162,4 @@ retry:
 	}
 
 	return pg, nil
-}
-
-func (s *Plasma) EvictPage(pid PageId, pg Page, offset LSSOffset, ctx *wCtx) bool {
-	n := pid.(*skiplist.Node)
-	pgi := pg.(*page)
-
-	newPtr := unsafe.Pointer(uintptr(uint64(offset) | evictMask))
-	if atomic.CompareAndSwapPointer(&n.Link, pgi.prevHeadPtr, newPtr) {
-		pgi.prevHeadPtr = newPtr
-		if pg.InCache() {
-			ctx.sts.NumPagesSwapOut += 1
-			ctx.freePages([]*pageDelta{pg.(*page).head})
-		} else {
-			allocs, _, _ := pg.GetMallocOps()
-			s.discardDeltas(allocs)
-		}
-		return true
-	}
-
-	return false
 }

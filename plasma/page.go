@@ -74,6 +74,8 @@ type Page interface {
 	SetNext(PageId)
 	Next() PageId
 
+	Evict(offset LSSOffset)
+
 	GetMallocOps() ([]*pageDelta, []*pageDelta, int)
 	GetFlushDataSize() int
 	ComputeMemUsed() int
@@ -1112,6 +1114,15 @@ func (pg *page) GetLSSOffset() (LSSOffset, int) {
 	}
 
 	panic(fmt.Sprintf("invalid delta op:%d", pg.head.op))
+}
+
+func (pg *page) Evict(offset LSSOffset) {
+	if pg.InCache() {
+		pg.freePg(pg.head)
+	} else {
+		pg.destroyPg(pg.head)
+	}
+	pg.head = (*pageDelta)(unsafe.Pointer(uintptr(uint64(offset) | evictMask)))
 }
 
 func (pg *page) SetNumSegments(n int) {

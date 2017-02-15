@@ -49,13 +49,12 @@ retry:
 
 		var ok bool
 		if evict {
-			ok = s.EvictPage(pid, pg, offset, ctx)
+			pg.Evict(offset)
 		} else {
 			pg.AddFlushRecord(offset, dataSz, numSegments)
-			ok = s.UpdateMapping(pid, pg, ctx)
 		}
 
-		if ok {
+		if ok = s.UpdateMapping(pid, pg, ctx); ok {
 			s.lss.FinalizeWrite(res)
 			ctx.sts.FlushDataSz += int64(dataSz) - int64(staleFdSz)
 		} else {
@@ -65,7 +64,8 @@ retry:
 		}
 	} else if evict && pg.IsEvictable() {
 		offset, _ := pg.GetLSSOffset()
-		if !s.EvictPage(pid, pg, offset, ctx) {
+		pg.Evict(offset)
+		if !s.UpdateMapping(pid, pg, ctx) {
 			goto retry
 		}
 	}

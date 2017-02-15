@@ -439,7 +439,7 @@ type wCtx struct {
 
 func (ctx *wCtx) freePages(pages []*pageDelta) {
 	for _, pg := range pages {
-		if ctx.useMemMgmt {
+		if !ctx.useMemMgmt {
 			ctx.sts.MemSz -= int64(computeMemUsed(pg, ctx.itemSize))
 		}
 

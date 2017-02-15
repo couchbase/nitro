@@ -14,12 +14,11 @@ func (s *Plasma) tryPageRelocation(pid PageId, pg Page, buf []byte, ctx *wCtx) (
 
 	if pg.InCache() {
 		pg.AddFlushRecord(offset, dataSz, numSegments)
-		ok = s.UpdateMapping(pid, pg, ctx)
 	} else {
-		ok = s.EvictPage(pid, pg, offset, ctx)
+		pg.Evict(offset)
 	}
 
-	if !ok {
+	if ok = s.UpdateMapping(pid, pg, ctx); !ok {
 		discardLSSBlock(wbuf)
 		s.lss.FinalizeWrite(res)
 		return false, 0
