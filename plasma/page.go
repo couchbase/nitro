@@ -879,7 +879,7 @@ loop:
 			rpd.op = op
 			pd = (*pageDelta)(unsafe.Pointer(rpd))
 		case opPageSplitDelta:
-			spd := pg.allocSplitPageDelta(nil)
+			spd := pg.allocSplitPageDelta(hiItm)
 			*(*pageDelta)(unsafe.Pointer(spd)) = *pg.head
 			spd.op = op
 			spd.itm = pg.head.hiItm
@@ -1157,29 +1157,32 @@ loop:
 		switch pd.op {
 		case opBasePage:
 			bp := (*basePage)(unsafe.Pointer(pd))
+			var dataSz int
 			for _, itm := range bp.items {
-				size += int(itemSize(itm))
+				dataSz += int(itemSize(itm))
 			}
 
-			size += int(itemSize(bp.hiItm)) + int(unsafe.Sizeof(bp.items)) + pageHeaderSize
+			size += int(basePageSize) + dataSz + len(bp.items)*8 + int(itemSize(bp.hiItm))
 			break loop
 		case opInsertDelta, opDeleteDelta:
 			rpd := (*recordDelta)(unsafe.Pointer(pd))
 			size += pageHeaderSize + int(itemSize(rpd.itm)) + 8
 		case opPageRemoveDelta:
-			size += pageHeaderSize
+			size += int(removePageDeltaSize)
 		case opPageSplitDelta:
 			spd := (*splitPageDelta)(unsafe.Pointer(pd))
-			size += pageHeaderSize + 8 + int(itemSize(spd.itm))
+			size += int(recDeltaSize + itemSize(spd.itm))
 		case opPageMergeDelta:
 			pdm := (*mergePageDelta)(unsafe.Pointer(pd))
-			size += pageHeaderSize + 8 + 8 + int(itemSize(pdm.hiItm))
 			size += computeMemUsed(pdm.mergeSibling, itemSize)
+			size += int(mergePageDeltaSize + itemSize(pdm.hiItm))
 		case opFlushPageDelta, opRelocPageDelta:
-			size += pageHeaderSize + 8 + 8
+			size += int(flushPageDeltaSize)
 		case opRollbackDelta:
-			size += pageHeaderSize + 8 + 8
+			size += int(rollbackDeltaSize)
 		case opMetaDelta:
+			mpd := (*metaPageDelta)(unsafe.Pointer(pd))
+			size += int(metaDeltaSize + itemSize(mpd.hiItm))
 		default:
 			panic(fmt.Sprintf("unsupported delta %d", pd.op))
 		}
