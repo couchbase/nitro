@@ -313,12 +313,14 @@ func TestPageMarshal(t *testing.T) {
 	y := 0
 	for pd := newPg.head; pd != nil; pd = pd.next {
 		if pd.op != opBasePage {
-			v := skiplist.IntFromItem((*recordDelta)(unsafe.Pointer(pd)).itm)
-			if pd.op != opDeleteDelta || x != v {
-				t.Errorf("expected op:%d, val:%d, got op:%d, val:%d",
-					opDeleteDelta, x, pd.op, v)
+			if pd.op == opInsertDelta || pd.op == opDeleteDelta {
+				v := skiplist.IntFromItem((*recordDelta)(unsafe.Pointer(pd)).itm)
+				if pd.op != opDeleteDelta || x != v {
+					t.Errorf("expected op:%d, val:%d, got op:%d, val:%d",
+						opDeleteDelta, x, pd.op, v)
+				}
+				x--
 			}
-			x--
 		} else {
 			bp := (*basePage)(unsafe.Pointer(pd))
 			for _, itm := range bp.items {

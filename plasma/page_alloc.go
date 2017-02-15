@@ -6,6 +6,7 @@ import (
 )
 
 var (
+	metaDeltaSize       = unsafe.Sizeof(*new(metaPageDelta))
 	recDeltaSize        = unsafe.Sizeof(*new(recordDelta))
 	basePageSize        = unsafe.Sizeof(*new(basePage))
 	splitPageDeltaSize  = unsafe.Sizeof(*new(splitPageDelta))
@@ -33,6 +34,23 @@ func (ctx *allocCtx) freePg(ptr *pageDelta) {
 	if ptr != nil {
 		ctx.freePageList = append(ctx.freePageList, ptr)
 	}
+}
+
+func (pg *page) allocMetaDelta(hiItm unsafe.Pointer) *metaPageDelta {
+	l := pg.itemSize(hiItm)
+	size := metaDeltaSize + l
+	pg.memUsed += int(size)
+
+	if pg.useMemMgmt {
+		ptr := pg.allocMM(size)
+		d := (*metaPageDelta)(ptr)
+		d.hiItm = unsafe.Pointer(uintptr(ptr) + metaDeltaSize)
+		memcopy(d.hiItm, hiItm, int(l))
+		pg.addDeltaAlloc(ptr)
+		return d
+	}
+
+	return &metaPageDelta{hiItm: pg.dup(hiItm)}
 }
 
 func (pg *page) allocRecordDelta(itm unsafe.Pointer) *recordDelta {

@@ -157,6 +157,8 @@ func (ps *pageState) IncrVersion() {
 	*ps = pageState((v + 1) & 0x7fff)
 }
 
+type metaPageDelta pageDelta
+
 type pageDelta struct {
 	op       pageOp
 	chainLen uint16
@@ -850,10 +852,10 @@ func (pg *page) unmarshalDelta(data []byte, ctx *wCtx) (offset LSSOffset, hasCha
 		roffset += l
 	}
 
-	chainLen := int(binary.BigEndian.Uint16(data[roffset : roffset+2]))
+	chainLen := binary.BigEndian.Uint16(data[roffset : roffset+2])
 	roffset += 2
 
-	numItems := int(binary.BigEndian.Uint16(data[roffset : roffset+2]))
+	numItems := binary.BigEndian.Uint16(data[roffset : roffset+2])
 	roffset += 2
 
 	l = int(binary.BigEndian.Uint16(data[roffset : roffset+2]))
@@ -863,12 +865,19 @@ func (pg *page) unmarshalDelta(data []byte, ctx *wCtx) (offset LSSOffset, hasCha
 	if l == 0 {
 		hiItm = skiplist.MaxItem
 	} else {
-		hiItm = pg.alloc(uintptr(l))
-		memcopy(hiItm, unsafe.Pointer(&data[roffset]), l)
+		hiItm = unsafe.Pointer(&data[roffset])
 		roffset += l
 	}
 
-	var pd, lastPd *pageDelta
+	lastPd := (*pageDelta)(unsafe.Pointer(pg.allocMetaDelta(hiItm)))
+	lastPd.op = opMetaDelta
+	lastPd.state = state
+	lastPd.numItems = numItems
+	lastPd.chainLen = chainLen
+	lastPd.next = nil
+	pg.head = lastPd
+
+	var pd *pageDelta
 loop:
 	for roffset < len(data) {
 		op := pageOp(binary.BigEndian.Uint16(data[roffset : roffset+2]))
@@ -878,32 +887,17 @@ loop:
 		case opInsertDelta, opDeleteDelta:
 			l := int(binary.BigEndian.Uint16(data[roffset : roffset+2]))
 			roffset += 2
-			itm := append([]byte(nil), data[roffset:roffset+l]...)
+			itm := unsafe.Pointer(&data[roffset])
 			roffset += l
-			rpd := &recordDelta{
-				pageDelta: pageDelta{
-					op:       op,
-					chainLen: uint16(chainLen),
-					numItems: uint16(numItems),
-					state:    state,
-					hiItm:    hiItm,
-				},
-				itm: unsafe.Pointer(&itm[0]),
-			}
-
-			chainLen--
+			rpd := pg.allocRecordDelta(itm)
+			*(*pageDelta)(unsafe.Pointer(rpd)) = *pg.head
+			rpd.op = op
 			pd = (*pageDelta)(unsafe.Pointer(rpd))
 		case opPageSplitDelta:
-			spd := &splitPageDelta{
-				pageDelta: pageDelta{
-					op:       op,
-					chainLen: uint16(chainLen),
-					numItems: uint16(numItems),
-					state:    state,
-					hiItm:    hiItm,
-				},
-				itm: hiItm,
-			}
+			spd := pg.allocSplitPageDelta(nil)
+			*(*pageDelta)(unsafe.Pointer(spd)) = *pg.head
+			spd.op = op
+			spd.itm = pg.head.hiItm
 			pd = (*pageDelta)(unsafe.Pointer(spd))
 		case opBasePage:
 			nItms := int(binary.BigEndian.Uint16(data[roffset : roffset+2]))
@@ -920,38 +914,25 @@ loop:
 
 			bp := pg.newBasePage(itms)
 			bp.state = state
-			bp.hiItm = hiItm
 			pd = (*pageDelta)(unsafe.Pointer(bp))
 		case opFlushPageDelta, opRelocPageDelta:
 			offset = LSSOffset(binary.BigEndian.Uint64(data[roffset : roffset+8]))
 			hasChain = true
 			break loop
 		case opRollbackDelta:
-			chainLen++
-			rpd := &rollbackDelta{
-				pageDelta: pageDelta{
-					op:       op,
-					chainLen: uint16(chainLen),
-					numItems: uint16(numItems),
-					state:    state,
-					hiItm:    hiItm,
-				},
-				rb: rollbackSn{
-					start: binary.BigEndian.Uint64(data[roffset : roffset+8]),
-					end:   binary.BigEndian.Uint64(data[roffset+8 : roffset+16]),
-				},
+			rpd := pg.allocRollbackPageDelta()
+			*(*pageDelta)(unsafe.Pointer(rpd)) = *pg.head
+			rpd.rb = rollbackSn{
+				start: binary.BigEndian.Uint64(data[roffset : roffset+8]),
+				end:   binary.BigEndian.Uint64(data[roffset+8 : roffset+16]),
 			}
 
-			roffset += 16
+			rpd.op = op
 			pd = (*pageDelta)(unsafe.Pointer(rpd))
+			roffset += 16
 		}
 
-		if lastPd == nil {
-			pg.head = pd
-		} else {
-			lastPd.next = pd
-		}
-
+		lastPd.next = pd
 		lastPd = pd
 	}
 
