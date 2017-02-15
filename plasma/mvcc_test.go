@@ -275,7 +275,7 @@ func SkipTestPlasmaMVCCPerf(t *testing.T) {
 
 }
 
-func TestPlasmaRecoveryPoint(t *testing.T) {
+func TestMVCCRecoveryPoint(t *testing.T) {
 	os.RemoveAll("teststore.data")
 	s := newTestIntPlasmaStore(testSnCfg)
 
