@@ -12,7 +12,7 @@ func (s *Plasma) tryPageRelocation(pid PageId, pg Page, buf []byte, ctx *wCtx) (
 	offset, wbuf, res := s.lss.ReserveSpace(lssBlockTypeSize + len(bs))
 	writeLSSBlock(wbuf, lssPageReloc, bs)
 
-	if pg.IsInCache() {
+	if pg.InCache() {
 		pg.AddFlushRecord(offset, dataSz, numSegments)
 		ok = s.UpdateMapping(pid, pg, ctx)
 	} else {

@@ -68,8 +68,7 @@ type Page interface {
 	IsFlushed() bool
 	NeedsFlush() bool
 	IsEvictable() bool
-	InCache(bool)
-	IsInCache() bool
+	InCache() bool
 	MaxItem() unsafe.Pointer
 	MinItem() unsafe.Pointer
 	SetNext(PageId)
@@ -255,8 +254,6 @@ type page struct {
 	prevHeadPtr unsafe.Pointer
 	head        *pageDelta
 	tail        *pageDelta
-
-	inCache bool
 }
 
 func (pg *page) SetNext(pid PageId) {
@@ -267,17 +264,12 @@ func (pg *page) SetNext(pid PageId) {
 	}
 }
 
-func (pg *page) InCache(in bool) {
-	pg.inCache = in
-}
-
-func (pg *page) IsInCache() bool {
-	return pg.inCache
+func (pg *page) InCache() bool {
+	return uintptr(unsafe.Pointer(pg.prevHeadPtr))&uintptr(evictMask) == 0
 }
 
 func (pg *page) Reset() {
 	pg.memUsed = 0
-	pg.inCache = false
 	pg.nextPid = nil
 	pg.low = nil
 	pg.head = nil
@@ -1064,7 +1056,6 @@ func newPage(ctx *wCtx, low unsafe.Pointer, ptr unsafe.Pointer) Page {
 		allocCtx:    ctx.pgAllocCtx,
 		head:        (*pageDelta)(ptr),
 		low:         low,
-		inCache:     true,
 		prevHeadPtr: ptr,
 	}
 

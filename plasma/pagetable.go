@@ -147,7 +147,6 @@ retry:
 				goto retry
 			}
 
-			pg.InCache(true)
 			ctx.sts.NumPagesSwapIn += 1
 			ctx.sts.MemSz += int64(pg.ComputeMemUsed())
 		}
@@ -165,7 +164,7 @@ func (s *Plasma) EvictPage(pid PageId, pg Page, offset LSSOffset, ctx *wCtx) boo
 	newPtr := unsafe.Pointer(uintptr(uint64(offset) | evictMask))
 	if atomic.CompareAndSwapPointer(&n.Link, pgi.prevHeadPtr, newPtr) {
 		pgi.prevHeadPtr = newPtr
-		if pg.IsInCache() {
+		if pg.InCache() {
 			ctx.sts.NumPagesSwapOut += 1
 			ctx.freePages([]*pageDelta{pg.(*page).head})
 		} else {
