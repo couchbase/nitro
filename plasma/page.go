@@ -247,8 +247,6 @@ type page struct {
 	*storeCtx
 	*allocCtx
 
-	meta *pageDelta
-
 	nextPid     PageId
 	low         unsafe.Pointer
 	state       pageState
@@ -288,14 +286,8 @@ func (pg *page) Reset() {
 
 func (pg *page) newFlushPageDelta(offset LSSOffset, dataSz int, numSegments int) *flushPageDelta {
 	pd := pg.allocFlushPageDelta()
-	var meta *pageDelta
-	if pg.head == nil {
-		meta = pg.meta
-	} else {
-		meta = pg.head
-	}
 
-	*(*pageDelta)(unsafe.Pointer(pd)) = *meta
+	*(*pageDelta)(unsafe.Pointer(pd)) = *pg.head
 	pd.next = pg.head
 	reloc := numSegments == -1
 	if reloc {
@@ -964,17 +956,6 @@ loop:
 	}
 
 	pg.tail = lastPd
-
-	if lastPd == nil {
-		pg.meta = &pageDelta{
-			op:       opMetaDelta,
-			chainLen: uint16(chainLen),
-			numItems: uint16(numItems),
-			state:    state,
-			hiItm:    hiItm,
-		}
-	}
-
 	return
 }
 
