@@ -24,6 +24,7 @@ var (
 type allocCtx struct {
 	allocDeltaList []*pageDelta
 	freePageList   []*pageDelta
+	memUsed        int
 }
 
 func (ctx *allocCtx) addDeltaAlloc(ptr unsafe.Pointer) {

@@ -90,6 +90,9 @@ func (s *Plasma) CreateMapping(pid PageId, pg Page, ctx *wCtx) {
 	n.SetItem(pgi.dup(pgi.low))
 	n.Link = newPtr
 	pgi.prevHeadPtr = newPtr
+
+	_, _, memUsed := pg.GetMallocOps()
+	ctx.sts.MemSz += int64(memUsed)
 }
 
 func (s *Plasma) UpdateMapping(pid PageId, pg Page, ctx *wCtx) bool {
