@@ -1,6 +1,7 @@
 package plasma
 
 import (
+	"github.com/couchbase/nitro/mm"
 	"github.com/couchbase/nitro/skiplist"
 	"math/rand"
 	"reflect"
@@ -37,9 +38,7 @@ func (ctx *storeCtx) dup(itm unsafe.Pointer) unsafe.Pointer {
 }
 
 func (ctx *storeCtx) allocMM(sz uintptr) unsafe.Pointer {
-	b := make([]byte, int(sz))
-	hdr := (*reflect.SliceHeader)(unsafe.Pointer(&b))
-	return unsafe.Pointer(hdr.Data)
+	return mm.Malloc(int(sz))
 }
 
 func (ctx *storeCtx) freeMM(ptr unsafe.Pointer) {
@@ -50,6 +49,7 @@ func newStoreContext(indexLayer *skiplist.Skiplist, itemSize ItemSizeFn,
 	cmp skiplist.CompareFn, getCompactFilter, getLookupFilter FilterGetter) *storeCtx {
 
 	return &storeCtx{
+		//useMemMgmt: true,
 		cmp:      cmp,
 		itemSize: itemSize,
 		getPageId: func(itm unsafe.Pointer, ctx *wCtx) PageId {

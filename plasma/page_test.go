@@ -23,7 +23,10 @@ func newTestPage() (*page, *storePtr) {
 	}
 
 	pg.storeCtx = &storeCtx{
-		itemSize: func(unsafe.Pointer) uintptr {
+		itemSize: func(x unsafe.Pointer) uintptr {
+			if x == skiplist.MinItem || x == skiplist.MaxItem {
+				return 0
+			}
 			return unsafe.Sizeof(new(skiplist.IntKeyItem))
 		},
 		cmp: skiplist.CompareInt,

@@ -319,14 +319,13 @@ func (pg *page) newRecordDelta(op pageOp, itm unsafe.Pointer) *pageDelta {
 
 func (pg *page) newSplitPageDelta(itm unsafe.Pointer, pid PageId) *pageDelta {
 	pd := pg.allocSplitPageDelta(itm)
-	itm = pd.itm
-	hiItm := pd.hiItm
+	itm = pd.hiItm
 	*(*pageDelta)(unsafe.Pointer(pd)) = *pg.head
 	pd.next = pg.head
 
 	pd.op = opPageSplitDelta
 	pd.itm = itm
-	pd.hiItm = hiItm
+	pd.hiItm = itm
 	pd.chainLen++
 	pd.rightSibling = pid
 	return (*pageDelta)(unsafe.Pointer(pd))
@@ -541,17 +540,11 @@ func (pg *page) doSplit(itm unsafe.Pointer, pid PageId, numItems int) *page {
 	return splitPage
 }
 
-func (pg *page) freePageData() {
-	if pg.head != nil {
-		pg.freePageList = append(pg.freePageList, pg.head)
-	}
-}
-
 func (pg *page) Compact() int {
 	state := pg.head.state
 
 	itms, fdataSz := pg.collectItems(pg.head, nil, pg.head.hiItm)
-	pg.freePageData()
+	pg.freePg(pg.head)
 	pg.head = pg.newBasePage(itms)
 	state.IncrVersion()
 	pg.head.state = state
@@ -1081,16 +1074,13 @@ func newPage(ctx *wCtx, low unsafe.Pointer, ptr unsafe.Pointer) Page {
 }
 
 func (s *Plasma) newSeedPage(ctx *wCtx) Page {
-	return &page{
-		storeCtx: ctx.storeCtx,
-		allocCtx: ctx.pgAllocCtx,
-		low:      skiplist.MinItem,
-		head: &pageDelta{
-			op:           opMetaDelta,
-			hiItm:        skiplist.MaxItem,
-			rightSibling: s.EndPageId(),
-		},
-	}
+	pg := newPage(ctx, skiplist.MinItem, nil).(*page)
+	d := pg.allocMetaDelta(skiplist.MaxItem)
+	d.op = opMetaDelta
+	d.rightSibling = s.EndPageId()
+
+	pg.head = (*pageDelta)(unsafe.Pointer(d))
+	return pg
 }
 
 // TODO: Depreciate

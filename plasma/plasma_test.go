@@ -17,7 +17,10 @@ var testCfg = Config{
 	MaxPageItems:     400,
 	MinPageItems:     25,
 	Compare:          skiplist.CompareInt,
-	ItemSize: func(unsafe.Pointer) uintptr {
+	ItemSize: func(x unsafe.Pointer) uintptr {
+		if x == skiplist.MinItem || x == skiplist.MaxItem {
+			return 0
+		}
 		return unsafe.Sizeof(new(skiplist.IntKeyItem))
 	},
 	File:                "teststore.data",
