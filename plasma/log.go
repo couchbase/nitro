@@ -3,12 +3,12 @@ package plasma
 import (
 	"encoding/binary"
 	"fmt"
+	mmap "github.com/edsrzf/mmap-go"
 	"hash/crc32"
 	"io"
 	"os"
 	"path/filepath"
 	"sync/atomic"
-	"syscall"
 	"unsafe"
 )
 
@@ -37,7 +37,7 @@ type Log interface {
 
 type logFile struct {
 	fd   *os.File
-	data []byte
+	data mmap.MMap
 }
 
 type fileIndex struct {
@@ -104,7 +104,7 @@ func newLogFile(file string, flags int, maxSize int) (*logFile, error) {
 	}
 
 	if enableMmap {
-		lf.data, err = syscall.Mmap(int(lf.fd.Fd()), 0, maxSize, syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
+		lf.data, err = mmap.MapRegion(lf.fd, maxSize, mmap.RDONLY, 0, 0)
 	}
 
 	return lf, err
@@ -116,7 +116,7 @@ func (lf *logFile) Close() error {
 		return err
 	}
 	if enableMmap {
-		return syscall.Munmap(lf.data)
+		lf.data.Unmap()
 	}
 
 	return nil
