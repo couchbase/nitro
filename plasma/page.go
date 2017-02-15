@@ -961,15 +961,15 @@ func marshalPageSMO(pg Page, buf []byte) []byte {
 	return buf[:woffset]
 }
 
-func unmarshalPageSMO(p Page, data []byte) unsafe.Pointer {
-	pg := p.(*page)
+func getRmPageLow(data []byte) unsafe.Pointer {
 	roffset := 0
 	l := int(binary.BigEndian.Uint16(data[roffset : roffset+2]))
-	roffset += 2
+	if l == 0 {
+		return nil
+	}
 
-	ptr := pg.alloc(uintptr(l))
-	memcopy(ptr, unsafe.Pointer(&data[roffset]), l)
-	return ptr
+	roffset += 2
+	return unsafe.Pointer(&data[roffset])
 }
 
 func (pg *page) GetFlushDataSize() int {

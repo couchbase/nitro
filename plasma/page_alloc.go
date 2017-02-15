@@ -37,6 +37,10 @@ func (ctx *allocCtx) freePg(ptr *pageDelta) {
 	}
 }
 
+func (ctx *allocCtx) destroyPg(ptr *pageDelta) {
+	// reclaim/free method
+}
+
 func (pg *page) allocMetaDelta(hiItm unsafe.Pointer) *metaPageDelta {
 	l := pg.itemSize(hiItm)
 	size := metaDeltaSize + l

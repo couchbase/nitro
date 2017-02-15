@@ -167,7 +167,10 @@ func (s *Plasma) EvictPage(pid PageId, pg Page, offset LSSOffset, ctx *wCtx) boo
 		pgi.prevHeadPtr = newPtr
 		if pg.IsInCache() {
 			ctx.sts.NumPagesSwapOut += 1
-			ctx.sts.MemSz -= int64(pg.ComputeMemUsed())
+			ctx.freePages([]*pageDelta{pg.(*page).head})
+		} else {
+			allocs, _, _ := pg.GetMallocOps()
+			s.discardDeltas(allocs)
 		}
 		return true
 	}

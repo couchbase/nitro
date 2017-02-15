@@ -292,7 +292,6 @@ func (s *Plasma) doInit() {
 }
 
 func (s *Plasma) doRecovery() error {
-
 	w := s.NewWriter()
 	pg := newPage(w.wCtx, nil, nil).(*page)
 
@@ -308,7 +307,7 @@ func (s *Plasma) doRecovery() error {
 		case lssMaxSn:
 			s.currSn = decodeMaxSn(bs)
 		case lssPageRemove:
-			rmPglow := unmarshalPageSMO(pg, bs)
+			rmPglow := getRmPageLow(bs)
 			pid := s.getPageId(rmPglow, w.wCtx)
 			if pid != nil {
 				currPg, err := s.ReadPage(pid, w.wCtx.pgRdrFn, true, w.wCtx)
@@ -344,7 +343,9 @@ func (s *Plasma) doRecovery() error {
 			}
 
 			if newPageData {
+				w.sts.MemSz -= int64(pg.ComputeMemUsed())
 				w.sts.FlushDataSz -= int64(currPg.GetFlushDataSize())
+				w.wCtx.pgAllocCtx.destroyPg(currPg.(*page).head)
 				pg.AddFlushRecord(offset, flushDataSz, 0)
 			} else {
 				_, numSegments := currPg.GetLSSOffset()
@@ -377,7 +378,6 @@ func (s *Plasma) doRecovery() error {
 		}
 
 		lastPg = pg
-		w.sts.MemSz += int64(pg.ComputeMemUsed())
 		return err
 	}
 
@@ -802,12 +802,7 @@ func (w *Writer) Lookup(itm unsafe.Pointer) (unsafe.Pointer, error) {
 }
 
 func (s *Plasma) fetchPageFromLSS(baseOffset LSSOffset, ctx *wCtx) (*page, error) {
-	pg := &page{
-		storeCtx: ctx.storeCtx,
-		allocCtx: ctx.pgAllocCtx,
-		inCache:  false,
-	}
-
+	pg := newPage(ctx, nil, nil).(*page)
 	offset := baseOffset
 	data := ctx.GetBuffer(0)
 	numSegments := 0
@@ -824,10 +819,7 @@ loop:
 		typ := getLSSBlockType(data)
 		switch typ {
 		case lssPageData, lssPageReloc, lssPageUpdate:
-			currPgDelta := &page{
-				storeCtx: ctx.storeCtx,
-				allocCtx: ctx.pgAllocCtx,
-			}
+			currPgDelta := newPage(ctx, nil, nil).(*page)
 			data := data[lssBlockTypeSize:l]
 			nextOffset, hasChain := currPgDelta.unmarshalDelta(data, ctx)
 			currPgDelta.AddFlushRecord(offset, len(data), 0)
