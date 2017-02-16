@@ -470,7 +470,7 @@ func (s *Plasma) newWCtx() *wCtx {
 }
 
 const (
-	bufEncPage int = 0
+	bufEncPage int = iota
 	bufEncMeta
 	bufEncSMO
 	bufTempItem
@@ -804,7 +804,7 @@ func (w *Writer) Lookup(itm unsafe.Pointer) (unsafe.Pointer, error) {
 func (s *Plasma) fetchPageFromLSS(baseOffset LSSOffset, ctx *wCtx) (*page, error) {
 	pg := newPage(ctx, nil, nil).(*page)
 	offset := baseOffset
-	data := ctx.GetBuffer(0)
+	data := ctx.GetBuffer(bufEncPage)
 	numSegments := 0
 loop:
 	for {

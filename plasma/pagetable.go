@@ -155,7 +155,6 @@ retry:
 			}
 
 			ctx.sts.NumPagesSwapIn += 1
-			ctx.sts.MemSz += int64(pg.ComputeMemUsed())
 		}
 	} else {
 		pg = newPage(ctx, n.Item(), ptr)
