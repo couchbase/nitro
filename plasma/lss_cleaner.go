@@ -63,6 +63,8 @@ func (s *Plasma) CleanLSS(proceed func() bool) error {
 					}
 					relocated++
 				} else {
+					allocs, _, _ := pg.GetMallocOps()
+					s.discardDeltas(allocs)
 					skipped++
 				}
 			}
