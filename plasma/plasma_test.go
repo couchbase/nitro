@@ -525,9 +525,25 @@ func TestPlasmaEviction(t *testing.T) {
 			t.Errorf("mismatch %d != %d", i, skiplist.IntFromItem(got))
 		}
 	}
+
+	for i := n; i < n+1000000; i++ {
+		w.Insert(skiplist.NewIntKeyItem(i))
+	}
+
+	for i := n; i < n+100000; i++ {
+		w.Delete(skiplist.NewIntKeyItem(i))
+	}
+
+	s.EvictAll()
+	mem = s.GetStats().MemSz
+
+	if mem != 0 {
+		t.Errorf("Expected memory_usage=0, got=%d", mem)
+	}
+
 }
 
-func TestPlasmaEvictionPerf(t *testing.T) {
+func TestPlasmaEvictPerf(t *testing.T) {
 	var wg sync.WaitGroup
 
 	os.RemoveAll("teststore.data")

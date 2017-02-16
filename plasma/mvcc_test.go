@@ -1,6 +1,7 @@
 package plasma
 
 import (
+	"crypto/md5"
 	"encoding/binary"
 	"fmt"
 	"github.com/couchbase/nitro/skiplist"
@@ -188,7 +189,7 @@ func TestMVCCGarbageCollection(t *testing.T) {
 	}
 }
 
-func doInsertMVCC(w *Writer, wg *sync.WaitGroup, id, n int) {
+func doInsertMVCC(w *testWriter, wg *sync.WaitGroup, id, n int) {
 	defer wg.Done()
 
 	buf := make([]byte, 8)
@@ -196,11 +197,13 @@ func doInsertMVCC(w *Writer, wg *sync.WaitGroup, id, n int) {
 	for i := 0; i < n; i++ {
 		val := i + id*n
 		binary.BigEndian.PutUint64(buf, uint64(val))
-		w.InsertKV(buf, nil)
+		s := md5.Sum(buf)
+		w.InsertKV(s[:], nil)
+		w.numOps++
 	}
 }
 
-func doUpdateMVCC(w *Writer, wg *sync.WaitGroup, id, n int, itern int) {
+func doUpdateMVCC(w *testWriter, wg *sync.WaitGroup, id, n int, itern int) {
 	defer wg.Done()
 
 	kbuf := make([]byte, 8)
@@ -210,8 +213,10 @@ func doUpdateMVCC(w *Writer, wg *sync.WaitGroup, id, n int, itern int) {
 		val := i + id*n
 		binary.BigEndian.PutUint64(kbuf, uint64(val))
 		binary.BigEndian.PutUint64(vbuf, uint64(itern))
-		w.DeleteKV(kbuf)
-		w.InsertKV(kbuf, vbuf)
+		s := md5.Sum(kbuf)
+		w.DeleteKV(s[:])
+		w.InsertKV(s[:], vbuf)
+		w.numOps++
 	}
 }
 
@@ -228,10 +233,11 @@ func SkipTestPlasmaMVCCPerf(t *testing.T) {
 	total := numThreads * nPerThr
 
 	t0 := time.Now()
+	ws := make([]*testWriter, numThreads)
 	for i := 0; i < numThreads; i++ {
 		wg.Add(1)
-		w := s.NewWriter()
-		go doInsertMVCC(w, &wg, i, nPerThr)
+		ws[i] = newTestWriter(s.NewWriter())
+		go doInsertMVCC(ws[i], &wg, i, nPerThr)
 	}
 	wg.Wait()
 
@@ -247,8 +253,7 @@ func SkipTestPlasmaMVCCPerf(t *testing.T) {
 		t0 := time.Now()
 		for i := 0; i < numThreads; i++ {
 			wg.Add(1)
-			w := s.NewWriter()
-			go doUpdateMVCC(w, &wg, i, nPerThr, x)
+			go doUpdateMVCC(ws[i], &wg, i, nPerThr, x)
 		}
 		wg.Wait()
 
