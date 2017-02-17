@@ -146,6 +146,7 @@ func (s *Snapshot) Close() {
 type MVCCIterator struct {
 	snap *Snapshot
 	*Iterator
+	token TxToken
 }
 
 func (itr *MVCCIterator) Seek(k []byte) {
@@ -165,6 +166,7 @@ func (itr *MVCCIterator) Value() []byte {
 
 func (itr *MVCCIterator) Close() {
 	itr.snap.Close()
+	itr.snap.db.EndTx(itr.token)
 }
 
 func (s *Snapshot) NewIterator() *MVCCIterator {
@@ -175,6 +177,7 @@ func (s *Snapshot) NewIterator() *MVCCIterator {
 	}
 
 	return &MVCCIterator{
+		token:    s.db.BeginTx(),
 		snap:     s,
 		Iterator: itr,
 	}
