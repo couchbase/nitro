@@ -37,8 +37,21 @@ func (ctx *allocCtx) freePg(ptr *pageDelta) {
 	}
 }
 
-func (ctx *allocCtx) destroyPg(ptr *pageDelta) {
-	// reclaim/free method
+func (s *storeCtx) destroyPg(ptr *pageDelta) {
+	if s.useMemMgmt {
+		for pd := ptr; pd != nil; {
+			next := pd.next
+			if pd.op == opBasePage {
+				next = nil
+			} else if pd.op == opPageMergeDelta {
+				pdm := (*mergePageDelta)(unsafe.Pointer(pd))
+				s.destroyPg(pdm.mergeSibling)
+			}
+
+			s.freeMM(unsafe.Pointer(pd))
+			pd = next
+		}
+	}
 }
 
 func (pg *page) allocMetaDelta(hiItm unsafe.Pointer) *metaPageDelta {

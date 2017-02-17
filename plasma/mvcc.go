@@ -208,6 +208,18 @@ func (s *Plasma) newSnapshot() (snap *Snapshot) {
 	s.currSnapshot = nextSnap
 	s.updateMaxSn(nextSnap.sn, false)
 
+	if s.useMemMgmt {
+		var smrList [][]reclaimObject
+		for _, w := range s.wlist {
+			if len(w.wCtx.reclaimList) > 0 {
+				smrList = append(smrList, w.wCtx.reclaimList)
+				w.wCtx.reclaimList = nil
+			}
+		}
+
+		s.FreeObjects(smrList)
+	}
+
 	return
 }
 

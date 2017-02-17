@@ -41,6 +41,7 @@ func (s *Plasma) PageVisitor(callb PageVisitorCallback, concurr int) error {
 func (s *Plasma) VisitPartition(partn RangePartition, callb PageVisitorCallback) error {
 	buf := s.Skiplist.MakeBuf()
 	itr := s.Skiplist.NewIterator(s.cmp, buf)
+	defer itr.Close()
 
 	if partn.MinKey == skiplist.MinItem {
 		pid := s.StartPageId()

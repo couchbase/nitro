@@ -52,6 +52,9 @@ type Plasma struct {
 
 	hasMemoryPressure bool
 
+	smrWg   sync.WaitGroup
+	smrChan chan unsafe.Pointer
+
 	*storeCtx
 }
 
@@ -74,6 +77,7 @@ type Stats struct {
 
 	FlushDataSz int64
 	MemSz       int64
+	MemSzIndex  int64
 
 	NumCachedPages  int64
 	NumPages        int64
@@ -105,6 +109,7 @@ func (s *Stats) Merge(o *Stats) {
 	s.SwapInConflicts += o.SwapInConflicts
 
 	s.MemSz += o.MemSz
+	s.MemSzIndex += o.MemSzIndex
 
 	s.NumPagesSwapOut += o.NumPagesSwapOut
 	s.NumPagesSwapIn += o.NumPagesSwapIn
@@ -131,6 +136,7 @@ func (s Stats) String() string {
 		"delete_conflicts  = %d\n"+
 		"swapin_conflicts  = %d\n"+
 		"memory_size       = %d\n"+
+		"memory_size_index = %d\n"+
 		"num_cached_pages  = %d\n"+
 		"num_pages         = %d\n"+
 		"num_pages_swapout = %d\n"+
@@ -151,7 +157,7 @@ func (s Stats) String() string {
 		s.Inserts, s.Deletes, s.CompactConflicts,
 		s.SplitConflicts, s.MergeConflicts,
 		s.InsertConflicts, s.DeleteConflicts,
-		s.SwapInConflicts, s.MemSz,
+		s.SwapInConflicts, s.MemSz, s.MemSzIndex,
 		s.NumCachedPages, s.NumPages,
 		s.NumPagesSwapOut, s.NumPagesSwapIn,
 		s.BytesIncoming, s.BytesWritten,
@@ -165,18 +171,19 @@ func New(cfg Config) (*Plasma, error) {
 	var err error
 
 	cfg = applyConfigDefaults(cfg)
+
+	s := &Plasma{Config: cfg}
 	slCfg := skiplist.DefaultConfig()
 	if cfg.UseMemoryMgmt {
+		s.smrChan = make(chan unsafe.Pointer, smrChanBufSize)
 		slCfg.UseMemoryMgmt = true
 		slCfg.Malloc = mm.Malloc
 		slCfg.Free = mm.Free
+		slCfg.BarrierDestructor = s.newBSDestroyCallback()
 	}
 
 	sl := skiplist.NewWithConfig(slCfg)
-	s := &Plasma{
-		Config:   cfg,
-		Skiplist: sl,
-	}
+	s.Skiplist = sl
 
 	var cfGetter, lfGetter FilterGetter
 	if cfg.EnableShapshots {
@@ -351,9 +358,9 @@ func (s *Plasma) doRecovery() error {
 			}
 
 			if newPageData {
-				w.sts.MemSz -= int64(pg.ComputeMemUsed())
 				w.sts.FlushDataSz -= int64(currPg.GetFlushDataSize())
-				w.wCtx.pgAllocCtx.destroyPg(currPg.(*page).head)
+				w.sts.MemSz -= int64(currPg.ComputeMemUsed())
+				w.wCtx.destroyPg(currPg.(*page).head)
 				pg.AddFlushRecord(offset, flushDataSz, 0)
 			} else {
 				_, numSegments := currPg.GetLSSOffset()
@@ -421,6 +428,12 @@ func (s *Plasma) Close() {
 	sbuf := dbInstances.MakeBuf()
 	defer dbInstances.FreeBuf(sbuf)
 	dbInstances.Delete(unsafe.Pointer(s), ComparePlasma, sbuf, &dbInstances.Stats)
+
+	if s.useMemMgmt {
+		close(s.smrChan)
+		s.smrWg.Wait()
+		s.destroyAllObjects()
+	}
 }
 
 func ComparePlasma(a, b unsafe.Pointer) int {
@@ -443,15 +456,17 @@ type wCtx struct {
 	pgRdrFn PageReader
 
 	pgAllocCtx *allocCtx
+
+	reclaimList []reclaimObject
 }
 
 func (ctx *wCtx) freePages(pages []*pageDelta) {
 	for _, pg := range pages {
-		if !ctx.useMemMgmt {
-			ctx.sts.MemSz -= int64(computeMemUsed(pg, ctx.itemSize))
+		ctx.sts.MemSz -= int64(computeMemUsed(pg, ctx.itemSize))
+		if ctx.useMemMgmt {
+			o := reclaimObject{typ: smrPage, ptr: unsafe.Pointer(pg)}
+			ctx.reclaimList = append(ctx.reclaimList, o)
 		}
-
-		// TODO: Follow SMR qeueue
 	}
 }
 
@@ -502,6 +517,11 @@ func (s *Plasma) NewWriter() *Writer {
 	defer s.Unlock()
 
 	s.wlist = append(s.wlist, w)
+	if s.useMemMgmt {
+		s.smrWg.Add(1)
+		go s.smrWorker(w.wCtx)
+	}
+
 	return w
 }
 
@@ -555,11 +575,19 @@ func (s *Plasma) indexPage(pid PageId, ctx *wCtx) {
 	if !s.Skiplist.Insert4(n, s.cmp, s.cmp, ctx.buf, n.Level(), false, ctx.slSts) {
 		panic("duplicate index node")
 	}
+
+	ctx.sts.MemSzIndex += int64(s.itemSize(n.Item()) + uintptr(n.Size()))
 }
 
 func (s *Plasma) unindexPage(pid PageId, ctx *wCtx) {
 	n := pid.(*skiplist.Node)
-	s.Skiplist.DeleteNode(n, s.cmp, ctx.buf, ctx.slSts)
+	s.Skiplist.DeleteNode2(n, s.cmp, ctx.buf, ctx.slSts)
+	ctx.sts.MemSzIndex -= int64(s.itemSize(n.Item()) + uintptr(n.Size()))
+
+	if s.useMemMgmt {
+		o := reclaimObject{typ: smrPageId, ptr: unsafe.Pointer(n)}
+		ctx.reclaimList = append(ctx.reclaimList, o)
+	}
 }
 
 func (s *Plasma) tryPageRemoval(pid PageId, pg Page, ctx *wCtx) {
@@ -638,8 +666,7 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 
 	if pg.NeedCompaction(s.Config.MaxDeltaChainLen) {
 		staleFdSz := pg.Compact()
-		updated = s.UpdateMapping(pid, pg, ctx)
-		if updated {
+		if updated = s.UpdateMapping(pid, pg, ctx); updated {
 			ctx.sts.Compacts++
 			ctx.sts.FlushDataSz -= int64(staleFdSz)
 		} else {

@@ -79,7 +79,14 @@ func (s *Plasma) AllocPageId(*wCtx) PageId {
 }
 
 func (s *Plasma) FreePageId(pid PageId, ctx *wCtx) {
-	s.Skiplist.FreeNode(pid.(*skiplist.Node), &s.Skiplist.Stats)
+	if s.useMemMgmt {
+		n := pid.(*skiplist.Node)
+		ptr := n.Item()
+		if ptr != nil {
+			s.freeMM(ptr)
+		}
+		s.freeMM(unsafe.Pointer(n))
+	}
 }
 
 func (s *Plasma) newIndexKey(itm unsafe.Pointer) unsafe.Pointer {
@@ -102,12 +109,9 @@ func (s *Plasma) CreateMapping(pid PageId, pg Page, ctx *wCtx) {
 	pgi := pg.(*page)
 
 	newPtr := unsafe.Pointer(pgi.head)
-	n.SetItem(s.newIndexKey(pg.MinItem()))
+	n.SetItem(s.newIndexKey(pgi.low))
 	n.Link = newPtr
 	pgi.prevHeadPtr = newPtr
-
-	_, _, memUsed := pg.GetMallocOps()
-	ctx.sts.MemSz += int64(memUsed)
 }
 
 func (s *Plasma) UpdateMapping(pid PageId, pg Page, ctx *wCtx) bool {
