@@ -10,7 +10,9 @@ import (
 
 type testWriter struct {
 	*Writer
-	numOps int
+	numOps           int
+	snapshotInterval int
+	snCh             chan bool
 }
 
 func newTestWriter(w *Writer) *testWriter {

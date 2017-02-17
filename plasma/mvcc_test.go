@@ -198,8 +198,14 @@ func doInsertMVCC(w *testWriter, wg *sync.WaitGroup, id, n int) {
 		val := i + id*n
 		binary.BigEndian.PutUint64(buf, uint64(val))
 		s := md5.Sum(buf)
+
+		token := w.BeginTx()
 		w.InsertKV(s[:], nil)
+		w.EndTx(token)
+
 		w.numOps++
+
+		w.trySnapshot()
 	}
 }
 
@@ -214,9 +220,12 @@ func doUpdateMVCC(w *testWriter, wg *sync.WaitGroup, id, n int, itern int) {
 		binary.BigEndian.PutUint64(kbuf, uint64(val))
 		binary.BigEndian.PutUint64(vbuf, uint64(itern))
 		s := md5.Sum(kbuf)
+		token := w.BeginTx()
 		w.DeleteKV(s[:])
 		w.InsertKV(s[:], vbuf)
+		w.EndTx(token)
 		w.numOps++
+		w.trySnapshot()
 	}
 }
 
