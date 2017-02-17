@@ -2,6 +2,7 @@ package plasma
 
 import (
 	"fmt"
+	"github.com/couchbase/nitro/mm"
 	"github.com/couchbase/nitro/skiplist"
 	"runtime"
 	"sync"
@@ -164,7 +165,14 @@ func New(cfg Config) (*Plasma, error) {
 	var err error
 
 	cfg = applyConfigDefaults(cfg)
-	sl := skiplist.New()
+	slCfg := skiplist.DefaultConfig()
+	if cfg.UseMemoryMgmt {
+		slCfg.UseMemoryMgmt = true
+		slCfg.Malloc = mm.Malloc
+		slCfg.Free = mm.Free
+	}
+
+	sl := skiplist.NewWithConfig(slCfg)
 	s := &Plasma{
 		Config:   cfg,
 		Skiplist: sl,
@@ -210,8 +218,8 @@ func New(cfg Config) (*Plasma, error) {
 		}
 	}
 
-	s.storeCtx = newStoreContext(sl, cfg.ItemSize, cfg.Compare, cfGetter,
-		lfGetter)
+	s.storeCtx = newStoreContext(sl, cfg.UseMemoryMgmt, cfg.ItemSize,
+		cfg.Compare, cfGetter, lfGetter)
 
 	gWr := s.NewWriter()
 	pid := s.StartPageId()

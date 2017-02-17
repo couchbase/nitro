@@ -32,6 +32,8 @@ type Config struct {
 
 	MaxSnSyncFrequency int
 	SyncInterval       int
+
+	UseMemoryMgmt bool
 }
 
 func applyConfigDefaults(cfg Config) Config {

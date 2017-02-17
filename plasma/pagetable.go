@@ -42,16 +42,16 @@ func (ctx *storeCtx) allocMM(sz uintptr) unsafe.Pointer {
 }
 
 func (ctx *storeCtx) freeMM(ptr unsafe.Pointer) {
-
+	mm.Free(ptr)
 }
 
-func newStoreContext(indexLayer *skiplist.Skiplist, itemSize ItemSizeFn,
+func newStoreContext(indexLayer *skiplist.Skiplist, useMM bool, itemSize ItemSizeFn,
 	cmp skiplist.CompareFn, getCompactFilter, getLookupFilter FilterGetter) *storeCtx {
 
 	return &storeCtx{
-		//useMemMgmt: true,
-		cmp:      cmp,
-		itemSize: itemSize,
+		useMemMgmt: useMM,
+		cmp:        cmp,
+		itemSize:   itemSize,
 		getPageId: func(itm unsafe.Pointer, ctx *wCtx) PageId {
 			var pid PageId
 			if itm == skiplist.MinItem {
@@ -82,12 +82,27 @@ func (s *Plasma) FreePageId(pid PageId, ctx *wCtx) {
 	s.Skiplist.FreeNode(pid.(*skiplist.Node), &s.Skiplist.Stats)
 }
 
+func (s *Plasma) newIndexKey(itm unsafe.Pointer) unsafe.Pointer {
+	if itm == nil {
+		return nil
+	}
+
+	if s.useMemMgmt {
+		size := s.itemSize(itm)
+		key := s.allocMM(size)
+		memcopy(key, itm, int(size))
+		return key
+	}
+
+	return s.dup(itm)
+}
+
 func (s *Plasma) CreateMapping(pid PageId, pg Page, ctx *wCtx) {
 	n := pid.(*skiplist.Node)
 	pgi := pg.(*page)
 
 	newPtr := unsafe.Pointer(pgi.head)
-	n.SetItem(pgi.dup(pgi.low))
+	n.SetItem(s.newIndexKey(pg.MinItem()))
 	n.Link = newPtr
 	pgi.prevHeadPtr = newPtr
 
