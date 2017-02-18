@@ -52,6 +52,8 @@ type Plasma struct {
 	recoveryPoints []*RecoveryPoint
 
 	hasMemoryPressure bool
+	ch                *clockHandle
+	clockLock         sync.Mutex
 
 	smrWg   sync.WaitGroup
 	smrChan chan unsafe.Pointer

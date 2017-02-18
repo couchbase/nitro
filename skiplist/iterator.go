@@ -27,12 +27,17 @@ type Iterator struct {
 // NewIterator creates an iterator for skiplist
 func (s *Skiplist) NewIterator(cmp CompareFn,
 	buf *ActionBuffer) *Iterator {
+	it := s.NewIterator2(cmp, buf)
+	it.bs = s.barrier.Acquire()
+	return it
+}
 
+func (s *Skiplist) NewIterator2(cmp CompareFn,
+	buf *ActionBuffer) *Iterator {
 	return &Iterator{
 		cmp: cmp,
 		s:   s,
 		buf: buf,
-		bs:  s.barrier.Acquire(),
 	}
 }
 
@@ -129,5 +134,7 @@ retry:
 
 // Close is a destructor
 func (it *Iterator) Close() {
-	it.s.barrier.Release(it.bs)
+	if it.bs != nil {
+		it.s.barrier.Release(it.bs)
+	}
 }
