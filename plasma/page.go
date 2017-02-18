@@ -271,7 +271,6 @@ func (pg *page) InCache() bool {
 }
 
 func (pg *page) Reset() {
-	pg.memUsed = 0
 	pg.nextPid = nil
 	pg.low = nil
 	pg.head = nil
@@ -537,7 +536,7 @@ func (pg *page) Compact() int {
 	state := pg.head.state
 
 	itms, fdataSz := pg.collectItems(pg.head, nil, pg.head.hiItm)
-	pg.freePg(pg.head)
+	pg.free()
 	pg.head = pg.newBasePage(itms)
 	state.IncrVersion()
 	pg.head.state = state
@@ -1119,7 +1118,7 @@ func (pg *page) GetLSSOffset() (LSSOffset, int) {
 
 func (pg *page) Evict(offset LSSOffset) {
 	if pg.InCache() {
-		pg.freePg(pg.head)
+		pg.free()
 	} else {
 		pg.destroyPg(pg.head)
 	}

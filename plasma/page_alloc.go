@@ -31,9 +31,9 @@ func (ctx *allocCtx) addDeltaAlloc(ptr unsafe.Pointer) {
 	ctx.allocDeltaList = append(ctx.allocDeltaList, (*pageDelta)(ptr))
 }
 
-func (ctx *allocCtx) freePg(ptr *pageDelta) {
-	if ptr != nil {
-		ctx.freePageList = append(ctx.freePageList, ptr)
+func (pg *page) free() {
+	if pg.head != nil {
+		pg.freePageList = append(pg.freePageList, pg.head)
 	}
 }
 

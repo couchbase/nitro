@@ -14,6 +14,7 @@ import (
 type PageReader func(offset LSSOffset) (Page, error)
 
 const maxCtxBuffers = 4
+const recoverySMRInterval = 100
 
 var (
 	memQuota       int64
@@ -353,6 +354,7 @@ func (s *Plasma) doRecovery() error {
 				}
 
 				w.sts.FlushDataSz -= int64(currPg.GetFlushDataSize())
+				currPg.(*page).free()
 				s.unindexPage(pid, w.wCtx)
 			}
 		case lssPageData, lssPageReloc, lssPageUpdate:
@@ -376,8 +378,7 @@ func (s *Plasma) doRecovery() error {
 
 				if newPageData {
 					w.sts.FlushDataSz -= int64(currPg.GetFlushDataSize())
-					w.sts.FreeSz += int64(currPg.ComputeMemUsed())
-					w.wCtx.destroyPg(currPg.(*page).head)
+					currPg.(*page).free()
 					pg.AddFlushRecord(offset, flushDataSz, 0)
 				} else {
 					_, numSegments := currPg.GetLSSOffset()
@@ -385,11 +386,13 @@ func (s *Plasma) doRecovery() error {
 					pg.AddFlushRecord(offset, flushDataSz, numSegments)
 				}
 
-				s.CreateMapping(pid, pg, w.wCtx)
+				pg.prevHeadPtr = currPg.(*page).prevHeadPtr
+				s.UpdateMapping(pid, pg, w.wCtx)
 			}
 		}
 
 		pg.Reset()
+		s.trySMRObjects(w.wCtx, recoverySMRInterval)
 		return true, nil
 	}
 
@@ -397,6 +400,8 @@ func (s *Plasma) doRecovery() error {
 	if err != nil {
 		return err
 	}
+
+	s.trySMRObjects(w.wCtx, 0)
 
 	// Initialize rightSiblings for all pages
 	var lastPg Page

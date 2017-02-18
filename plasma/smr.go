@@ -92,5 +92,11 @@ func (s *Plasma) destroyAllObjects() {
 
 	head := s.Skiplist.HeadNode()
 	s.destroyPg((*pageDelta)(head.Link))
+}
 
+func (s *Plasma) trySMRObjects(ctx *wCtx, numObjects int) {
+	if len(ctx.reclaimList) > numObjects {
+		s.FreeObjects([][]reclaimObject{ctx.reclaimList})
+		ctx.reclaimList = nil
+	}
 }
