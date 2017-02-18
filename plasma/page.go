@@ -1069,6 +1069,7 @@ func (s *Plasma) newSeedPage(ctx *wCtx) Page {
 	d := pg.allocMetaDelta(skiplist.MaxItem)
 	d.op = opMetaDelta
 	d.rightSibling = s.EndPageId()
+	d.next = nil
 
 	pg.head = (*pageDelta)(unsafe.Pointer(d))
 	return pg
