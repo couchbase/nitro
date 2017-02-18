@@ -76,8 +76,17 @@ type Stats struct {
 	BytesWritten  int64
 
 	FlushDataSz int64
-	MemSz       int64
-	MemSzIndex  int64
+
+	MemSz      int64
+	MemSzIndex int64
+
+	AllocSz   int64
+	FreeSz    int64
+	ReclaimSz int64
+
+	AllocSzIndex   int64
+	FreeSzIndex    int64
+	ReclaimSzIndex int64
 
 	NumCachedPages  int64
 	NumPages        int64
@@ -108,8 +117,13 @@ func (s *Stats) Merge(o *Stats) {
 	s.DeleteConflicts += o.DeleteConflicts
 	s.SwapInConflicts += o.SwapInConflicts
 
-	s.MemSz += o.MemSz
-	s.MemSzIndex += o.MemSzIndex
+	s.AllocSz += o.AllocSz
+	s.FreeSz += o.FreeSz
+	s.ReclaimSz += o.ReclaimSz
+
+	s.AllocSzIndex += o.AllocSzIndex
+	s.FreeSzIndex += o.FreeSzIndex
+	o.ReclaimSzIndex += o.ReclaimSzIndex
 
 	s.NumPagesSwapOut += o.NumPagesSwapOut
 	s.NumPagesSwapIn += o.NumPagesSwapIn
@@ -137,6 +151,12 @@ func (s Stats) String() string {
 		"swapin_conflicts  = %d\n"+
 		"memory_size       = %d\n"+
 		"memory_size_index = %d\n"+
+		"allocated         = %d\n"+
+		"freed             = %d\n"+
+		"reclaimed         = %d\n"+
+		"allocated_index   = %d\n"+
+		"freed_index       = %d\n"+
+		"reclaimed_index   = %d\n"+
 		"num_cached_pages  = %d\n"+
 		"num_pages         = %d\n"+
 		"num_pages_swapout = %d\n"+
@@ -158,6 +178,8 @@ func (s Stats) String() string {
 		s.SplitConflicts, s.MergeConflicts,
 		s.InsertConflicts, s.DeleteConflicts,
 		s.SwapInConflicts, s.MemSz, s.MemSzIndex,
+		s.AllocSz, s.FreeSz, s.ReclaimSz,
+		s.AllocSzIndex, s.FreeSzIndex, s.ReclaimSzIndex,
 		s.NumCachedPages, s.NumPages,
 		s.NumPagesSwapOut, s.NumPagesSwapIn,
 		s.BytesIncoming, s.BytesWritten,
@@ -359,7 +381,7 @@ func (s *Plasma) doRecovery() error {
 
 			if newPageData {
 				w.sts.FlushDataSz -= int64(currPg.GetFlushDataSize())
-				w.sts.MemSz -= int64(currPg.ComputeMemUsed())
+				w.sts.FreeSz += int64(currPg.ComputeMemUsed())
 				w.wCtx.destroyPg(currPg.(*page).head)
 				pg.AddFlushRecord(offset, flushDataSz, 0)
 			} else {
@@ -462,9 +484,10 @@ type wCtx struct {
 
 func (ctx *wCtx) freePages(pages []*pageDelta) {
 	for _, pg := range pages {
-		ctx.sts.MemSz -= int64(computeMemUsed(pg, ctx.itemSize))
+		size := int64(computeMemUsed(pg, ctx.itemSize))
+		ctx.sts.FreeSz += size
 		if ctx.useMemMgmt {
-			o := reclaimObject{typ: smrPage, ptr: unsafe.Pointer(pg)}
+			o := reclaimObject{typ: smrPage, size: uint32(size), ptr: unsafe.Pointer(pg)}
 			ctx.reclaimList = append(ctx.reclaimList, o)
 		}
 	}
@@ -531,7 +554,7 @@ func (s *Plasma) MemoryInUse() int64 {
 
 	var memSz int64
 	for _, w := range s.wlist {
-		memSz += w.sts.MemSz
+		memSz += w.sts.AllocSz - w.sts.FreeSz
 	}
 
 	return memSz
@@ -548,6 +571,8 @@ func (s *Plasma) GetStats() Stats {
 		sts.Merge(w.sts)
 	}
 	sts.NumCachedPages = sts.NumPages - sts.NumPagesSwapOut + sts.NumPagesSwapIn
+	sts.MemSz = sts.AllocSz - sts.FreeSz
+	sts.MemSzIndex = sts.AllocSzIndex - sts.FreeSzIndex
 	if s.shouldPersist {
 		sts.BytesWritten = s.lss.BytesWritten()
 		sts.LSSFrag, sts.LSSDataSize, sts.LSSUsedSpace = s.GetLSSInfo()
@@ -576,16 +601,17 @@ func (s *Plasma) indexPage(pid PageId, ctx *wCtx) {
 		panic("duplicate index node")
 	}
 
-	ctx.sts.MemSzIndex += int64(s.itemSize(n.Item()) + uintptr(n.Size()))
+	ctx.sts.AllocSzIndex += int64(s.itemSize(n.Item()) + uintptr(n.Size()))
 }
 
 func (s *Plasma) unindexPage(pid PageId, ctx *wCtx) {
 	n := pid.(*skiplist.Node)
 	s.Skiplist.DeleteNode2(n, s.cmp, ctx.buf, ctx.slSts)
-	ctx.sts.MemSzIndex -= int64(s.itemSize(n.Item()) + uintptr(n.Size()))
+	size := int64(s.itemSize(n.Item()) + uintptr(n.Size()))
+	ctx.sts.FreeSzIndex += size
 
 	if s.useMemMgmt {
-		o := reclaimObject{typ: smrPageId, ptr: unsafe.Pointer(n)}
+		o := reclaimObject{typ: smrPageId, size: uint32(size), ptr: unsafe.Pointer(n)}
 		ctx.reclaimList = append(ctx.reclaimList, o)
 	}
 }

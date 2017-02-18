@@ -125,7 +125,7 @@ func (s *Plasma) UpdateMapping(pid PageId, pg Page, ctx *wCtx) bool {
 		pgi.prevHeadPtr = newPtr
 
 		if pg.InCache() {
-			ctx.sts.MemSz += int64(memUsed)
+			ctx.sts.AllocSz += int64(memUsed)
 		} else if beforeInCache {
 			ctx.sts.NumPagesSwapOut += 1
 		}

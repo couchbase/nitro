@@ -15,8 +15,9 @@ const (
 const smrChanBufSize = 256
 
 type reclaimObject struct {
-	typ smrType
-	ptr unsafe.Pointer
+	typ  smrType
+	size uint32
+	ptr  unsafe.Pointer
 }
 
 type TxToken *skiplist.BarrierSession
@@ -49,8 +50,10 @@ func (s *Plasma) smrWorker(ctx *wCtx) {
 				switch obj.typ {
 				case smrPage:
 					s.destroyPg((*pageDelta)(obj.ptr))
+					ctx.sts.ReclaimSz += int64(obj.size)
 				case smrPageId:
 					s.FreePageId(PageId((*skiplist.Node)(obj.ptr)), ctx)
+					ctx.sts.ReclaimSzIndex += int64(obj.size)
 				default:
 					panic(obj.typ)
 				}
