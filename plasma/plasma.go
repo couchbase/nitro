@@ -428,6 +428,10 @@ func (s *Plasma) doRecovery() error {
 }
 
 func (s *Plasma) Close() {
+	if s.EnableShapshots {
+		// Force SMR flush
+		s.NewSnapshot().Close()
+	}
 	close(s.stopmon)
 	if s.Config.AutoLSSCleaning {
 		s.stoplssgc <- struct{}{}
