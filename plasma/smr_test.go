@@ -21,6 +21,7 @@ func TestSMRSimple(t *testing.T) {
 
 	cfg := testSnCfg
 	cfg.UseMemoryMgmt = true
+	cfg.AutoSwapper = false
 	s := newTestIntPlasmaStore(cfg)
 
 	w := s.NewWriter()
@@ -42,12 +43,24 @@ func TestSMRSimple(t *testing.T) {
 
 	time.Sleep(time.Second)
 	fmt.Println(s.GetStats())
+	w.CompactAll()
+	s.PersistAll()
 	s.Close()
 
 	a, b := mm.GetAllocStats()
 	if a-b != 0 {
 		t.Errorf("Found memory leak of %d allocs", a-b)
 	}
+
+	fmt.Println("Reopening database...")
+	s = newTestIntPlasmaStore(cfg)
+	s.Close()
+
+	a, b = mm.GetAllocStats()
+	if a-b != 0 {
+		t.Errorf("Found memory leak of %d allocs", a-b)
+	}
+
 }
 
 func TestSMRConcurrent(t *testing.T) {
@@ -60,6 +73,7 @@ func TestSMRConcurrent(t *testing.T) {
 	nPerThr := n / numThreads
 	cfg := testSnCfg
 	cfg.UseMemoryMgmt = true
+	cfg.AutoSwapper = false
 	s := newTestIntPlasmaStore(cfg)
 
 	total := numThreads * nPerThr
