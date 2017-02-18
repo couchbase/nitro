@@ -359,38 +359,34 @@ func (s *Plasma) doRecovery() error {
 			pg.Unmarshal(bs, w.wCtx)
 
 			newPageData := (typ == lssPageData || typ == lssPageReloc)
-			pid := s.getPageId(pg.low, w.wCtx)
-
-			if pid == nil {
+			if pid := s.getPageId(pg.low, w.wCtx); pid == nil {
 				if newPageData {
 					pid = s.AllocPageId(w.wCtx)
 					s.CreateMapping(pid, pg, w.wCtx)
 					s.indexPage(pid, w.wCtx)
-				} else {
-					break
 				}
-			}
-
-			flushDataSz := len(bs)
-			w.sts.FlushDataSz += int64(flushDataSz)
-
-			currPg, err := s.ReadPage(pid, w.wCtx.pgRdrFn, true, w.wCtx)
-			if err != nil {
-				return false, err
-			}
-
-			if newPageData {
-				w.sts.FlushDataSz -= int64(currPg.GetFlushDataSize())
-				w.sts.FreeSz += int64(currPg.ComputeMemUsed())
-				w.wCtx.destroyPg(currPg.(*page).head)
-				pg.AddFlushRecord(offset, flushDataSz, 0)
 			} else {
-				_, numSegments := currPg.GetLSSOffset()
-				pg.Append(currPg)
-				pg.AddFlushRecord(offset, flushDataSz, numSegments)
-			}
+				flushDataSz := len(bs)
+				w.sts.FlushDataSz += int64(flushDataSz)
 
-			s.CreateMapping(pid, pg, w.wCtx)
+				currPg, err := s.ReadPage(pid, w.wCtx.pgRdrFn, true, w.wCtx)
+				if err != nil {
+					return false, err
+				}
+
+				if newPageData {
+					w.sts.FlushDataSz -= int64(currPg.GetFlushDataSize())
+					w.sts.FreeSz += int64(currPg.ComputeMemUsed())
+					w.wCtx.destroyPg(currPg.(*page).head)
+					pg.AddFlushRecord(offset, flushDataSz, 0)
+				} else {
+					_, numSegments := currPg.GetLSSOffset()
+					pg.Append(currPg)
+					pg.AddFlushRecord(offset, flushDataSz, numSegments)
+				}
+
+				s.CreateMapping(pid, pg, w.wCtx)
+			}
 		}
 
 		pg.Reset()
