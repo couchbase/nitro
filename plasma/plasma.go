@@ -604,6 +604,7 @@ func (s *Plasma) MemoryInUse() int64 {
 	var memSz int64
 	for w := s.wCtxList; w != nil; w = w.next {
 		memSz += w.sts.AllocSz - w.sts.FreeSz
+		memSz += w.sts.AllocSzIndex - w.sts.FreeSzIndex
 	}
 
 	return memSz

@@ -117,7 +117,7 @@ func (s *Plasma) swapperDaemon() {
 type SwapperContext *skiplist.Iterator
 
 func QuotaSwapper(ctx SwapperContext) bool {
-	return MemoryInUse2(ctx) >= int64(float64(atomic.LoadInt64(&memQuota))*0.7)
+	return MemoryInUse2(ctx) >= int64(float64(atomic.LoadInt64(&memQuota)))
 }
 
 func (s *Plasma) canEvict(pid PageId) bool {
