@@ -111,6 +111,9 @@ type Stats struct {
 
 	CacheHits   int64
 	CacheMisses int64
+
+	WriteAmp      float64
+	CacheHitRatio float64
 }
 
 func (s *Stats) Merge(o *Stats) {
@@ -185,7 +188,8 @@ func (s Stats) String() string {
 		"lss_gc_num_reads  = %d\n"+
 		"lss_gc_reads_bs   = %d\n"+
 		"cache_hits        = %d\n"+
-		"cache_misses      = %d\n",
+		"cache_misses      = %d\n"+
+		"cache_hit_ratio   = %.2f\n",
 		atomic.LoadInt64(&memQuota),
 		s.Inserts-s.Deletes,
 		s.Compacts, s.Splits, s.Merges,
@@ -198,11 +202,11 @@ func (s Stats) String() string {
 		s.NumCachedPages, s.NumPages,
 		s.NumPagesSwapOut, s.NumPagesSwapIn,
 		s.BytesIncoming, s.BytesWritten,
-		float64(s.BytesWritten)/float64(s.BytesIncoming),
+		s.WriteAmp,
 		s.LSSFrag, s.LSSDataSize, s.LSSUsedSpace,
 		s.NumLSSReads, s.LSSReadBytes,
 		s.NumLSSCleanerReads, s.LSSCleanerReadBytes,
-		s.CacheHits, s.CacheMisses)
+		s.CacheHits, s.CacheMisses, s.CacheHitRatio)
 }
 
 func New(cfg Config) (*Plasma, error) {
@@ -310,11 +314,33 @@ func New(cfg Config) (*Plasma, error) {
 	dbInstances.Insert(unsafe.Pointer(s), ComparePlasma, sbuf, &dbInstances.Stats)
 
 	go s.monitorMemUsage()
+	go s.runtimeStats()
 	return s, err
+}
+
+func (s *Plasma) runtimeStats() {
+	so := s.GetStats()
+	for {
+		select {
+		case <-s.stopmon:
+			return
+		default:
+		}
+
+		time.Sleep(time.Second * 5)
+
+		now := s.GetStats()
+		s.gCtx.sts.WriteAmp = (float64(now.BytesWritten) - float64(so.BytesWritten)) / (float64(now.BytesIncoming) - float64(so.BytesIncoming))
+		hits := now.CacheHits - so.CacheHits
+		miss := now.CacheMisses - so.CacheMisses
+		s.gCtx.sts.CacheHitRatio = float64(hits) / float64(hits+miss)
+		so = now
+	}
 }
 
 func (s *Plasma) monitorMemUsage() {
 	sctx := s.newWCtx().SwapperContext()
+
 	for {
 		select {
 		case <-s.stopmon:
@@ -598,6 +624,8 @@ func (s *Plasma) GetStats() Stats {
 		sts.LSSFrag, sts.LSSDataSize, sts.LSSUsedSpace = s.GetLSSInfo()
 		sts.NumLSSCleanerReads = s.lssCleanerWriter.sts.NumLSSReads
 		sts.LSSCleanerReadBytes = s.lssCleanerWriter.sts.LSSReadBytes
+		sts.CacheHitRatio = s.gCtx.sts.CacheHitRatio
+		sts.WriteAmp = s.gCtx.sts.WriteAmp
 	}
 	return sts
 }
