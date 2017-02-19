@@ -75,7 +75,7 @@ retry:
 
 func (s *Plasma) PersistAll() {
 	callb := func(pid PageId, partn RangePartition) error {
-		s.Persist(pid, false, s.persistWriters[partn.Shard].wCtx)
+		s.Persist(pid, false, s.persistWriters[partn.Shard])
 		return nil
 	}
 
@@ -85,7 +85,7 @@ func (s *Plasma) PersistAll() {
 
 func (s *Plasma) EvictAll() {
 	callb := func(pid PageId, partn RangePartition) error {
-		s.Persist(pid, true, s.evictWriters[partn.Shard].wCtx)
+		s.Persist(pid, true, s.evictWriters[partn.Shard])
 		return nil
 	}
 

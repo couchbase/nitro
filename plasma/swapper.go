@@ -87,7 +87,7 @@ func (s *Plasma) swapperDaemon() {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			sctx := s.evictWriters[i].wCtx.SwapperContext()
+			sctx := s.evictWriters[i].SwapperContext()
 			for {
 				select {
 				case <-killch:
@@ -95,8 +95,8 @@ func (s *Plasma) swapperDaemon() {
 				default:
 				}
 				if s.TriggerSwapper(sctx) && s.GetStats().NumCachedPages > 0 {
-					s.tryEvictPages(s.evictWriters[i].wCtx)
-					s.trySMRObjects(s.evictWriters[i].wCtx, swapperSMRInterval)
+					s.tryEvictPages(s.evictWriters[i])
+					s.trySMRObjects(s.evictWriters[i], swapperSMRInterval)
 				} else {
 					time.Sleep(swapperWaitInterval)
 				}
