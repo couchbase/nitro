@@ -859,6 +859,7 @@ func (pg *page) unmarshalDelta(data []byte, ctx *wCtx) (offset LSSOffset, hasCha
 	lastPd.numItems = numItems
 	lastPd.chainLen = chainLen
 	lastPd.next = nil
+	lastPd.rightSibling = nil
 	pg.head = lastPd
 
 	var pd *pageDelta

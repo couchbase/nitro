@@ -463,8 +463,8 @@ func (m *Nitro) Close() {
 			}
 		}
 
-		m.store.FreeNode(m.store.HeadNode())
-		m.store.FreeNode(m.store.TailNode())
+		m.store.FreeNode(m.store.HeadNode(), &m.store.Stats)
+		m.store.FreeNode(m.store.TailNode(), &m.store.Stats)
 	}
 }
 
