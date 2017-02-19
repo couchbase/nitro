@@ -107,8 +107,8 @@ func NewWithConfig(cfg Config) *Skiplist {
 		s.freeNode = func(*Node) {}
 	}
 
-	head := allocNode(MinItem, MaxLevel, nil)
-	tail := allocNode(MaxItem, MaxLevel, nil)
+	head := s.newNode(MinItem, MaxLevel)
+	tail := s.newNode(MaxItem, MaxLevel)
 
 	for i := 0; i <= MaxLevel; i++ {
 		head.setNext(i, tail, false)
