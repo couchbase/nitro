@@ -167,6 +167,8 @@ retry:
 			return nil, err
 		}
 
+		ctx.sts.CacheMisses += 1
+
 		if swapin {
 			if !s.UpdateMapping(pid, pg, ctx) {
 				ctx.sts.SwapInConflicts += 1
@@ -177,6 +179,7 @@ retry:
 		}
 	} else {
 		pg = newPage(ctx, n.Item(), ptr)
+		ctx.sts.CacheHits += 1
 	}
 
 	return pg, nil

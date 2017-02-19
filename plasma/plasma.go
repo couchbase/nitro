@@ -104,6 +104,9 @@ type Stats struct {
 
 	NumLSSCleanerReads  int64
 	LSSCleanerReadBytes int64
+
+	CacheHits   int64
+	CacheMisses int64
 }
 
 func (s *Stats) Merge(o *Stats) {
@@ -135,6 +138,9 @@ func (s *Stats) Merge(o *Stats) {
 
 	s.NumLSSReads += o.NumLSSReads
 	s.LSSReadBytes += o.LSSReadBytes
+
+	s.CacheHits += o.CacheHits
+	s.CacheMisses += o.CacheMisses
 }
 
 func (s Stats) String() string {
@@ -173,7 +179,9 @@ func (s Stats) String() string {
 		"lss_num_reads     = %d\n"+
 		"lss_read_bs       = %d\n"+
 		"lss_gc_num_reads  = %d\n"+
-		"lss_gc_reads_bs   = %d\n",
+		"lss_gc_reads_bs   = %d\n"+
+		"cache_hits        = %d\n"+
+		"cache_misses      = %d\n",
 		atomic.LoadInt64(&memQuota),
 		s.Inserts-s.Deletes,
 		s.Compacts, s.Splits, s.Merges,
@@ -189,7 +197,8 @@ func (s Stats) String() string {
 		float64(s.BytesWritten)/float64(s.BytesIncoming),
 		s.LSSFrag, s.LSSDataSize, s.LSSUsedSpace,
 		s.NumLSSReads, s.LSSReadBytes,
-		s.NumLSSCleanerReads, s.LSSCleanerReadBytes)
+		s.NumLSSCleanerReads, s.LSSCleanerReadBytes,
+		s.CacheHits, s.CacheMisses)
 }
 
 func New(cfg Config) (*Plasma, error) {
