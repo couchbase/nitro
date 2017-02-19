@@ -30,6 +30,8 @@ func TestPlasmaGreaterThanMemoryPerf(t *testing.T) {
 	nPerThr := n / numThreads
 	cfg := testSnCfg
 	cfg.TriggerSwapper = QuotaSwapper
+	cfg.UseMemoryMgmt = true
+	cfg.AutoSwapper = true
 	s := newTestIntPlasmaStore(cfg)
 	defer s.Close()
 	SetMemoryQuota(400 * 1024 * 1024)
@@ -41,6 +43,8 @@ func TestPlasmaGreaterThanMemoryPerf(t *testing.T) {
 	for i := 0; i < numThreads; i++ {
 		wg.Add(1)
 		ws[i] = newTestWriter(s.NewWriter())
+		ws[i].snCh = make(chan bool)
+		ws[i].snapshotInterval = 10000
 		go doInsertMVCC(ws[i], &wg, i, nPerThr)
 	}
 
@@ -64,6 +68,23 @@ func TestPlasmaGreaterThanMemoryPerf(t *testing.T) {
 			fmt.Println(s.GetStats())
 			time.Sleep(time.Second)
 			last = now
+		}
+	}()
+
+	go func() {
+		for {
+			select {
+			case <-stopch:
+				return
+			default:
+				for i := 0; i < numThreads; i++ {
+					<-ws[i].snCh
+				}
+				s.NewSnapshot().Close()
+				for i := 0; i < numThreads; i++ {
+					ws[i].snCh <- true
+				}
+			}
 		}
 	}()
 
