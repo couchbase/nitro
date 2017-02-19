@@ -274,6 +274,8 @@ func New(cfg Config) (*Plasma, error) {
 		cfg.Compare, cfGetter, lfGetter)
 
 	s.gCtx = s.newWCtx()
+	go s.smrWorker(s.gCtx)
+
 	pid := s.StartPageId()
 	pg := s.newSeedPage(s.gCtx)
 	s.CreateMapping(pid, pg, s.gCtx)
