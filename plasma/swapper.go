@@ -122,17 +122,13 @@ func QuotaSwapper(ctx SwapperContext) bool {
 
 func (s *Plasma) canEvict(pid PageId) bool {
 	ok := true
-	if s.ClockLRUEviction {
-		n := pid.(*skiplist.Node)
-		ok = n.Cache == 0
-		n.Cache = 0
-	}
+	n := pid.(*skiplist.Node)
+	ok = n.Cache == 0
+	n.Cache = 0
 
 	return ok
 }
 
 func (s *Plasma) updateCacheMeta(pid PageId) {
-	if s.ClockLRUEviction {
-		pid.(*skiplist.Node).Cache = 1
-	}
+	pid.(*skiplist.Node).Cache = 1
 }

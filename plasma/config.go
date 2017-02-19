@@ -26,9 +26,8 @@ type Config struct {
 
 	EnableShapshots bool
 
-	ClockLRUEviction bool
-	TriggerSwapper   func(SwapperContext) bool
-	shouldPersist    bool
+	TriggerSwapper func(SwapperContext) bool
+	shouldPersist  bool
 
 	MaxSnSyncFrequency int
 	SyncInterval       int
