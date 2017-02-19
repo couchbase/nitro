@@ -92,6 +92,9 @@ func (s *Plasma) destroyAllObjects() {
 
 	head := s.Skiplist.HeadNode()
 	s.destroyPg((*pageDelta)(head.Link))
+	tail := s.Skiplist.TailNode()
+	s.freeMM(unsafe.Pointer(head))
+	s.freeMM(unsafe.Pointer(tail))
 }
 
 func (s *Plasma) trySMRObjects(ctx *wCtx, numObjects int) {
