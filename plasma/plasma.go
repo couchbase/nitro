@@ -114,6 +114,7 @@ type Stats struct {
 
 	WriteAmp      float64
 	CacheHitRatio float64
+	ResidentRatio float64
 }
 
 func (s *Stats) Merge(o *Stats) {
@@ -189,7 +190,8 @@ func (s Stats) String() string {
 		"lss_gc_reads_bs   = %d\n"+
 		"cache_hits        = %d\n"+
 		"cache_misses      = %d\n"+
-		"cache_hit_ratio   = %.2f\n",
+		"cache_hit_ratio   = %.2f\n"+
+		"resident_ratio    = %.2f\n",
 		atomic.LoadInt64(&memQuota),
 		s.Inserts-s.Deletes,
 		s.Compacts, s.Splits, s.Merges,
@@ -206,7 +208,8 @@ func (s Stats) String() string {
 		s.LSSFrag, s.LSSDataSize, s.LSSUsedSpace,
 		s.NumLSSReads, s.LSSReadBytes,
 		s.NumLSSCleanerReads, s.LSSCleanerReadBytes,
-		s.CacheHits, s.CacheMisses, s.CacheHitRatio)
+		s.CacheHits, s.CacheMisses, s.CacheHitRatio,
+		s.ResidentRatio)
 }
 
 func New(cfg Config) (*Plasma, error) {
@@ -627,6 +630,7 @@ func (s *Plasma) GetStats() Stats {
 		sts.LSSCleanerReadBytes = s.lssCleanerWriter.sts.LSSReadBytes
 		sts.CacheHitRatio = s.gCtx.sts.CacheHitRatio
 		sts.WriteAmp = s.gCtx.sts.WriteAmp
+		sts.ResidentRatio = float64(sts.NumCachedPages) / float64(sts.NumPages)
 	}
 	return sts
 }
