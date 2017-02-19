@@ -170,6 +170,7 @@ func (itr *MVCCIterator) Close() {
 }
 
 func (s *Snapshot) NewIterator() *MVCCIterator {
+	tok := s.db.BeginTx()
 	s.Open()
 	itr := s.db.NewIterator().(*Iterator)
 	itr.filter = &snFilter{
@@ -177,7 +178,7 @@ func (s *Snapshot) NewIterator() *MVCCIterator {
 	}
 
 	return &MVCCIterator{
-		token:    s.db.BeginTx(),
+		token:    tok,
 		snap:     s,
 		Iterator: itr,
 	}

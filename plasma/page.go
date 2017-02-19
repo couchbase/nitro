@@ -1121,6 +1121,7 @@ func (pg *page) Evict(offset LSSOffset) {
 		pg.free()
 	} else {
 		pg.destroyPg(pg.head)
+		pg.GetMallocOps()
 	}
 	pg.head = (*pageDelta)(unsafe.Pointer(uintptr(uint64(offset) | evictMask)))
 }
