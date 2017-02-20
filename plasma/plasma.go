@@ -881,6 +881,7 @@ retry:
 	w.sts.BytesIncoming += int64(w.itemSize(itm))
 	w.sts.Inserts++
 
+	w.trySMRObjects(w.wCtx, writerSMRBufferSize)
 	return nil
 }
 
@@ -899,7 +900,7 @@ retry:
 	}
 	w.sts.BytesIncoming += int64(w.itemSize(itm))
 	w.sts.Deletes++
-
+	w.trySMRObjects(w.wCtx, writerSMRBufferSize)
 	return nil
 }
 

@@ -2,6 +2,7 @@ package plasma
 
 import (
 	"github.com/couchbase/nitro/skiplist"
+	"runtime"
 	"unsafe"
 )
 
@@ -12,7 +13,10 @@ const (
 	smrPageId
 )
 
-const smrChanBufSize = 256
+var (
+	smrChanBufSize      = runtime.NumCPU()
+	writerSMRBufferSize = 500
+)
 
 type reclaimObject struct {
 	typ  smrType
