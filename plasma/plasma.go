@@ -171,6 +171,7 @@ func (s Stats) String() string {
 		"allocated         = %d\n"+
 		"freed             = %d\n"+
 		"reclaimed         = %d\n"+
+		"reclaim_pending   = %d\n"+
 		"allocated_index   = %d\n"+
 		"freed_index       = %d\n"+
 		"reclaimed_index   = %d\n"+
@@ -200,6 +201,7 @@ func (s Stats) String() string {
 		s.InsertConflicts, s.DeleteConflicts,
 		s.SwapInConflicts, s.MemSz, s.MemSzIndex,
 		s.AllocSz, s.FreeSz, s.ReclaimSz,
+		s.FreeSz-s.ReclaimSz,
 		s.AllocSzIndex, s.FreeSzIndex, s.ReclaimSzIndex,
 		s.NumCachedPages, s.NumPages,
 		s.NumPagesSwapOut, s.NumPagesSwapIn,
@@ -335,10 +337,17 @@ func (s *Plasma) runtimeStats() {
 		time.Sleep(time.Second * 5)
 
 		now := s.GetStats()
-		s.gCtx.sts.WriteAmp = (float64(now.BytesWritten) - float64(so.BytesWritten)) / (float64(now.BytesIncoming) - float64(so.BytesIncoming))
+		bsOut := (float64(now.BytesWritten) - float64(so.BytesWritten))
+		bsIn := (float64(now.BytesIncoming) - float64(so.BytesIncoming))
+		if bsIn > 0 {
+			s.gCtx.sts.WriteAmp = bsOut / bsIn
+		}
+
 		hits := now.CacheHits - so.CacheHits
 		miss := now.CacheMisses - so.CacheMisses
-		s.gCtx.sts.CacheHitRatio = float64(hits) / float64(hits+miss)
+		if tot := float64(hits + miss); tot > 0 {
+			s.gCtx.sts.CacheHitRatio = float64(hits) / tot
+		}
 		so = now
 	}
 }
@@ -632,7 +641,9 @@ func (s *Plasma) GetStats() Stats {
 		sts.LSSCleanerReadBytes = s.lssCleanerWriter.sts.LSSReadBytes
 		sts.CacheHitRatio = s.gCtx.sts.CacheHitRatio
 		sts.WriteAmp = s.gCtx.sts.WriteAmp
-		sts.ResidentRatio = float64(sts.NumCachedPages) / float64(sts.NumPages)
+		if sts.NumPages > 0 {
+			sts.ResidentRatio = float64(sts.NumCachedPages) / float64(sts.NumPages)
+		}
 	}
 	return sts
 }
