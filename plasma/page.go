@@ -536,8 +536,9 @@ func (pg *page) doSplit(itm unsafe.Pointer, pid PageId, numItems int) *page {
 	splitPage := new(page)
 	*splitPage = *pg
 	splitPage.prevHeadPtr = nil
-	itms, _ := pg.collectItems(pg.head, itm, pg.head.hiItm)
+	it, itms, _ := pg.collectItems(pg.head, itm, pg.head.hiItm)
 	splitPage.head = pg.newBasePage(itms)
+	it.Close()
 
 	splitPage.low = itm
 	pg.head = pg.newSplitPageDelta(itm, pid)
@@ -554,9 +555,10 @@ func (pg *page) doSplit(itm unsafe.Pointer, pid PageId, numItems int) *page {
 func (pg *page) Compact() int {
 	state := pg.head.state
 
-	itms, fdataSz := pg.collectItems(pg.head, nil, pg.head.hiItm)
+	it, itms, fdataSz := pg.collectItems(pg.head, nil, pg.head.hiItm)
 	pg.free()
 	pg.head = pg.newBasePage(itms)
+	it.Close()
 	state.IncrVersion()
 	pg.head.state = state
 	return fdataSz
@@ -616,19 +618,19 @@ loop:
 }
 
 func (pg *page) collectItems(head *pageDelta,
-	loItm, hiItm unsafe.Pointer) (itx []unsafe.Pointer, dataSz int) {
+	loItm, hiItm unsafe.Pointer) (itr pgOpIterator, itms []unsafe.Pointer, dataSz int) {
 
 	it, fdSz := newPgOpIterator(pg.head, pg.cmp, loItm, hiItm, pg.getCompactFilter(), pg.ctx)
-	var itms []unsafe.Pointer
 	for it.Init(); it.Valid(); it.Next() {
 		itm := it.Get()
 		itms = append(itms, itm.Item())
 	}
 
-	return itms, fdSz
+	return it, itms, fdSz
 }
 
 type pageIterator struct {
+	it   pgOpIterator
 	pg   *page
 	itms []unsafe.Pointer
 	i    int
@@ -648,14 +650,18 @@ func (pi *pageIterator) Next() error {
 }
 
 func (pi *pageIterator) SeekFirst() error {
-	pi.itms, _ = pi.pg.collectItems(pi.pg.head, nil, pi.pg.head.hiItm)
+	pi.it, pi.itms, _ = pi.pg.collectItems(pi.pg.head, nil, pi.pg.head.hiItm)
 	return nil
 }
 
 func (pi *pageIterator) Seek(itm unsafe.Pointer) error {
-	pi.itms, _ = pi.pg.collectItems(pi.pg.head, itm, pi.pg.head.hiItm)
+	pi.it, pi.itms, _ = pi.pg.collectItems(pi.pg.head, itm, pi.pg.head.hiItm)
 	return nil
 
+}
+
+func (pi *pageIterator) Close() {
+	pi.it.Close()
 }
 
 // This method is only used by page_tests

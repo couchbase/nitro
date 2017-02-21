@@ -17,6 +17,7 @@ type pgOpIterator interface {
 	Get() PageItem
 	Next()
 	Valid() bool
+	Close()
 }
 
 type acceptAllFilter struct{}
@@ -135,6 +136,7 @@ func (itr *Iterator) Next() error {
 
 // Delta chain sorted iterator
 type pdIterator struct {
+	pw     pageWalker
 	deltas []PageItem
 	i      int
 }
@@ -151,6 +153,10 @@ func (pdi *pdIterator) Valid() bool {
 
 func (pdi *pdIterator) Next() {
 	pdi.i++
+}
+
+func (pdi *pdIterator) Close() {
+	pdi.pw.Close()
 }
 
 type basePageItem struct{}
@@ -238,6 +244,8 @@ func (bpi *basePgIterator) Next() {
 	bpi.i++
 }
 
+func (bpi *basePgIterator) Close() {}
+
 // Merge two disjoint sorted sets
 type pdJoinIterator struct {
 	itrs [2]pgOpIterator
@@ -264,6 +272,11 @@ func (pdj *pdJoinIterator) Next() {
 
 func (pdj *pdJoinIterator) Get() PageItem {
 	return pdj.itrs[pdj.i].Get()
+}
+
+func (pdj *pdJoinIterator) Close() {
+	pdj.itrs[0].Close()
+	pdj.itrs[1].Close()
 }
 
 // Iterator merger
@@ -349,6 +362,11 @@ func (pdm *pdMergeIterator) Valid() bool {
 	return pdm.offset < pdm.items.Len()
 }
 
+func (pdm *pdMergeIterator) Close() {
+	pdm.itrs[0].Close()
+	pdm.itrs[1].Close()
+}
+
 func newPgOpIterator(head *pageDelta, cmp skiplist.CompareFn,
 	low, high unsafe.Pointer, filter ItemFilter, ctx *wCtx) (iter pgOpIterator, fdSz int) {
 
@@ -357,8 +375,9 @@ func newPgOpIterator(head *pageDelta, cmp skiplist.CompareFn,
 	pdCount := 0
 
 	pdi := &pdIterator{}
-	pw := newPgDeltaWalker(head, ctx)
-	defer pw.Close()
+	pdi.pw = newPgDeltaWalker(head, ctx)
+	pw := &pdi.pw
+
 loop:
 	for ; !pw.End(); pw.Next() {
 		op := pw.Op()
