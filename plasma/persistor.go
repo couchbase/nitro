@@ -49,7 +49,7 @@ retry:
 
 		var ok bool
 		if evict {
-			pg.Evict(offset)
+			pg.Evict(offset, numSegments)
 		} else {
 			pg.AddFlushRecord(offset, dataSz, numSegments)
 		}
@@ -63,8 +63,8 @@ retry:
 			goto retry
 		}
 	} else if evict && pg.IsEvictable() {
-		offset, _ := pg.GetLSSOffset()
-		pg.Evict(offset)
+		offset, numSegs, _ := pg.GetFlushInfo()
+		pg.Evict(offset, numSegs)
 		if !s.UpdateMapping(pid, pg, ctx) {
 			goto retry
 		}

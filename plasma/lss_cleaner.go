@@ -12,11 +12,7 @@ func (s *Plasma) tryPageRelocation(pid PageId, pg Page, buf []byte, ctx *wCtx) (
 	offset, wbuf, res := s.lss.ReserveSpace(lssBlockTypeSize + len(bs))
 	writeLSSBlock(wbuf, lssPageReloc, bs)
 
-	if pg.InCache() {
-		pg.AddFlushRecord(offset, dataSz, numSegments)
-	} else {
-		pg.Evict(offset)
-	}
+	pg.AddFlushRecord(offset, dataSz, numSegments)
 
 	if ok = s.UpdateMapping(pid, pg, ctx); !ok {
 		discardLSSBlock(wbuf)
@@ -33,8 +29,8 @@ func (s *Plasma) tryPageRelocation(pid PageId, pg Page, buf []byte, ctx *wCtx) (
 func (s *Plasma) CleanLSS(proceed func() bool) error {
 	var pg Page
 	w := s.lssCleanerWriter
-	relocBuf := w.GetBuffer(0)
-	cleanerBuf := w.GetBuffer(1)
+	relocBuf := w.GetBuffer(bufReloc)
+	cleanerBuf := w.GetBuffer(bufCleaner)
 
 	relocated := 0
 	retries := 0

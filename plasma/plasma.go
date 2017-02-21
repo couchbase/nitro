@@ -13,7 +13,7 @@ import (
 
 type PageReader func(offset LSSOffset) (Page, error)
 
-const maxCtxBuffers = 4
+const maxCtxBuffers = 6
 const recoverySMRInterval = 100
 
 var (
@@ -410,6 +410,7 @@ func (s *Plasma) doRecovery() error {
 					return false, err
 				}
 
+				// TODO: Store precomputed fdSize in swapout delta
 				s.gCtx.sts.FlushDataSz -= int64(currPg.GetFlushDataSize())
 				currPg.(*page).free()
 				s.unindexPage(pid, s.gCtx)
@@ -438,7 +439,7 @@ func (s *Plasma) doRecovery() error {
 					currPg.(*page).free()
 					pg.AddFlushRecord(offset, flushDataSz, 0)
 				} else {
-					_, numSegments := currPg.GetLSSOffset()
+					_, numSegments, _ := currPg.GetFlushInfo()
 					pg.Append(currPg)
 					pg.AddFlushRecord(offset, flushDataSz, numSegments)
 				}
@@ -594,6 +595,8 @@ const (
 	bufEncMeta
 	bufEncSMO
 	bufTempItem
+	bufReloc
+	bufCleaner
 )
 
 func (ctx *wCtx) GetBuffer(id int) []byte {
@@ -935,7 +938,12 @@ func (w *Writer) Lookup(itm unsafe.Pointer) (unsafe.Pointer, error) {
 }
 
 func (s *Plasma) fetchPageFromLSS(baseOffset LSSOffset, ctx *wCtx) (*page, error) {
-	pg := newPage(ctx, nil, nil).(*page)
+	return s.fetchPageFromLSS2(baseOffset, ctx, ctx.pgAllocCtx, ctx.storeCtx)
+}
+
+func (s *Plasma) fetchPageFromLSS2(baseOffset LSSOffset, ctx *wCtx,
+	aCtx *allocCtx, sCtx *storeCtx) (*page, error) {
+	pg := newPage2(nil, nil, ctx, sCtx, aCtx).(*page)
 	offset := baseOffset
 	data := ctx.GetBuffer(bufEncPage)
 	numSegments := 0
@@ -952,7 +960,7 @@ loop:
 		typ := getLSSBlockType(data)
 		switch typ {
 		case lssPageData, lssPageReloc, lssPageUpdate:
-			currPgDelta := newPage(ctx, nil, nil).(*page)
+			currPgDelta := newPage2(nil, nil, ctx, sCtx, aCtx).(*page)
 			data := data[lssBlockTypeSize:l]
 			nextOffset, hasChain := currPgDelta.unmarshalDelta(data, ctx)
 			currPgDelta.AddFlushRecord(offset, len(data), 0)
@@ -972,8 +980,6 @@ loop:
 		pg.SetNumSegments(numSegments)
 		pg.head.rightSibling = pg.getPageId(pg.head.hiItm, ctx)
 	}
-
-	pg.prevHeadPtr = unsafe.Pointer(uintptr(uint64(baseOffset) | evictMask))
 
 	return pg, nil
 }

@@ -1,6 +1,7 @@
 package plasma
 
 import (
+	"fmt"
 	"unsafe"
 )
 
@@ -9,12 +10,16 @@ type pageWalker struct {
 	currPd   *pageDelta
 	count    int
 	maxCount int
+
+	*wCtx
+	pgCache *page
 }
 
-func newPgDeltaWalker(pd *pageDelta) pageWalker {
+func newPgDeltaWalker(pd *pageDelta, ctx *wCtx) pageWalker {
 	return pageWalker{
 		head:     pd,
 		currPd:   pd,
+		wCtx:     ctx,
 		maxCount: 1000000000,
 	}
 }
@@ -53,6 +58,11 @@ func (w *pageWalker) MergeSibling() *pageDelta {
 }
 
 func (w *pageWalker) FlushInfo() (LSSOffset, int32, int32) {
+	if w.currPd.op == opSwapoutDelta {
+		sod := (*swapoutDelta)(unsafe.Pointer(w.currPd))
+		return sod.offset, 0, sod.numSegments
+	}
+
 	fd := (*flushPageDelta)(unsafe.Pointer(w.currPd))
 	return fd.offset, fd.flushDataSz, fd.numSegments
 }
@@ -69,6 +79,19 @@ func (w *pageWalker) RollbackInfo() (uint64, uint64) {
 func (w *pageWalker) Next() {
 	if w.currPd.op == opBasePage {
 		w.maxCount = w.count
+	} else if w.currPd.op == opSwapoutDelta {
+		if w.pgCache == nil {
+			var err error
+			sod := (*swapoutDelta)(unsafe.Pointer(w.currPd))
+			w.pgCache, err = w.fetchPageFromLSS2(sod.offset, w.wCtx,
+				new(allocCtx), w.wCtx.storeCtx)
+			if err != nil {
+				panic(fmt.Sprintf("fatal: %v", err))
+			}
+		}
+
+		w.currPd = w.pgCache.head
+		w.count++
 	} else {
 		w.currPd = w.currPd.next
 		w.count++
@@ -83,4 +106,11 @@ func (w *pageWalker) SetEndAndRestart() {
 	w.maxCount = w.count
 	w.count = 0
 	w.currPd = w.head
+}
+
+func (w *pageWalker) Close() {
+	if w.pgCache != nil {
+		allocs, _, _ := w.pgCache.GetMallocOps()
+		w.discardDeltas(allocs)
+	}
 }

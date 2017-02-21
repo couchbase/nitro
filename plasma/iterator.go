@@ -80,7 +80,7 @@ func (itr *Iterator) initPgIterator(pid PageId, seekItm unsafe.Pointer) {
 
 			itr.nextPid = pg.Next()
 			itr.filter.Reset()
-			itr.currPgItr, _ = newPgOpIterator(pg.head, pg.cmp, seekItm, pg.head.hiItm, itr.filter)
+			itr.currPgItr, _ = newPgOpIterator(pg.head, pg.cmp, seekItm, pg.head.hiItm, itr.filter, itr.wCtx)
 			itr.currPgItr.Init()
 		} else {
 			itr.err = err
@@ -350,14 +350,15 @@ func (pdm *pdMergeIterator) Valid() bool {
 }
 
 func newPgOpIterator(head *pageDelta, cmp skiplist.CompareFn,
-	low, high unsafe.Pointer, filter ItemFilter) (iter pgOpIterator, fdSz int) {
+	low, high unsafe.Pointer, filter ItemFilter, ctx *wCtx) (iter pgOpIterator, fdSz int) {
 
 	var hasReloc bool
 	m := &pdMergeIterator{cmp: cmp, ItemFilter: filter}
 	pdCount := 0
 
 	pdi := &pdIterator{}
-	pw := newPgDeltaWalker(head)
+	pw := newPgDeltaWalker(head, ctx)
+	defer pw.Close()
 loop:
 	for ; !pw.End(); pw.Next() {
 		op := pw.Op()
@@ -379,10 +380,10 @@ loop:
 				high = sitm
 			}
 		case opPageMergeDelta:
-			deltaItr, fdSz1 := newPgOpIterator(pw.NextPd(), cmp, low, high, filter)
+			deltaItr, fdSz1 := newPgOpIterator(pw.NextPd(), cmp, low, high, filter, ctx)
 			mergeItr, fdSz2 := newPgOpIterator(
 				pw.MergeSibling(),
-				cmp, low, high, filter)
+				cmp, low, high, filter, ctx)
 
 			if !hasReloc {
 				fdSz += fdSz1 + fdSz2

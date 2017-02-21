@@ -14,12 +14,8 @@ var (
 	flushPageDeltaSize  = unsafe.Sizeof(*new(flushPageDelta))
 	removePageDeltaSize = unsafe.Sizeof(*new(removePageDelta))
 	rollbackDeltaSize   = unsafe.Sizeof(*new(rollbackDelta))
+	swapoutDeltaSize    = unsafe.Sizeof(*new(swapoutDelta))
 )
-
-//pg.memUsed -= pg.ComputeMemUsed()
-//w.sts.MemSz += int64(pg.GetMemUsed())
-
-// TODO: meta delta
 
 type allocCtx struct {
 	allocDeltaList []*pageDelta
@@ -41,7 +37,7 @@ func (s *storeCtx) destroyPg(ptr *pageDelta) {
 	if s.useMemMgmt {
 		for pd := ptr; pd != nil; {
 			next := pd.next
-			if pd.op == opBasePage {
+			if pd.op == opBasePage || pd.op == opSwapoutDelta {
 				next = nil
 			} else if pd.op == opPageMergeDelta {
 				pdm := (*mergePageDelta)(unsafe.Pointer(pd))
@@ -206,4 +202,26 @@ func (pg *page) allocRollbackPageDelta() *rollbackDelta {
 	}
 
 	return new(rollbackDelta)
+}
+
+func (pg *page) allocSwapoutDelta(hiItm unsafe.Pointer) *swapoutDelta {
+	l := pg.itemSize(hiItm)
+	size := swapoutDeltaSize + l
+	pg.memUsed += int(size)
+	if pg.useMemMgmt {
+		ptr := pg.allocMM(size)
+		d := (*swapoutDelta)(ptr)
+		if l == 0 {
+			d.hiItm = hiItm
+		} else {
+			d.hiItm = unsafe.Pointer(uintptr(ptr) + mergePageDeltaSize)
+			memcopy(d.hiItm, hiItm, int(l))
+		}
+		pg.addDeltaAlloc(ptr)
+		return (*swapoutDelta)(ptr)
+	}
+
+	d := new(swapoutDelta)
+	d.hiItm = pg.dup(hiItm)
+	return d
 }
