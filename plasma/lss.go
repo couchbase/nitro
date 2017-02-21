@@ -117,13 +117,6 @@ func NewLSStore(path string, segSize int64, bufSize int, nbufs int, commitDur ti
 }
 
 func (s *lsStore) Close() {
-	s.Sync(true)
-
-	for i, curr := 0, (*flushBuffer)(s.head); i < s.nbufs; i++ {
-		curr.Close()
-		curr = curr.NextBuffer()
-	}
-
 	s.log.Close()
 }
 
@@ -332,34 +325,19 @@ type flushBuffer struct {
 	state      uint64
 	b          []byte
 	next       *flushBuffer
-	doCommit   bool
+	callb      flushCallback
+
+	doCommit bool
 
 	trimOffset LSSOffset
-
-	flushCh chan bool
 }
 
 func newFlushBuffer(sz int, callb flushCallback) *flushBuffer {
-	fb := &flushBuffer{
-		state:   encodeState(false, 1, 0),
-		b:       make([]byte, sz),
-		flushCh: make(chan bool, 1),
+	return &flushBuffer{
+		state: encodeState(false, 1, 0),
+		b:     make([]byte, sz),
+		callb: callb,
 	}
-
-	go func() {
-		for _ = range fb.flushCh {
-			callb(fb)
-			fb.Reset()
-			nextFb := fb.NextBuffer()
-			nextFb.Done()
-		}
-	}()
-
-	return fb
-}
-
-func (fb *flushBuffer) Close() {
-	close(fb.flushCh)
 }
 
 func (fb *flushBuffer) GetTrimLogOffset() (LSSOffset, bool) {
@@ -490,7 +468,10 @@ retry:
 	}
 
 	if nw == 1 && isfull {
-		fb.flushCh <- true
+		fb.callb(fb)
+		fb.Reset()
+		nextFb := fb.NextBuffer()
+		nextFb.Done()
 	}
 }
 
