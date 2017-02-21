@@ -276,7 +276,10 @@ func New(cfg Config) (*Plasma, error) {
 		cfg.Compare, cfGetter, lfGetter)
 
 	s.gCtx = s.newWCtx()
-	go s.smrWorker(s.gCtx)
+	if s.useMemMgmt {
+		s.smrWg.Add(1)
+		go s.smrWorker(s.gCtx)
+	}
 
 	pid := s.StartPageId()
 	pg := s.newSeedPage(s.gCtx)
