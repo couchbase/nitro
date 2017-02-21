@@ -11,7 +11,7 @@ import (
 type pageOp uint16
 
 const (
-	opBasePage pageOp = iota
+	opBasePage pageOp = iota + 1
 
 	opMetaDelta
 
