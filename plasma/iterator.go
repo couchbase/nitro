@@ -65,7 +65,7 @@ func (s *Plasma) NewIterator() ItemIterator {
 		store:  s,
 		filter: new(defaultFilter),
 		// TODO: merge with plasma store stats
-		wCtx: s.newWCtx(),
+		wCtx: s.newWCtx2(),
 	}
 }
 

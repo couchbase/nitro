@@ -565,6 +565,12 @@ func (s *Plasma) newWCtx() *wCtx {
 	s.wCtxLock.Lock()
 	defer s.wCtxLock.Unlock()
 
+	ctx := s.newWCtx2()
+	s.wCtxList = ctx
+	return ctx
+}
+
+func (s *Plasma) newWCtx2() *wCtx {
 	ctx := &wCtx{
 		Plasma:     s,
 		pgAllocCtx: new(allocCtx),
@@ -580,7 +586,6 @@ func (s *Plasma) newWCtx() *wCtx {
 		return s.fetchPageFromLSS(offset, ctx)
 	}
 
-	s.wCtxList = ctx
 	return ctx
 }
 
