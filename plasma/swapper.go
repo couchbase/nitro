@@ -61,7 +61,7 @@ func (s *Plasma) tryEvictPages(ctx *wCtx) {
 	sctx := ctx.SwapperContext()
 	for s.TriggerSwapper(sctx) {
 		h := s.acquireClockHandle()
-		tok := s.BeginTx()
+		tok := ctx.BeginTx()
 		pids := s.sweepClock(h)
 		s.releaseClockHandle(h)
 		for _, pid := range pids {
@@ -69,7 +69,7 @@ func (s *Plasma) tryEvictPages(ctx *wCtx) {
 				s.Persist(pid, true, ctx)
 			}
 		}
-		s.EndTx(tok)
+		ctx.EndTx(tok)
 	}
 }
 

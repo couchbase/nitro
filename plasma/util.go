@@ -42,3 +42,11 @@ func (s *pageItemSorter) Less(i, j int) bool {
 func (s *pageItemSorter) Swap(i, j int) {
 	s.itms[i], s.itms[j] = s.itms[j], s.itms[i]
 }
+
+func minInt64(a, b int64) int64 {
+	if a < b {
+		return a
+	}
+
+	return b
+}

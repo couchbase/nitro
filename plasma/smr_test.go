@@ -26,17 +26,17 @@ func TestSMRSimple(t *testing.T) {
 
 	w := s.NewWriter()
 	for i := 0; i < 800; i++ {
-		token := s.BeginTx()
+		token := w.BeginTx()
 		w.InsertKV([]byte(fmt.Sprintf("key-%10d", i)), []byte(fmt.Sprintf("val-%10d", i)))
-		s.EndTx(token)
+		w.EndTx(token)
 	}
 
 	s.NewSnapshot().Close()
 
 	for i := 0; i < 800; i++ {
-		token := s.BeginTx()
+		token := w.BeginTx()
 		w.DeleteKV([]byte(fmt.Sprintf("key-%10d", i)))
-		s.EndTx(token)
+		w.EndTx(token)
 	}
 
 	s.NewSnapshot().Close()

@@ -37,8 +37,8 @@ func (s *Plasma) CleanLSS(proceed func() bool) error {
 	skipped := 0
 
 	callb := func(startOff, endOff LSSOffset, bs []byte) (cont bool, headOff LSSOffset, err error) {
-		tok := s.BeginTx()
-		defer s.EndTx(tok)
+		tok := w.BeginTx()
+		defer w.EndTx(tok)
 
 		typ := getLSSBlockType(bs)
 		switch typ {

@@ -292,6 +292,7 @@ func New(cfg Config) (*Plasma, error) {
 			return nil, err
 		}
 
+		s.lss.SetSafeTrimCallback(s.findSafeLSSTrimOffset)
 		err = s.doRecovery()
 	}
 
@@ -356,7 +357,7 @@ func (s *Plasma) runtimeStats() {
 }
 
 func (s *Plasma) monitorMemUsage() {
-	sctx := s.newWCtx().SwapperContext()
+	sctx := s.newWCtx2().SwapperContext()
 
 	for {
 		select {
@@ -545,6 +546,8 @@ type wCtx struct {
 	reclaimList []reclaimObject
 
 	next *wCtx
+
+	safeOffset LSSOffset
 }
 
 func (ctx *wCtx) freePages(pages []*pageDelta) {
@@ -580,6 +583,7 @@ func (s *Plasma) newWCtx2() *wCtx {
 		sts:        new(Stats),
 		pgBuffers:  make([][]byte, maxCtxBuffers),
 		next:       s.wCtxList,
+		safeOffset: expiredLSSOffset,
 	}
 
 	ctx.dbIter = dbInstances.NewIterator(ComparePlasma, ctx.buf)
