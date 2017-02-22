@@ -120,6 +120,7 @@ func (itr *Iterator) Valid() bool {
 // If the current page has no valid item, move to next page
 func (itr *Iterator) tryNextPg() {
 	for !itr.currPgItr.Valid() {
+		itr.currPgItr.Close()
 		if itr.nextPid == itr.store.EndPageId() {
 			break
 		}
