@@ -537,9 +537,11 @@ func (pg *page) doSplit(itm unsafe.Pointer, pid PageId, numItems int) *page {
 	*splitPage = *pg
 	splitPage.prevHeadPtr = nil
 	it, itms, _ := pg.collectItems(pg.head, itm, pg.head.hiItm)
-	splitPage.head = pg.newBasePage(itms)
+	bp := pg.newBasePage(itms)
+	splitPage.head = bp
 	it.Close()
 
+	itm = (*basePage)(unsafe.Pointer(bp)).items[0]
 	splitPage.low = itm
 	pg.head = pg.newSplitPageDelta(itm, pid)
 
