@@ -417,6 +417,8 @@ func (pg *page) Lookup(itm unsafe.Pointer) unsafe.Pointer {
 	hiItm := pg.MaxItem()
 	filter := pg.getLookupFilter()
 	head := pg.head
+	itmBuf := pg.ctx.GetBuffer(bufTempItem)
+	resultPtr := unsafe.Pointer(&itmBuf[0])
 
 loop:
 	pw := newPgDeltaWalker(head, pg.ctx)
@@ -429,7 +431,8 @@ loop:
 			ritm := pw.Item()
 			pgItm := pw.PageItem()
 			if filter.Process(pgItm).Len() > 0 && pg.equal(ritm, itm, hiItm) {
-				return ritm
+				memcopy(resultPtr, ritm, int(pg.itemSize(ritm)))
+				return resultPtr
 			}
 		case opDeleteDelta:
 			ritm := pw.Item()
@@ -447,7 +450,9 @@ loop:
 			for ; index < n && pg.equal(items[index], itm, hiItm); index++ {
 				bpItm := (*basePageItem)(items[index])
 				if filter.Process(bpItm).Len() > 0 {
-					return items[index]
+					ritm := items[index]
+					memcopy(resultPtr, ritm, int(pg.itemSize(ritm)))
+					return resultPtr
 				}
 			}
 
