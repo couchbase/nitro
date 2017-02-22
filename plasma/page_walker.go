@@ -110,7 +110,7 @@ func (w *pageWalker) SetEndAndRestart() {
 
 func (w *pageWalker) Close() {
 	if w.pgCache != nil {
-		allocs, _, _ := w.pgCache.GetMallocOps()
+		allocs, _, _, _ := w.pgCache.GetMallocOps()
 		w.discardDeltas(allocs)
 	}
 }

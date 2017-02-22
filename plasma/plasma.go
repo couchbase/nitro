@@ -91,14 +91,14 @@ type Stats struct {
 	FreeSz    int64
 	ReclaimSz int64
 
-	AllocSzIndex   int64
-	FreeSzIndex    int64
-	ReclaimSzIndex int64
+	NumRecordAllocs  int64
+	NumRecordFrees   int64
+	NumRecordSwapOut int64
+	AllocSzIndex     int64
+	FreeSzIndex      int64
+	ReclaimSzIndex   int64
 
-	NumCachedPages  int64
-	NumPages        int64
-	NumPagesSwapOut int64
-	NumPagesSwapIn  int64
+	NumPages int64
 
 	LSSFrag      int
 	LSSDataSize  int64
@@ -139,8 +139,9 @@ func (s *Stats) Merge(o *Stats) {
 	s.FreeSzIndex += o.FreeSzIndex
 	o.ReclaimSzIndex += o.ReclaimSzIndex
 
-	s.NumPagesSwapOut += o.NumPagesSwapOut
-	s.NumPagesSwapIn += o.NumPagesSwapIn
+	s.NumRecordAllocs += o.NumRecordAllocs
+	s.NumRecordFrees += o.NumRecordFrees
+	s.NumRecordSwapOut += o.NumRecordSwapOut
 
 	s.BytesIncoming += o.BytesIncoming
 
@@ -175,10 +176,10 @@ func (s Stats) String() string {
 		"allocated_index   = %d\n"+
 		"freed_index       = %d\n"+
 		"reclaimed_index   = %d\n"+
-		"num_cached_pages  = %d\n"+
 		"num_pages         = %d\n"+
-		"num_pages_swapout = %d\n"+
-		"num_pages_swapin  = %d\n"+
+		"num_rec_allocs    = %d\n"+
+		"num_rec_frees     = %d\n"+
+		"num_rec_swapout   = %d\n"+
 		"bytes_incoming    = %d\n"+
 		"bytes_written     = %d\n"+
 		"write_amp         = %.2f\n"+
@@ -203,8 +204,8 @@ func (s Stats) String() string {
 		s.AllocSz, s.FreeSz, s.ReclaimSz,
 		s.FreeSz-s.ReclaimSz,
 		s.AllocSzIndex, s.FreeSzIndex, s.ReclaimSzIndex,
-		s.NumCachedPages, s.NumPages,
-		s.NumPagesSwapOut, s.NumPagesSwapIn,
+		s.NumPages, s.NumRecordAllocs, s.NumRecordFrees,
+		s.NumRecordSwapOut,
 		s.BytesIncoming, s.BytesWritten,
 		s.WriteAmp,
 		s.LSSFrag, s.LSSDataSize, s.LSSUsedSpace,
@@ -413,7 +414,7 @@ func (s *Plasma) doRecovery() error {
 
 				// TODO: Store precomputed fdSize in swapout delta
 				s.gCtx.sts.FlushDataSz -= int64(currPg.GetFlushDataSize())
-				currPg.(*page).free()
+				currPg.(*page).free(false)
 				s.unindexPage(pid, s.gCtx)
 			}
 		case lssPageData, lssPageReloc, lssPageUpdate:
@@ -437,7 +438,7 @@ func (s *Plasma) doRecovery() error {
 
 				if newPageData {
 					s.gCtx.sts.FlushDataSz -= int64(currPg.GetFlushDataSize())
-					currPg.(*page).free()
+					currPg.(*page).free(false)
 					pg.AddFlushRecord(offset, flushDataSz, 0)
 				} else {
 					_, numSegments, _ := currPg.GetFlushInfo()
@@ -550,12 +551,19 @@ type wCtx struct {
 	safeOffset LSSOffset
 }
 
-func (ctx *wCtx) freePages(pages []*pageDelta) {
+func (ctx *wCtx) freePages(pages []pgFreeObj) {
 	for _, pg := range pages {
-		size := int64(computeMemUsed(pg, ctx.itemSize))
-		ctx.sts.FreeSz += size
+		nr, size := computeMemUsed(pg.h, ctx.itemSize)
+		ctx.sts.FreeSz += int64(size)
+
+		ctx.sts.NumRecordFrees += int64(nr)
+		if pg.evicted {
+			ctx.sts.NumRecordSwapOut += int64(nr)
+		}
+
 		if ctx.useMemMgmt {
-			o := reclaimObject{typ: smrPage, size: uint32(size), ptr: unsafe.Pointer(pg)}
+			o := reclaimObject{typ: smrPage, size: uint32(size),
+				ptr: unsafe.Pointer(pg.h)}
 			ctx.reclaimList = append(ctx.reclaimList, o)
 		}
 	}
@@ -646,7 +654,7 @@ func (s *Plasma) GetStats() Stats {
 	for w := s.wCtxList; w != nil; w = w.next {
 		sts.Merge(w.sts)
 	}
-	sts.NumCachedPages = sts.NumPages - sts.NumPagesSwapOut + sts.NumPagesSwapIn
+
 	sts.MemSz = sts.AllocSz - sts.FreeSz
 	sts.MemSzIndex = sts.AllocSzIndex - sts.FreeSzIndex
 	if s.shouldPersist {
@@ -656,8 +664,10 @@ func (s *Plasma) GetStats() Stats {
 		sts.LSSCleanerReadBytes = s.lssCleanerWriter.sts.LSSReadBytes
 		sts.CacheHitRatio = s.gCtx.sts.CacheHitRatio
 		sts.WriteAmp = s.gCtx.sts.WriteAmp
-		if sts.NumPages > 0 {
-			sts.ResidentRatio = float64(sts.NumCachedPages) / float64(sts.NumPages)
+		cachedRecs := sts.NumRecordAllocs - sts.NumRecordFrees
+		totalRecs := cachedRecs + sts.NumRecordSwapOut
+		if totalRecs > 0 {
+			sts.ResidentRatio = float64(cachedRecs) / float64(totalRecs)
 		}
 	}
 	return sts

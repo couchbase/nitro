@@ -17,19 +17,25 @@ var (
 	swapoutDeltaSize    = unsafe.Sizeof(*new(swapoutDelta))
 )
 
+type pgFreeObj struct {
+	h       *pageDelta
+	evicted bool
+}
+
 type allocCtx struct {
 	allocDeltaList []*pageDelta
-	freePageList   []*pageDelta
+	freePageList   []pgFreeObj
 	memUsed        int
+	n              int
 }
 
 func (ctx *allocCtx) addDeltaAlloc(ptr unsafe.Pointer) {
 	ctx.allocDeltaList = append(ctx.allocDeltaList, (*pageDelta)(ptr))
 }
 
-func (pg *page) free() {
+func (pg *page) free(evicted bool) {
 	if pg.head != nil {
-		pg.freePageList = append(pg.freePageList, pg.head)
+		pg.freePageList = append(pg.freePageList, pgFreeObj{h: pg.head, evicted: evicted})
 	}
 }
 
@@ -75,6 +81,7 @@ func (pg *page) allocRecordDelta(itm unsafe.Pointer) *recordDelta {
 	l := pg.itemSize(itm)
 	size := recDeltaSize + l
 	pg.memUsed += int(size)
+	pg.n++
 
 	if pg.useMemMgmt {
 		ptr := pg.allocMM(size)
@@ -98,6 +105,7 @@ func (pg *page) allocBasePage(n int, dataSz uintptr, hiItm unsafe.Pointer) *base
 	l := pg.itemSize(hiItm)
 	size := basePageSize + dataSz + uintptr(n)*8 + l
 	pg.memUsed += int(size)
+	pg.n += n
 
 	if pg.useMemMgmt {
 		ptr := pg.allocMM(size)
@@ -122,7 +130,6 @@ func (pg *page) allocBasePage(n int, dataSz uintptr, hiItm unsafe.Pointer) *base
 	bp.data = pg.alloc(dataSz)
 	bp.hiItm = pg.dup(hiItm)
 	return bp
-
 }
 
 func (pg *page) allocSplitPageDelta(hiItm unsafe.Pointer) *splitPageDelta {

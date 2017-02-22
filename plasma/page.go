@@ -78,7 +78,7 @@ type Page interface {
 
 	Evict(offset LSSOffset, numSegments int)
 
-	GetMallocOps() ([]*pageDelta, []*pageDelta, int)
+	GetMallocOps() (a []*pageDelta, f []pgFreeObj, n int, sz int)
 	GetFlushDataSize() int
 	ComputeMemUsed() int
 	AddFlushRecord(off LSSOffset, dataSz int, numSegments int)
@@ -563,7 +563,7 @@ func (pg *page) Compact() int {
 	state := pg.head.state
 
 	it, itms, fdataSz := pg.collectItems(pg.head, nil, pg.head.hiItm)
-	pg.free()
+	pg.free(false)
 	pg.head = pg.newBasePage(itms)
 	it.Close()
 	state.IncrVersion()
@@ -1157,7 +1157,7 @@ func (pg *page) GetFlushInfo() (LSSOffset, int, int) {
 }
 
 func (pg *page) Evict(offset LSSOffset, numSegs int) {
-	pg.free()
+	pg.free(true)
 	sod := pg.allocSwapoutDelta(pg.head.hiItm)
 	hiItm := sod.hiItm
 	*(*pageDelta)(unsafe.Pointer(sod)) = *pg.head
@@ -1179,23 +1179,25 @@ func (pg *page) SetNumSegments(n int) {
 	panic(fmt.Sprintf("invalid delta op:%d", pg.head.op))
 }
 
-func (pg *page) GetMallocOps() ([]*pageDelta, []*pageDelta, int) {
+func (pg *page) GetMallocOps() ([]*pageDelta, []pgFreeObj, int, int) {
 	a := pg.allocDeltaList
 	f := pg.freePageList
 	m := pg.memUsed
+	n := pg.n
 
 	pg.memUsed = 0
+	pg.n = 0
 	pg.allocDeltaList = pg.allocDeltaList[:0]
 	pg.freePageList = pg.freePageList[:0]
-	return a, f, m
+	return a, f, n, m
 }
 
 func (pg *page) ComputeMemUsed() int {
-	return computeMemUsed(pg.head, pg.itemSize)
+	_, size := computeMemUsed(pg.head, pg.itemSize)
+	return size
 }
 
-func computeMemUsed(pd *pageDelta, itemSize ItemSizeFn) int {
-	var size int
+func computeMemUsed(pd *pageDelta, itemSize ItemSizeFn) (n int, size int) {
 loop:
 	for ; pd != nil; pd = pd.next {
 		switch pd.op {
@@ -1204,6 +1206,7 @@ loop:
 			var dataSz int
 			for _, itm := range bp.items {
 				dataSz += int(itemSize(itm))
+				n++
 			}
 
 			size += int(basePageSize) + dataSz + len(bp.items)*8 + int(itemSize(bp.hiItm))
@@ -1211,6 +1214,7 @@ loop:
 		case opInsertDelta, opDeleteDelta:
 			rpd := (*recordDelta)(unsafe.Pointer(pd))
 			size += pageHeaderSize + int(itemSize(rpd.itm)) + 8
+			n++
 		case opPageRemoveDelta:
 			size += int(removePageDeltaSize)
 		case opPageSplitDelta:
@@ -1218,8 +1222,10 @@ loop:
 			size += int(recDeltaSize + itemSize(spd.itm))
 		case opPageMergeDelta:
 			pdm := (*mergePageDelta)(unsafe.Pointer(pd))
-			size += computeMemUsed(pdm.mergeSibling, itemSize)
+			nx, sx := computeMemUsed(pdm.mergeSibling, itemSize)
 			size += int(mergePageDeltaSize + itemSize(pdm.hiItm))
+			size += sx
+			n += nx
 		case opFlushPageDelta, opRelocPageDelta:
 			size += int(flushPageDeltaSize)
 		case opRollbackDelta:
@@ -1236,5 +1242,5 @@ loop:
 		}
 	}
 
-	return size
+	return n, size
 }

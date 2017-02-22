@@ -93,7 +93,10 @@ func (s *Plasma) swapperDaemon() {
 					return
 				default:
 				}
-				if s.TriggerSwapper(sctx) && s.GetStats().NumCachedPages > 0 {
+
+				sts := s.GetStats()
+				numRecs := sts.NumRecordAllocs - sts.NumRecordFrees
+				if s.TriggerSwapper(sctx) && numRecs > 0 {
 					s.tryEvictPages(s.evictWriters[i])
 					s.trySMRObjects(s.evictWriters[i], swapperSMRInterval)
 				} else {
