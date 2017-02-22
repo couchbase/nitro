@@ -12,7 +12,6 @@ const (
 	swapperWorkChanBufSize = 40
 	swapperWorkBatchSize   = 4
 	swapperWaitInterval    = time.Microsecond * 10
-	swapperSMRInterval     = 20
 )
 
 type clockHandle struct {
