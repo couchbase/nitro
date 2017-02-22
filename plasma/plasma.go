@@ -898,14 +898,21 @@ retry:
 		return err
 	}
 
+	nr := w.sts.NumLSSReads
 	pg.Insert(itm)
 
 	if !w.trySMOs(pid, pg, w.wCtx, true) {
 		w.sts.InsertConflicts++
 		goto retry
 	}
+
 	w.sts.BytesIncoming += int64(w.itemSize(itm))
 	w.sts.Inserts++
+	if w.sts.NumLSSReads-nr > 0 {
+		w.sts.CacheMisses++
+	} else {
+		w.sts.CacheHits++
+	}
 
 	w.trySMRObjects(w.wCtx, writerSMRBufferSize)
 	return nil
@@ -918,6 +925,7 @@ retry:
 		return err
 	}
 
+	nr := w.sts.NumLSSReads
 	pg.Delete(itm)
 
 	if !w.trySMOs(pid, pg, w.wCtx, true) {
@@ -926,6 +934,12 @@ retry:
 	}
 	w.sts.BytesIncoming += int64(w.itemSize(itm))
 	w.sts.Deletes++
+	if w.sts.NumLSSReads-nr > 0 {
+		w.sts.CacheMisses++
+	} else {
+		w.sts.CacheHits++
+	}
+
 	w.trySMRObjects(w.wCtx, writerSMRBufferSize)
 	return nil
 }
@@ -936,8 +950,15 @@ func (w *Writer) Lookup(itm unsafe.Pointer) (unsafe.Pointer, error) {
 		return nil, err
 	}
 
+	nr := w.sts.NumLSSReads
 	ret := pg.Lookup(itm)
 	w.trySMOs(pid, pg, w.wCtx, false)
+	if w.sts.NumLSSReads-nr > 0 {
+		w.sts.CacheMisses++
+	} else {
+		w.sts.CacheHits++
+	}
+
 	return ret, nil
 }
 

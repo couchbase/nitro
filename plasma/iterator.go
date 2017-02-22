@@ -53,6 +53,7 @@ func (f *defaultFilter) Reset() {}
 type Iterator struct {
 	store *Plasma
 	*wCtx
+	nr        int64
 	currPid   PageId
 	nextPid   PageId
 	currPgItr pgOpIterator
@@ -82,6 +83,7 @@ func (itr *Iterator) initPgIterator(pid PageId, seekItm unsafe.Pointer) {
 			itr.nextPid = pg.Next()
 			itr.filter.Reset()
 			itr.currPgItr, _ = newPgOpIterator(pg.head, pg.cmp, seekItm, pg.head.hiItm, itr.filter, itr.wCtx)
+			itr.nr = itr.sts.NumLSSReads
 			itr.currPgItr.Init()
 		} else {
 			itr.err = err
@@ -121,6 +123,11 @@ func (itr *Iterator) Valid() bool {
 func (itr *Iterator) tryNextPg() {
 	for !itr.currPgItr.Valid() {
 		itr.currPgItr.Close()
+		if itr.sts.NumLSSReads-itr.nr > 0 {
+			itr.sts.CacheMisses++
+		} else {
+			itr.sts.CacheHits++
+		}
 		if itr.nextPid == itr.store.EndPageId() {
 			break
 		}
