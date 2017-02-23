@@ -13,7 +13,7 @@ type lssBlockType uint16
 var lssBlockTypeSize = int(unsafe.Sizeof(*(new(lssBlockType))))
 
 const (
-	lssPageData lssBlockType = iota
+	lssPageData lssBlockType = iota + 1
 	lssPageReloc
 	lssPageUpdate
 	lssPageRemove
