@@ -113,6 +113,7 @@ type Stats struct {
 	CacheMisses int64
 
 	WriteAmp      float64
+	WriteAmpAvg   float64
 	CacheHitRatio float64
 	ResidentRatio float64
 }
@@ -183,6 +184,7 @@ func (s Stats) String() string {
 		"bytes_incoming    = %d\n"+
 		"bytes_written     = %d\n"+
 		"write_amp         = %.2f\n"+
+		"write_amp_avg     = %.2f\n"+
 		"lss_fragmentation = %d%%\n"+
 		"lss_data_size     = %d\n"+
 		"lss_used_space    = %d\n"+
@@ -207,7 +209,7 @@ func (s Stats) String() string {
 		s.NumPages, s.NumRecordAllocs, s.NumRecordFrees,
 		s.NumRecordSwapOut,
 		s.BytesIncoming, s.BytesWritten,
-		s.WriteAmp,
+		s.WriteAmp, s.WriteAmpAvg,
 		s.LSSFrag, s.LSSDataSize, s.LSSUsedSpace,
 		s.NumLSSReads, s.LSSReadBytes,
 		s.NumLSSCleanerReads, s.LSSCleanerReadBytes,
@@ -664,6 +666,11 @@ func (s *Plasma) GetStats() Stats {
 		sts.LSSCleanerReadBytes = s.lssCleanerWriter.sts.LSSReadBytes
 		sts.CacheHitRatio = s.gCtx.sts.CacheHitRatio
 		sts.WriteAmp = s.gCtx.sts.WriteAmp
+		bsOut := float64(sts.BytesWritten)
+		bsIn := float64(sts.BytesIncoming)
+		if bsIn > 0 {
+			sts.WriteAmpAvg = bsOut / bsIn
+		}
 		cachedRecs := sts.NumRecordAllocs - sts.NumRecordFrees
 		totalRecs := cachedRecs + sts.NumRecordSwapOut
 		if totalRecs > 0 {
