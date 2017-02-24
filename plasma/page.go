@@ -876,11 +876,13 @@ loop:
 			roffset += l
 			rpd := pg.allocRecordDelta(itm)
 			*(*pageDelta)(unsafe.Pointer(rpd)) = *pg.head
+			rpd.next = nil
 			rpd.op = op
 			pd = (*pageDelta)(unsafe.Pointer(rpd))
 		case opPageSplitDelta:
 			spd := pg.allocSplitPageDelta(hiItm)
 			*(*pageDelta)(unsafe.Pointer(spd)) = *pg.head
+			spd.next = nil
 			spd.op = op
 			spd.itm = pg.head.hiItm
 			pd = (*pageDelta)(unsafe.Pointer(spd))
@@ -907,6 +909,7 @@ loop:
 		case opRollbackDelta:
 			rpd := pg.allocRollbackPageDelta()
 			*(*pageDelta)(unsafe.Pointer(rpd)) = *pg.head
+			rpd.next = nil
 			rpd.rb = rollbackSn{
 				start: binary.BigEndian.Uint64(data[roffset : roffset+8]),
 				end:   binary.BigEndian.Uint64(data[roffset+8 : roffset+16]),
