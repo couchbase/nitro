@@ -13,7 +13,8 @@ type storePtr struct {
 func newTestPage() (*page, *storePtr) {
 	sp := new(storePtr)
 	pg := &page{
-		low: skiplist.MinItem,
+		allocCtx: new(allocCtx),
+		low:      skiplist.MinItem,
 		head: &pageDelta{
 			op:           opMetaDelta,
 			hiItm:        skiplist.MaxItem,
@@ -22,16 +23,15 @@ func newTestPage() (*page, *storePtr) {
 	}
 
 	pg.storeCtx = &storeCtx{
-		itemSize: func(unsafe.Pointer) uintptr {
+		itemSize: func(x unsafe.Pointer) uintptr {
+			if x == skiplist.MinItem || x == skiplist.MaxItem {
+				return 0
+			}
 			return unsafe.Sizeof(new(skiplist.IntKeyItem))
 		},
 		cmp: skiplist.CompareInt,
 		getPageId: func(unsafe.Pointer, *wCtx) PageId {
 			return nil
-		},
-
-		getItem: func(PageId) unsafe.Pointer {
-			return skiplist.MaxItem
 		},
 		getCompactFilter: func() ItemFilter {
 			return new(defaultFilter)
@@ -316,12 +316,14 @@ func TestPageMarshal(t *testing.T) {
 	y := 0
 	for pd := newPg.head; pd != nil; pd = pd.next {
 		if pd.op != opBasePage {
-			v := skiplist.IntFromItem((*recordDelta)(unsafe.Pointer(pd)).itm)
-			if pd.op != opDeleteDelta || x != v {
-				t.Errorf("expected op:%d, val:%d, got op:%d, val:%d",
-					opDeleteDelta, x, pd.op, v)
+			if pd.op == opInsertDelta || pd.op == opDeleteDelta {
+				v := skiplist.IntFromItem((*recordDelta)(unsafe.Pointer(pd)).itm)
+				if pd.op != opDeleteDelta || x != v {
+					t.Errorf("expected op:%d, val:%d, got op:%d, val:%d",
+						opDeleteDelta, x, pd.op, v)
+				}
+				x--
 			}
-			x--
 		} else {
 			bp := (*basePage)(unsafe.Pointer(pd))
 			for _, itm := range bp.items {

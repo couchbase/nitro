@@ -74,6 +74,10 @@ func Size() uint64 {
 	return uint64(C.mm_size())
 }
 
+func GetAllocStats() (uint64, uint64) {
+	return stats.allocs, stats.frees
+}
+
 // FreeOSMemory forces jemalloc to scrub memory and release back to OS
 func FreeOSMemory() error {
 	errCode := int(C.mm_free2os())

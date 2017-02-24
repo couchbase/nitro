@@ -462,6 +462,9 @@ func (m *Nitro) Close() {
 				iter.Next()
 			}
 		}
+
+		m.store.FreeNode(m.store.HeadNode(), &m.store.Stats)
+		m.store.FreeNode(m.store.TailNode(), &m.store.Stats)
 	}
 }
 

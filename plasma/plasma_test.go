@@ -17,7 +17,10 @@ var testCfg = Config{
 	MaxPageItems:     400,
 	MinPageItems:     25,
 	Compare:          skiplist.CompareInt,
-	ItemSize: func(unsafe.Pointer) uintptr {
+	ItemSize: func(x unsafe.Pointer) uintptr {
+		if x == skiplist.MinItem || x == skiplist.MaxItem {
+			return 0
+		}
 		return unsafe.Sizeof(new(skiplist.IntKeyItem))
 	},
 	File:                "teststore.data",
@@ -497,12 +500,23 @@ func TestPlasmaEviction(t *testing.T) {
 
 	n := 1000000
 	w := s.NewWriter()
-	for i := 0; i < n; i++ {
+	for i := 0; i < n+100000; i++ {
 		w.Insert(skiplist.NewIntKeyItem(i))
 	}
 
+	for i := n; i < n+100000; i++ {
+		w.Delete(skiplist.NewIntKeyItem(i))
+	}
+
+	w.CompactAll()
+
 	s.EvictAll()
 	s.EvictAll()
+	mem := s.GetStats().MemSz
+
+	if mem != 0 {
+		t.Errorf("Expected memory_usage=0, got=%d", mem)
+	}
 
 	for i := 0; i < n; i++ {
 		itm := skiplist.NewIntKeyItem(i)
@@ -511,9 +525,25 @@ func TestPlasmaEviction(t *testing.T) {
 			t.Errorf("mismatch %d != %d", i, skiplist.IntFromItem(got))
 		}
 	}
+
+	for i := n; i < n+1000000; i++ {
+		w.Insert(skiplist.NewIntKeyItem(i))
+	}
+
+	for i := n; i < n+100000; i++ {
+		w.Delete(skiplist.NewIntKeyItem(i))
+	}
+
+	s.EvictAll()
+	mem = s.GetStats().MemSz
+
+	if mem != 0 {
+		t.Errorf("Expected memory_usage=0, got=%d", mem)
+	}
+
 }
 
-func TestPlasmaEvictionPerf(t *testing.T) {
+func TestPlasmaEvictPerf(t *testing.T) {
 	var wg sync.WaitGroup
 
 	os.RemoveAll("teststore.data")

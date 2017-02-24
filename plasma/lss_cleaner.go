@@ -6,22 +6,19 @@ import (
 	"time"
 )
 
-func (s *Plasma) tryPageRelocation(pid PageId, pg Page, buf []byte) (bool, LSSOffset) {
+func (s *Plasma) tryPageRelocation(pid PageId, pg Page, buf []byte, ctx *wCtx) (bool, LSSOffset) {
 	var ok bool
 	bs, dataSz, staleSz, numSegments := pg.Marshal(buf, FullMarshal)
 	offset, wbuf, res := s.lss.ReserveSpace(lssBlockTypeSize + len(bs))
 	writeLSSBlock(wbuf, lssPageReloc, bs)
 
-	if pg.IsInCache() {
+	if pg.InCache() {
 		pg.AddFlushRecord(offset, dataSz, numSegments)
-		if ok = s.UpdateMapping(pid, pg); ok {
-			s.lssCleanerWriter.sts.MemSz += int64(pg.GetMemUsed())
-		}
 	} else {
-		ok = s.EvictPage(pid, pg, offset)
+		pg.Evict(offset)
 	}
 
-	if !ok {
+	if ok = s.UpdateMapping(pid, pg, ctx); !ok {
 		discardLSSBlock(wbuf)
 		s.lss.FinalizeWrite(res)
 		return false, 0
@@ -36,36 +33,41 @@ func (s *Plasma) tryPageRelocation(pid PageId, pg Page, buf []byte) (bool, LSSOf
 func (s *Plasma) CleanLSS(proceed func() bool) error {
 	var pg Page
 	w := s.lssCleanerWriter
-	relocBuf := w.wCtx.GetBuffer(0)
-	cleanerBuf := w.wCtx.GetBuffer(1)
+	relocBuf := w.GetBuffer(0)
+	cleanerBuf := w.GetBuffer(1)
 
 	relocated := 0
 	retries := 0
 	skipped := 0
 
 	callb := func(startOff, endOff LSSOffset, bs []byte) (cont bool, headOff LSSOffset, err error) {
+		tok := s.BeginTx()
+		defer s.EndTx(tok)
+
 		typ := getLSSBlockType(bs)
 		switch typ {
 		case lssPageData, lssPageReloc:
 			state, key := decodePageState(bs[lssBlockTypeSize:])
 		retry:
-			if pid := s.getPageId(key, w.wCtx); pid != nil {
-				if pg, err = s.ReadPage(pid, w.wCtx.pgRdrFn, false); err != nil {
+			if pid := s.getPageId(key, w); pid != nil {
+				if pg, err = s.ReadPage(pid, w.pgRdrFn, false, w); err != nil {
 					return false, 0, err
 				}
 
 				if pg.NeedRemoval() {
-					s.tryPageRemoval(pid, pg, w.wCtx)
+					s.tryPageRemoval(pid, pg, w)
 					goto retry
 				}
 
 				if pg.GetVersion() == state.GetVersion() || !pg.IsFlushed() {
-					if ok, _ := s.tryPageRelocation(pid, pg, relocBuf); !ok {
+					if ok, _ := s.tryPageRelocation(pid, pg, relocBuf, w); !ok {
 						retries++
 						goto retry
 					}
 					relocated++
 				} else {
+					allocs, _, _ := pg.GetMallocOps()
+					s.discardDeltas(allocs)
 					skipped++
 				}
 			}

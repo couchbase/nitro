@@ -65,13 +65,13 @@ func (s *Plasma) NewIterator() ItemIterator {
 		store:  s,
 		filter: new(defaultFilter),
 		// TODO: merge with plasma store stats
-		wCtx: s.newWCtx(),
+		wCtx: s.newWCtx2(),
 	}
 }
 
 func (itr *Iterator) initPgIterator(pid PageId, seekItm unsafe.Pointer) {
 	itr.currPid = pid
-	if pgPtr, err := itr.store.ReadPage(pid, itr.wCtx.pgRdrFn, true); err == nil {
+	if pgPtr, err := itr.store.ReadPage(pid, itr.wCtx.pgRdrFn, true, itr.wCtx); err == nil {
 		pg := pgPtr.(*page)
 		if err == nil {
 			if pg.IsEmpty() {

@@ -107,8 +107,8 @@ func NewWithConfig(cfg Config) *Skiplist {
 		s.freeNode = func(*Node) {}
 	}
 
-	head := allocNode(MinItem, MaxLevel, nil)
-	tail := allocNode(MaxItem, MaxLevel, nil)
+	head := s.newNode(MinItem, MaxLevel)
+	tail := s.newNode(MaxItem, MaxLevel)
 
 	for i := 0; i <= MaxLevel; i++ {
 		head.setNext(i, tail, false)
@@ -362,11 +362,16 @@ func (s *Skiplist) Delete(itm unsafe.Pointer, cmp CompareFn,
 }
 
 // DeleteNode an item from the skiplist by specifying its node
+
 func (s *Skiplist) DeleteNode(n *Node, cmp CompareFn,
 	buf *ActionBuffer, sts *Stats) bool {
 	token := s.barrier.Acquire()
 	defer s.barrier.Release(token)
+	return s.DeleteNode2(n, cmp, buf, sts)
+}
 
+func (s *Skiplist) DeleteNode2(n *Node, cmp CompareFn,
+	buf *ActionBuffer, sts *Stats) bool {
 	return s.deleteNode(n, cmp, buf, sts)
 }
 

@@ -145,13 +145,15 @@ func (s *Snapshot) Close() {
 
 type MVCCIterator struct {
 	snap *Snapshot
-	ItemIterator
+	*Iterator
+	token TxToken
 }
 
 func (itr *MVCCIterator) Seek(k []byte) {
 	sn := atomic.LoadUint64(&itr.snap.db.currSn)
-	itm := unsafe.Pointer(itr.snap.db.newItem(k, nil, sn, false))
-	itr.ItemIterator.Seek(itm)
+	kbuf := itr.Iterator.GetBuffer(bufTempItem)
+	itm := unsafe.Pointer(itr.snap.db.newItem(k, nil, sn, false, kbuf))
+	itr.Iterator.Seek(itm)
 }
 
 func (itr *MVCCIterator) Key() []byte {
@@ -164,9 +166,11 @@ func (itr *MVCCIterator) Value() []byte {
 
 func (itr *MVCCIterator) Close() {
 	itr.snap.Close()
+	itr.snap.db.EndTx(itr.token)
 }
 
 func (s *Snapshot) NewIterator() *MVCCIterator {
+	tok := s.db.BeginTx()
 	s.Open()
 	itr := s.db.NewIterator().(*Iterator)
 	itr.filter = &snFilter{
@@ -174,8 +178,9 @@ func (s *Snapshot) NewIterator() *MVCCIterator {
 	}
 
 	return &MVCCIterator{
-		snap:         s,
-		ItemIterator: itr,
+		token:    tok,
+		snap:     s,
+		Iterator: itr,
 	}
 }
 
@@ -207,23 +212,38 @@ func (s *Plasma) newSnapshot() (snap *Snapshot) {
 	s.currSnapshot = nextSnap
 	s.updateMaxSn(nextSnap.sn, false)
 
+	if s.useMemMgmt {
+		var smrList [][]reclaimObject
+		for _, w := range s.wlist {
+			if len(w.wCtx.reclaimList) > 0 {
+				smrList = append(smrList, w.wCtx.reclaimList)
+				w.wCtx.reclaimList = nil
+			}
+		}
+
+		s.FreeObjects(smrList)
+	}
+
 	return
 }
 
 func (w *Writer) InsertKV(k, v []byte) error {
 	sn := atomic.LoadUint64(&w.currSn)
-	itm := w.newItem(k, v, sn, false)
+	itmBuf := w.GetBuffer(bufTempItem)
+	itm := w.newItem(k, v, sn, false, itmBuf)
 	return w.Insert(unsafe.Pointer(itm))
 }
 
 func (w *Writer) DeleteKV(k []byte) error {
 	sn := atomic.LoadUint64(&w.currSn)
-	itm := w.newItem(k, nil, sn, true)
+	itmBuf := w.GetBuffer(bufTempItem)
+	itm := w.newItem(k, nil, sn, true, itmBuf)
 	return w.Insert(unsafe.Pointer(itm))
 }
 
 func (w *Writer) LookupKV(k []byte) ([]byte, error) {
-	itm := w.newItem(k, nil, 0, false)
+	itmBuf := w.GetBuffer(bufTempItem)
+	itm := w.newItem(k, nil, 0, false, itmBuf)
 	o, err := w.Lookup(unsafe.Pointer(itm))
 	itm = (*item)(o)
 
@@ -319,7 +339,7 @@ func (s *Plasma) Rollback(rollRP *RecoveryPoint) (*Snapshot, error) {
 		w := s.persistWriters[partn.Shard]
 		pgBuf := w.GetBuffer(0)
 	retry:
-		if pg, err := s.ReadPage(pid, w.pgRdrFn, true); err == nil {
+		if pg, err := s.ReadPage(pid, w.pgRdrFn, true, w); err == nil {
 			pg.Rollback(start, end)
 			pgBuf, fdSz, staleFdSz, numSegments := pg.Marshal(pgBuf, s.Config.MaxPageLSSSegments)
 			offset, wbuf, res := s.lss.ReserveSpace(len(pgBuf) + lssBlockTypeSize)
@@ -327,10 +347,10 @@ func (s *Plasma) Rollback(rollRP *RecoveryPoint) (*Snapshot, error) {
 			writeLSSBlock(wbuf, typ, pgBuf)
 			pg.AddFlushRecord(offset, fdSz, numSegments)
 			s.lss.FinalizeWrite(res)
-			w.wCtx.sts.FlushDataSz += int64(fdSz) - int64(staleFdSz)
+			w.sts.FlushDataSz += int64(fdSz) - int64(staleFdSz)
 
 			// May conflict with cleaner
-			if !s.UpdateMapping(pid, pg) {
+			if !s.UpdateMapping(pid, pg, w) {
 				goto retry
 			}
 
