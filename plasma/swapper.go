@@ -10,7 +10,7 @@ import (
 
 const (
 	swapperWorkChanBufSize = 40
-	swapperWorkBatchSize   = 4
+	swapperWorkBatchSize   = 16
 	swapperWaitInterval    = time.Microsecond * 10
 )
 
@@ -94,9 +94,7 @@ func (s *Plasma) swapperDaemon() {
 				default:
 				}
 
-				sts := s.GetStats()
-				numRecs := sts.NumRecordAllocs - sts.NumRecordFrees
-				if s.TriggerSwapper(sctx) && numRecs > 0 {
+				if s.TriggerSwapper(sctx) {
 					s.tryEvictPages(s.evictWriters[i])
 					s.trySMRObjects(s.evictWriters[i], swapperSMRInterval)
 				} else {
