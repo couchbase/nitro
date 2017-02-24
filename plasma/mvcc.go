@@ -336,7 +336,7 @@ func (s *Plasma) Rollback(rollRP *RecoveryPoint) (*Snapshot, error) {
 
 	callb := func(pid PageId, partn RangePartition) error {
 		w := s.persistWriters[partn.Shard]
-		pgBuf := w.GetBuffer(0)
+		pgBuf := w.GetBuffer(bufPersist)
 	retry:
 		if pg, err := s.ReadPage(pid, w.pgRdrFn, true, w); err == nil {
 			pg.Rollback(start, end)

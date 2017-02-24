@@ -13,7 +13,18 @@ import (
 
 type PageReader func(offset LSSOffset) (Page, error)
 
-const maxCtxBuffers = 6
+const maxCtxBuffers = 8
+const (
+	bufEncPage int = iota
+	bufEncMeta
+	bufTempItem
+	bufReloc
+	bufCleaner
+	bufRecovery
+	bufFetch
+	bufPersist
+)
+
 const recoverySMRInterval = 100
 
 var (
@@ -394,7 +405,7 @@ func (s *Plasma) doInit() {
 func (s *Plasma) doRecovery() error {
 	pg := newPage(s.gCtx, nil, nil).(*page)
 
-	buf := s.gCtx.GetBuffer(0)
+	buf := s.gCtx.GetBuffer(bufRecovery)
 
 	fn := func(offset LSSOffset, bs []byte) (bool, error) {
 		typ := getLSSBlockType(bs)
@@ -604,15 +615,6 @@ func (s *Plasma) newWCtx2() *wCtx {
 	return ctx
 }
 
-const (
-	bufEncPage int = iota
-	bufEncMeta
-	bufEncSMO
-	bufTempItem
-	bufReloc
-	bufCleaner
-)
-
 func (ctx *wCtx) GetBuffer(id int) []byte {
 	if ctx.pgBuffers[id] == nil {
 		ctx.pgBuffers[id] = make([]byte, maxPageEncodedSize)
@@ -727,8 +729,8 @@ func (s *Plasma) tryPageRemoval(pid PageId, pg Page, ctx *wCtx) {
 		return
 	}
 
-	var pgBuf = ctx.GetBuffer(0)
-	var metaBuf = ctx.GetBuffer(1)
+	var pgBuf = ctx.GetBuffer(bufEncPage)
+	var metaBuf = ctx.GetBuffer(bufEncMeta)
 	var fdSz, staleFdSz int
 
 	pPg.Merge(pg)
@@ -797,8 +799,8 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 		splitPid := s.AllocPageId(ctx)
 
 		var fdSz, splitFdSz, staleFdSz, numSegments, numSegmentsSplit int
-		var pgBuf = ctx.GetBuffer(0)
-		var splitPgBuf = ctx.GetBuffer(1)
+		var pgBuf = ctx.GetBuffer(bufEncPage)
+		var splitPgBuf = ctx.GetBuffer(bufEncMeta)
 
 		newPg := pg.Split(splitPid)
 
@@ -987,7 +989,7 @@ func (s *Plasma) fetchPageFromLSS2(baseOffset LSSOffset, ctx *wCtx,
 	aCtx *allocCtx, sCtx *storeCtx) (*page, error) {
 	pg := newPage2(nil, nil, ctx, sCtx, aCtx).(*page)
 	offset := baseOffset
-	data := ctx.GetBuffer(bufEncPage)
+	data := ctx.GetBuffer(bufFetch)
 	numSegments := 0
 loop:
 	for {
