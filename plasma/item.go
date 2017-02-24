@@ -105,7 +105,13 @@ func (s *Plasma) newItem(k, v []byte, sn uint64, del bool, buf []byte) *item {
 		sz += itmKlenSize
 	}
 
-	ptr := unsafe.Pointer(&buf[0])
+	var ptr unsafe.Pointer
+	if buf == nil {
+		ptr = s.alloc(sz)
+	} else {
+		ptr = unsafe.Pointer(&buf[0])
+	}
+
 	hdr := (*uint32)(ptr)
 	*hdr = 0
 	if !del {
