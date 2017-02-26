@@ -531,7 +531,9 @@ func (pg *page) Split(pid PageId) Page {
 
 	if mid > 0 {
 		numItems := len(items[:mid])
-		return pg.doSplit(items[mid], pid, numItems)
+		if pgi := pg.doSplit(items[mid], pid, numItems); pgi != nil {
+			return pgi
+		}
 	}
 
 	return nil
@@ -542,9 +544,12 @@ func (pg *page) doSplit(itm unsafe.Pointer, pid PageId, numItems int) *page {
 	*splitPage = *pg
 	splitPage.prevHeadPtr = nil
 	it, itms, _ := pg.collectItems(pg.head, itm, pg.head.hiItm)
+	defer it.Close()
+	if len(itms) == 0 {
+		return nil
+	}
 	bp := pg.newBasePage(itms)
 	splitPage.head = bp
-	it.Close()
 
 	itm = (*basePage)(unsafe.Pointer(bp)).items[0]
 	splitPage.low = itm
