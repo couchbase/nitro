@@ -81,6 +81,10 @@ func (w *pageWalker) RollbackInfo() (uint64, uint64) {
 func (w *pageWalker) Next() {
 	if w.currPd.op == opBasePage {
 		w.maxCount = w.count
+	} else if w.currPd.op == opSwapinDelta {
+		w.pgCache = (*swapinDelta)(unsafe.Pointer(w.currPd)).ptr
+		w.currPd = w.currPd.next
+		w.count++
 	} else if w.currPd.op == opSwapoutDelta {
 		if w.pgCache == nil {
 			var err error
@@ -117,5 +121,16 @@ func (w *pageWalker) Close() {
 	if w.aCtx != nil {
 		allocs, _, _, _ := w.aCtx.GetMallocOps()
 		w.discardDeltas(allocs)
+	}
+}
+
+func (w *pageWalker) SwapIn(pg *page) {
+	if w.aCtx != nil {
+		pg.allocDeltaList = append(pg.allocDeltaList, w.aCtx.allocDeltaList...)
+		pg.memUsed += w.aCtx.memUsed
+		pg.n += w.aCtx.n
+		pg.SwapIn(w.pgCache)
+		w.aCtx = nil
+		w.pgCache = nil
 	}
 }

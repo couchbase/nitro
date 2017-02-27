@@ -15,6 +15,7 @@ var (
 	removePageDeltaSize = unsafe.Sizeof(*new(removePageDelta))
 	rollbackDeltaSize   = unsafe.Sizeof(*new(rollbackDelta))
 	swapoutDeltaSize    = unsafe.Sizeof(*new(swapoutDelta))
+	swapinDeltaSize     = unsafe.Sizeof(*new(swapinDelta))
 )
 
 type pgFreeObj struct {
@@ -61,6 +62,9 @@ func (s *storeCtx) destroyPg(ptr *pageDelta) {
 			} else if pd.op == opPageMergeDelta {
 				pdm := (*mergePageDelta)(unsafe.Pointer(pd))
 				s.destroyPg(pdm.mergeSibling)
+			} else if pd.op == opSwapinDelta {
+				sid := (*swapinDelta)(unsafe.Pointer(pd))
+				s.destroyPg(sid.ptr)
 			}
 
 			s.freeMM(unsafe.Pointer(pd))
@@ -243,5 +247,19 @@ func (pg *page) allocSwapoutDelta(hiItm unsafe.Pointer) *swapoutDelta {
 
 	d := new(swapoutDelta)
 	d.hiItm = pg.dup(hiItm)
+	return d
+}
+
+func (pg *page) allocSwapinDelta() *swapinDelta {
+	size := swapoutDeltaSize
+	pg.memUsed += int(size)
+
+	if pg.useMemMgmt {
+		ptr := pg.allocMM(size)
+		pg.addDeltaAlloc(ptr)
+		return (*swapinDelta)(ptr)
+	}
+
+	d := new(swapinDelta)
 	return d
 }

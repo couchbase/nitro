@@ -28,6 +28,7 @@ const (
 	opRollbackDelta
 
 	opSwapoutDelta
+	opSwapinDelta
 )
 
 const (
@@ -77,6 +78,7 @@ type Page interface {
 	Next() PageId
 
 	Evict(offset LSSOffset, numSegments int)
+	SwapIn(ptr *pageDelta)
 
 	GetMallocOps() (a []*pageDelta, f []pgFreeObj, n int, sz int)
 	GetFlushDataSize() int
@@ -250,6 +252,11 @@ type swapoutDelta struct {
 
 	offset      LSSOffset
 	numSegments int32
+}
+
+type swapinDelta struct {
+	pageDelta
+	ptr *pageDelta
 }
 
 type ItemSizeFn func(unsafe.Pointer) uintptr
@@ -474,6 +481,7 @@ loop:
 		case opFlushPageDelta:
 		case opRelocPageDelta:
 		case opPageRemoveDelta:
+		case opSwapinDelta:
 		case opMetaDelta:
 		case opSwapoutDelta:
 		default:
@@ -822,7 +830,7 @@ loop:
 			woffset += 8
 			binary.BigEndian.PutUint64(buf[woffset:woffset+8], uint64(end))
 			woffset += 8
-		case opPageRemoveDelta, opMetaDelta:
+		case opPageRemoveDelta, opMetaDelta, opSwapinDelta:
 		default:
 			panic(fmt.Sprintf("unknown delta %d", op))
 		}
@@ -838,6 +846,7 @@ loop:
 		binary.BigEndian.PutUint16(stateBuf, uint16(state))
 	}
 
+	pw.SwapIn(pg)
 	return woffset, staleFdSz, numSegments
 }
 
@@ -1175,6 +1184,15 @@ func (pg *page) Evict(offset LSSOffset, numSegs int) {
 	pg.head = (*pageDelta)(unsafe.Pointer(sod))
 }
 
+func (pg *page) SwapIn(ptr *pageDelta) {
+	sid := pg.allocSwapinDelta()
+	sid.ptr = ptr
+	*(*pageDelta)(unsafe.Pointer(sid)) = *pg.head
+	sid.op = opSwapinDelta
+	sid.next = pg.head
+	pg.head = (*pageDelta)(unsafe.Pointer(sid))
+}
+
 func (pg *page) SetNumSegments(n int) {
 	if pg.head.op == opFlushPageDelta {
 		fpd := (*flushPageDelta)(unsafe.Pointer(pg.head))
@@ -1230,6 +1248,12 @@ loop:
 			sod := (*swapoutDelta)(unsafe.Pointer(pd))
 			size += int(swapoutDeltaSize + itemSize(sod.hiItm))
 			break loop
+		case opSwapinDelta:
+			sid := (*swapinDelta)(unsafe.Pointer(pd))
+			nx, sx := computeMemUsed(sid.ptr, itemSize)
+			size += int(swapinDeltaSize)
+			size += sx
+			n += nx
 		default:
 			panic(fmt.Sprintf("unsupported delta %d", pd.op))
 		}

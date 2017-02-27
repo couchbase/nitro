@@ -8,9 +8,6 @@ import (
 
 func (s *Plasma) tryPageRelocation(pid PageId, pg Page, buf []byte, ctx *wCtx) (bool, LSSOffset) {
 	var ok bool
-
-	// TODO: Avoid compact if the page does not have any swapout deltas
-	staleFdSz := pg.Compact()
 	bs, dataSz, staleSz, numSegments := pg.Marshal(buf, FullMarshal)
 	offset, wbuf, res := s.lss.ReserveSpace(lssBlockTypeSize + len(bs))
 	writeLSSBlock(wbuf, lssPageReloc, bs)
@@ -23,8 +20,6 @@ func (s *Plasma) tryPageRelocation(pid PageId, pg Page, buf []byte, ctx *wCtx) (
 		return false, 0
 	}
 
-	ctx.sts.Compacts++
-	ctx.sts.FlushDataSz -= int64(staleFdSz)
 	s.lss.FinalizeWrite(res)
 	s.lssCleanerWriter.sts.FlushDataSz += int64(dataSz) - int64(staleSz)
 	relocEnd := lssBlockEndOffset(offset, wbuf)
