@@ -143,23 +143,36 @@ func (pil *pageItemsList) At(i int) PageItem {
 	return (*pil)[i]
 }
 
+// | 14 bit version | 1 bit evicted | 1 bit flushed |
 type pageState uint16
 
 func (ps *pageState) GetVersion() uint16 {
-	return uint16(*ps & 0x7fff)
+	return uint16(*ps & 0x3fff)
 }
 
 func (ps *pageState) IsFlushed() bool {
-	return *ps&0x8000 == 0x8000
+	return *ps&0x8000 > 0
 }
 
 func (ps *pageState) SetFlushed() {
 	*ps |= 0x8000
 }
 
+func (ps *pageState) IsEvicted() bool {
+	return *ps&0x4000 > 0
+}
+
+func (ps *pageState) SetEvicted(v bool) {
+	if v {
+		*ps |= 0x4000
+	} else {
+		*ps &= 0xbfff
+	}
+}
+
 func (ps *pageState) IncrVersion() {
-	v := uint16(*ps & 0x7fff)
-	*ps = pageState((v + 1) & 0x7fff)
+	v := uint16(*ps & 0x3fff)
+	*ps = pageState((v + 1) & 0x3fff)
 }
 
 type metaPageDelta pageDelta
@@ -1177,6 +1190,7 @@ func (pg *page) Evict(offset LSSOffset, numSegs int) {
 	hiItm := sod.hiItm
 	*(*pageDelta)(unsafe.Pointer(sod)) = *pg.head
 	sod.hiItm = hiItm
+	sod.state.SetEvicted(true)
 	sod.op = opSwapoutDelta
 	sod.offset = offset
 	sod.numSegments = int32(numSegs)
@@ -1188,6 +1202,7 @@ func (pg *page) SwapIn(ptr *pageDelta) {
 	sid := pg.allocSwapinDelta()
 	sid.ptr = ptr
 	*(*pageDelta)(unsafe.Pointer(sid)) = *pg.head
+	sid.state.SetEvicted(false)
 	sid.op = opSwapinDelta
 	sid.next = pg.head
 	pg.head = (*pageDelta)(unsafe.Pointer(sid))
