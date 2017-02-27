@@ -420,7 +420,7 @@ func (s *Plasma) doRecovery() error {
 			rmPglow := getRmPageLow(bs)
 			pid := s.getPageId(rmPglow, s.gCtx)
 			if pid != nil {
-				currPg, err := s.ReadPage(pid, s.gCtx.pgRdrFn, true, s.gCtx)
+				currPg, err := s.ReadPage(pid, s.gCtx.pgRdrFn, false, s.gCtx)
 				if err != nil {
 					return false, err
 				}
@@ -444,7 +444,7 @@ func (s *Plasma) doRecovery() error {
 				flushDataSz := len(bs)
 				s.gCtx.sts.FlushDataSz += int64(flushDataSz)
 
-				currPg, err := s.ReadPage(pid, s.gCtx.pgRdrFn, true, s.gCtx)
+				currPg, err := s.ReadPage(pid, s.gCtx.pgRdrFn, false, s.gCtx)
 				if err != nil {
 					return false, err
 				}
@@ -479,7 +479,7 @@ func (s *Plasma) doRecovery() error {
 	// Initialize rightSiblings for all pages
 	var lastPg Page
 	callb := func(pid PageId, partn RangePartition) error {
-		pg, err := s.ReadPage(pid, s.gCtx.pgRdrFn, true, s.gCtx)
+		pg, err := s.ReadPage(pid, s.gCtx.pgRdrFn, false, s.gCtx)
 		if lastPg != nil {
 			if err == nil && s.cmp(lastPg.MaxItem(), pg.MinItem()) != 0 {
 				panic("found missing page")
@@ -723,7 +723,7 @@ func (s *Plasma) tryPageRemoval(pid PageId, pg Page, ctx *wCtx) {
 	}
 
 	pPid := PageId(prev)
-	pPg, err := s.ReadPage(pPid, ctx.pgRdrFn, true, ctx)
+	pPg, err := s.ReadPage(pPid, ctx.pgRdrFn, false, ctx)
 	if err != nil {
 		s.logError(fmt.Sprintf("tryPageRemove: err=%v", err))
 		return
@@ -892,7 +892,7 @@ retry:
 refresh:
 	s.tryThrottleForMemory(ctx)
 
-	if pg, err = s.ReadPage(pid, ctx.pgRdrFn, true, ctx); err != nil {
+	if pg, err = s.ReadPage(pid, ctx.pgRdrFn, false, ctx); err != nil {
 		return nil, nil, err
 	}
 

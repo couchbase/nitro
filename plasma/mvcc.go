@@ -338,7 +338,7 @@ func (s *Plasma) Rollback(rollRP *RecoveryPoint) (*Snapshot, error) {
 		w := s.persistWriters[partn.Shard]
 		pgBuf := w.GetBuffer(bufPersist)
 	retry:
-		if pg, err := s.ReadPage(pid, w.pgRdrFn, true, w); err == nil {
+		if pg, err := s.ReadPage(pid, w.pgRdrFn, false, w); err == nil {
 			pg.Rollback(start, end)
 			pgBuf, fdSz, staleFdSz, numSegments := pg.Marshal(pgBuf, s.Config.MaxPageLSSSegments)
 			offset, wbuf, res := s.lss.ReserveSpace(len(pgBuf) + lssBlockTypeSize)

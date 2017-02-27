@@ -150,28 +150,14 @@ func (s *Plasma) ReadPage(pid PageId, pgRdr PageReader, swapin bool, ctx *wCtx) 
 
 retry:
 	ptr := atomic.LoadPointer(&n.Link)
+	pg = newPage(ctx, n.Item(), ptr)
 
-	if offset := uint64(uintptr(ptr)); offset&evictMask > 0 {
-		if pgRdr == nil {
-			pg = newPage(ctx, n.Item(), nil)
-			pg.SetNext(NextPid(pid))
-			return pg, nil
+	if swapin {
+		s.tryPageSwapin(pg)
+		if !s.UpdateMapping(pid, pg, ctx) {
+			goto retry
 		}
 
-		var err error
-		off := LSSOffset(offset & ^evictMask)
-		pg, err = pgRdr(off)
-		if err != nil {
-			return nil, err
-		}
-
-		if swapin {
-			if !s.UpdateMapping(pid, pg, ctx) {
-				goto retry
-			}
-		}
-	} else {
-		pg = newPage(ctx, n.Item(), ptr)
 	}
 
 	return pg, nil
