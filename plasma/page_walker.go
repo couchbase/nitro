@@ -12,7 +12,9 @@ type pageWalker struct {
 	maxCount int
 
 	*wCtx
-	pgCache *page
+
+	aCtx    *allocCtx
+	pgCache *pageDelta
 }
 
 func newPgDeltaWalker(pd *pageDelta, ctx *wCtx) pageWalker {
@@ -83,14 +85,17 @@ func (w *pageWalker) Next() {
 		if w.pgCache == nil {
 			var err error
 			sod := (*swapoutDelta)(unsafe.Pointer(w.currPd))
-			w.pgCache, err = w.fetchPageFromLSS2(sod.offset, w.wCtx,
-				new(allocCtx), w.wCtx.storeCtx)
+			w.aCtx = new(allocCtx)
+			fetchPg, err := w.fetchPageFromLSS2(sod.offset, w.wCtx,
+				w.aCtx, w.wCtx.storeCtx)
 			if err != nil {
 				panic(fmt.Sprintf("fatal: %v", err))
 			}
+
+			w.pgCache = fetchPg.head
 		}
 
-		w.currPd = w.pgCache.head
+		w.currPd = w.pgCache
 		w.count++
 	} else {
 		w.currPd = w.currPd.next
@@ -109,8 +114,8 @@ func (w *pageWalker) SetEndAndRestart() {
 }
 
 func (w *pageWalker) Close() {
-	if w.pgCache != nil {
-		allocs, _, _, _ := w.pgCache.GetMallocOps()
+	if w.aCtx != nil {
+		allocs, _, _, _ := w.aCtx.GetMallocOps()
 		w.discardDeltas(allocs)
 	}
 }

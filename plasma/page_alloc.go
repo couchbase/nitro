@@ -29,6 +29,19 @@ type allocCtx struct {
 	n              int
 }
 
+func (aCtx *allocCtx) GetMallocOps() ([]*pageDelta, []pgFreeObj, int, int) {
+	a := aCtx.allocDeltaList
+	f := aCtx.freePageList
+	m := aCtx.memUsed
+	n := aCtx.n
+
+	aCtx.memUsed = 0
+	aCtx.n = 0
+	aCtx.allocDeltaList = aCtx.allocDeltaList[:0]
+	aCtx.freePageList = aCtx.freePageList[:0]
+	return a, f, n, m
+}
+
 func (ctx *allocCtx) addDeltaAlloc(ptr unsafe.Pointer) {
 	ctx.allocDeltaList = append(ctx.allocDeltaList, (*pageDelta)(ptr))
 }

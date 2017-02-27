@@ -1185,19 +1185,6 @@ func (pg *page) SetNumSegments(n int) {
 	panic(fmt.Sprintf("invalid delta op:%d", pg.head.op))
 }
 
-func (pg *page) GetMallocOps() ([]*pageDelta, []pgFreeObj, int, int) {
-	a := pg.allocDeltaList
-	f := pg.freePageList
-	m := pg.memUsed
-	n := pg.n
-
-	pg.memUsed = 0
-	pg.n = 0
-	pg.allocDeltaList = pg.allocDeltaList[:0]
-	pg.freePageList = pg.freePageList[:0]
-	return a, f, n, m
-}
-
 func (pg *page) ComputeMemUsed() int {
 	_, size := computeMemUsed(pg.head, pg.itemSize)
 	return size
