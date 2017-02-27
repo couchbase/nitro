@@ -63,7 +63,7 @@ type Plasma struct {
 	recoveryPoints []*RecoveryPoint
 
 	hasMemoryPressure bool
-	ch                *clockHandle
+	clockHandle       *clockHandle
 	clockLock         sync.Mutex
 
 	smrWg   sync.WaitGroup
@@ -299,6 +299,10 @@ func New(cfg Config) (*Plasma, error) {
 	pg := s.newSeedPage(s.gCtx)
 	s.CreateMapping(pid, pg, s.gCtx)
 
+	sbuf := dbInstances.MakeBuf()
+	defer dbInstances.FreeBuf(sbuf)
+	dbInstances.Insert(unsafe.Pointer(s), ComparePlasma, sbuf, &dbInstances.Stats)
+
 	if s.shouldPersist {
 		commitDur := time.Duration(cfg.SyncInterval) * time.Second
 		s.lss, err = NewLSStore(cfg.File, cfg.LSSLogSegmentSize, cfg.FlushBufferSize, 2, commitDur)
@@ -307,6 +311,7 @@ func New(cfg Config) (*Plasma, error) {
 		}
 
 		s.lss.SetSafeTrimCallback(s.findSafeLSSTrimOffset)
+		s.initLRUClock()
 		err = s.doRecovery()
 	}
 
@@ -333,10 +338,6 @@ func New(cfg Config) (*Plasma, error) {
 			go s.swapperDaemon()
 		}
 	}
-
-	sbuf := dbInstances.MakeBuf()
-	defer dbInstances.FreeBuf(sbuf)
-	dbInstances.Insert(unsafe.Pointer(s), ComparePlasma, sbuf, &dbInstances.Stats)
 
 	go s.monitorMemUsage()
 	go s.runtimeStats()
@@ -432,16 +433,18 @@ func (s *Plasma) doRecovery() error {
 			}
 		case lssPageData, lssPageReloc, lssPageUpdate:
 			pg.Unmarshal(bs, s.gCtx)
+			flushDataSz := len(bs)
 
 			newPageData := (typ == lssPageData || typ == lssPageReloc)
 			if pid := s.getPageId(pg.low, s.gCtx); pid == nil {
 				if newPageData {
+					s.gCtx.sts.FlushDataSz += int64(flushDataSz)
+					pg.AddFlushRecord(offset, flushDataSz, 1)
 					pid = s.AllocPageId(s.gCtx)
 					s.CreateMapping(pid, pg, s.gCtx)
 					s.indexPage(pid, s.gCtx)
 				}
 			} else {
-				flushDataSz := len(bs)
 				s.gCtx.sts.FlushDataSz += int64(flushDataSz)
 
 				currPg, err := s.ReadPage(pid, s.gCtx.pgRdrFn, false, s.gCtx)
@@ -456,7 +459,7 @@ func (s *Plasma) doRecovery() error {
 				} else {
 					_, numSegments, _ := currPg.GetFlushInfo()
 					pg.Append(currPg)
-					pg.AddFlushRecord(offset, flushDataSz, numSegments)
+					pg.AddFlushRecord(offset, flushDataSz, numSegments+1)
 				}
 
 				pg.prevHeadPtr = currPg.(*page).prevHeadPtr
@@ -465,6 +468,7 @@ func (s *Plasma) doRecovery() error {
 		}
 
 		pg.Reset()
+		s.tryEvictPages(s.gCtx)
 		s.trySMRObjects(s.gCtx, recoverySMRInterval)
 		return true, nil
 	}

@@ -1172,13 +1172,15 @@ func (pg *page) NeedsFlush() bool {
 	return true
 }
 
-// TODO: fix for relocat vs swapout
 func (pg *page) GetFlushInfo() (LSSOffset, int, int) {
-	if pg.head.op == opFlushPageDelta || pg.head.op == opRelocPageDelta {
+	if pg.head == nil {
+		return 0, 1, 0
+	} else if pg.head.op == opFlushPageDelta || pg.head.op == opRelocPageDelta {
 		fpd := (*flushPageDelta)(unsafe.Pointer(pg.head))
 		return fpd.offset, int(fpd.numSegments), int(fpd.flushDataSz)
-	} else if pg.head.op == opMetaDelta {
-		return 0, 0, 0
+	} else if pg.head.op == opSwapoutDelta {
+		sod := (*swapoutDelta)(unsafe.Pointer(pg.head))
+		return sod.offset, int(sod.numSegments), 0
 	}
 
 	panic(fmt.Sprintf("invalid delta op:%d", pg.head.op))

@@ -22,7 +22,7 @@ type clockHandle struct {
 
 func (s *Plasma) acquireClockHandle() *clockHandle {
 	s.clockLock.Lock()
-	return s.ch
+	return s.clockHandle
 }
 
 func (s *Plasma) releaseClockHandle(h *clockHandle) {
@@ -72,15 +72,18 @@ func (s *Plasma) tryEvictPages(ctx *wCtx) {
 	}
 }
 
-func (s *Plasma) swapperDaemon() {
-	var wg sync.WaitGroup
-
-	killch := make(chan struct{})
-	s.ch = &clockHandle{
+func (s *Plasma) initLRUClock() {
+	s.clockHandle = &clockHandle{
 		buf: make([]byte, maxPageEncodedSize),
 		itr: s.Skiplist.NewIterator2(s.cmp,
 			s.Skiplist.MakeBuf()),
 	}
+}
+
+func (s *Plasma) swapperDaemon() {
+	var wg sync.WaitGroup
+
+	killch := make(chan struct{})
 
 	for i := 0; i < s.NumEvictorThreads; i++ {
 		wg.Add(1)
