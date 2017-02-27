@@ -733,6 +733,7 @@ func (s *Plasma) tryPageRemoval(pid PageId, pg Page, ctx *wCtx) {
 	var metaBuf = ctx.GetBuffer(bufEncMeta)
 	var fdSz, staleFdSz int
 
+	s.tryPageSwapin(pg)
 	pPg.Merge(pg)
 
 	var offsets []LSSOffset
@@ -1066,4 +1067,13 @@ func MemoryInUse2(ctx SwapperContext) (sz int64) {
 	}
 
 	return
+}
+
+func (s *Plasma) tryPageSwapin(pg Page) {
+	pgi := pg.(*page)
+	if pgi.head != nil && pgi.head.state.IsEvicted() {
+		pw := newPgDeltaWalker(pgi.head, pgi.ctx)
+		pw.SwapIn(pgi)
+		pw.Close()
+	}
 }
