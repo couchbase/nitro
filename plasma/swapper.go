@@ -93,6 +93,7 @@ func (s *Plasma) swapperDaemon() {
 			for {
 				select {
 				case <-killch:
+					s.trySMRObjects(s.evictWriters[i], 0)
 					return
 				default:
 				}
