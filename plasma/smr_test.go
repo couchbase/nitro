@@ -144,4 +144,13 @@ func TestSMRConcurrent(t *testing.T) {
 	if a-b != 0 {
 		t.Errorf("Found memory leak of %d allocs", a-b)
 	}
+
+	fmt.Println("Reopening db....")
+	s = newTestIntPlasmaStore(cfg)
+	s.Close()
+
+	a, b = mm.GetAllocStats()
+	if a-b != 0 {
+		t.Errorf("Found memory leak of %d allocs", a-b)
+	}
 }
