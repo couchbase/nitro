@@ -446,6 +446,8 @@ func (s *Plasma) doRecovery() error {
 					pid = s.AllocPageId(s.gCtx)
 					s.CreateMapping(pid, pg, s.gCtx)
 					s.indexPage(pid, s.gCtx)
+				} else {
+					pg.free(false)
 				}
 			} else {
 				s.gCtx.sts.FlushDataSz += int64(flushDataSz)
