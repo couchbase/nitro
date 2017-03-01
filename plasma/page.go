@@ -313,14 +313,14 @@ func (pg *page) newFlushPageDelta(offset LSSOffset, dataSz int, numSegments int)
 
 	*(*pageDelta)(unsafe.Pointer(pd)) = *pg.head
 	pd.next = pg.head
-	reloc := numSegments == -1
+	reloc := numSegments == 0
 	if reloc {
 		pd.op = opRelocPageDelta
 		pd.state.IncrVersion()
 		pd.numSegments = 1
 	} else {
 		pd.op = opFlushPageDelta
-		pd.numSegments = int32(numSegments + 1)
+		pd.numSegments = int32(numSegments)
 	}
 
 	pd.offset = offset
@@ -852,9 +852,10 @@ loop:
 	if !child {
 		// pageVersion
 		state := head.state
-		if isFullMarshal {
+		if numSegments == 0 {
 			state.IncrVersion()
-			numSegments = -1
+		} else {
+			numSegments++
 		}
 		binary.BigEndian.PutUint16(stateBuf, uint16(state))
 	}
@@ -1186,7 +1187,7 @@ func (pg *page) GetFlushInfo() (LSSOffset, int, int) {
 	panic(fmt.Sprintf("invalid delta op:%d", pg.head.op))
 }
 
-func (pg *page) Evict(offset LSSOffset, numSegs int) {
+func (pg *page) Evict(offset LSSOffset, numSegments int) {
 	pg.free(true)
 	sod := pg.allocSwapoutDelta(pg.head.hiItm)
 	hiItm := sod.hiItm
@@ -1195,7 +1196,13 @@ func (pg *page) Evict(offset LSSOffset, numSegs int) {
 	sod.state.SetEvicted(true)
 	sod.op = opSwapoutDelta
 	sod.offset = offset
-	sod.numSegments = int32(numSegs)
+
+	if numSegments == 0 {
+		sod.state.IncrVersion()
+		sod.numSegments = 1
+	} else {
+		sod.numSegments = int32(numSegments)
+	}
 	sod.next = nil
 	pg.head = (*pageDelta)(unsafe.Pointer(sod))
 }

@@ -455,7 +455,7 @@ func (s *Plasma) doRecovery() error {
 				if newPageData {
 					s.gCtx.sts.FlushDataSz -= int64(currPg.GetFlushDataSize())
 					currPg.(*page).free(false)
-					pg.AddFlushRecord(offset, flushDataSz, 0)
+					pg.AddFlushRecord(offset, flushDataSz, 1)
 				} else {
 					_, numSegments, _ := currPg.GetFlushInfo()
 					pg.Append(currPg)
@@ -1012,7 +1012,7 @@ loop:
 			currPgDelta := newPage2(nil, nil, ctx, sCtx, aCtx).(*page)
 			data := data[lssBlockTypeSize:l]
 			nextOffset, hasChain := currPgDelta.unmarshalDelta(data, ctx)
-			currPgDelta.AddFlushRecord(offset, len(data), 0)
+			currPgDelta.AddFlushRecord(offset, len(data), 1)
 			pg.Append(currPgDelta)
 			offset = nextOffset
 			numSegments++

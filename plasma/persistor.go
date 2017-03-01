@@ -96,5 +96,6 @@ func pgFlushLSSType(pg Page, numSegments int) lssBlockType {
 	if numSegments > 0 {
 		return lssPageUpdate
 	}
+
 	return lssPageData
 }
