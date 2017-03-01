@@ -295,10 +295,6 @@ func New(cfg Config) (*Plasma, error) {
 		go s.smrWorker(s.gCtx)
 	}
 
-	pid := s.StartPageId()
-	pg := s.newSeedPage(s.gCtx)
-	s.CreateMapping(pid, pg, s.gCtx)
-
 	sbuf := dbInstances.MakeBuf()
 	defer dbInstances.FreeBuf(sbuf)
 	dbInstances.Insert(unsafe.Pointer(s), ComparePlasma, sbuf, &dbInstances.Stats)
@@ -386,6 +382,13 @@ func (s *Plasma) monitorMemUsage() {
 }
 
 func (s *Plasma) doInit() {
+	// Init seed page if page-0 does not exist even after recovery
+	pid := s.StartPageId()
+	if pid.(*skiplist.Node).Link == nil {
+		pg := s.newSeedPage(s.gCtx)
+		s.CreateMapping(pid, pg, s.gCtx)
+	}
+
 	if s.EnableShapshots {
 		if s.currSn == 0 {
 			s.currSn = 1
