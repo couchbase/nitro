@@ -64,8 +64,10 @@ func TestSMRSimple(t *testing.T) {
 }
 
 func TestSMRConcurrent(t *testing.T) {
+	defer SetMemoryQuota(maxMemoryQuota)
 	os.RemoveAll("teststore.data")
 
+	SetMemoryQuota(5 * 1024 * 1024)
 	var wg sync.WaitGroup
 	numThreads := 8
 	n := 1000000
@@ -73,7 +75,7 @@ func TestSMRConcurrent(t *testing.T) {
 	nPerThr := n / numThreads
 	cfg := testSnCfg
 	cfg.UseMemoryMgmt = true
-	cfg.AutoSwapper = false
+	cfg.AutoSwapper = true
 	s := newTestIntPlasmaStore(cfg)
 
 	total := numThreads * nPerThr
