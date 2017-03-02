@@ -269,11 +269,11 @@ func (s *Skiplist) Insert3(itm unsafe.Pointer, insCmp CompareFn, eqCmp CompareFn
 	defer s.barrier.Release(token)
 
 	x := s.newNode(itm, itemLevel)
-	return x, s.Insert4(x, insCmp, eqCmp, buf, itemLevel, skipFindPath, sts)
+	return s.Insert4(x, insCmp, eqCmp, buf, itemLevel, skipFindPath, true, sts)
 }
 
 func (s *Skiplist) Insert4(x *Node, insCmp CompareFn, eqCmp CompareFn, buf *ActionBuffer,
-	itemLevel int, skipFindPath bool, sts *Stats) bool {
+	itemLevel int, skipFindPath bool, dealloc bool, sts *Stats) (*Node, bool) {
 
 	itm := x.Item()
 
@@ -281,11 +281,19 @@ retry:
 	if skipFindPath {
 		skipFindPath = false
 	} else {
-		if s.findPath(itm, insCmp, buf, sts) != nil ||
-			eqCmp != nil && compare(eqCmp, itm, buf.preds[0].Item()) == 0 {
+		var foundNode *Node
 
-			s.freeNode(x)
-			return false
+		if foundNode = s.findPath(itm, insCmp, buf, sts); foundNode == nil {
+			if eqCmp != nil && compare(eqCmp, itm, buf.preds[0].Item()) == 0 {
+				foundNode = buf.preds[0]
+			}
+		}
+
+		if foundNode != nil {
+			if dealloc {
+				s.freeNode(x)
+			}
+			return foundNode, false
 		}
 	}
 
@@ -326,7 +334,7 @@ finished:
 	sts.AddInt64(&sts.nodeAllocs, 1)
 	sts.AddInt64(&sts.levelNodesCount[itemLevel], 1)
 	sts.AddInt64(&sts.usedBytes, int64(s.Size(x)))
-	return true
+	return x, true
 }
 
 func (s *Skiplist) softDelete(delNode *Node, sts *Stats) bool {
