@@ -26,17 +26,17 @@ func TestSMRSimple(t *testing.T) {
 
 	w := s.NewWriter()
 	for i := 0; i < 800; i++ {
-		token := s.BeginTx()
+		token := w.BeginTx()
 		w.InsertKV([]byte(fmt.Sprintf("key-%10d", i)), []byte(fmt.Sprintf("val-%10d", i)))
-		s.EndTx(token)
+		w.EndTx(token)
 	}
 
 	s.NewSnapshot().Close()
 
 	for i := 0; i < 800; i++ {
-		token := s.BeginTx()
+		token := w.BeginTx()
 		w.DeleteKV([]byte(fmt.Sprintf("key-%10d", i)))
-		s.EndTx(token)
+		w.EndTx(token)
 	}
 
 	s.NewSnapshot().Close()
@@ -64,8 +64,10 @@ func TestSMRSimple(t *testing.T) {
 }
 
 func TestSMRConcurrent(t *testing.T) {
+	defer SetMemoryQuota(maxMemoryQuota)
 	os.RemoveAll("teststore.data")
 
+	SetMemoryQuota(5 * 1024 * 1024)
 	var wg sync.WaitGroup
 	numThreads := 8
 	n := 1000000
@@ -73,7 +75,7 @@ func TestSMRConcurrent(t *testing.T) {
 	nPerThr := n / numThreads
 	cfg := testSnCfg
 	cfg.UseMemoryMgmt = true
-	cfg.AutoSwapper = false
+	cfg.AutoSwapper = true
 	s := newTestIntPlasmaStore(cfg)
 
 	total := numThreads * nPerThr
@@ -139,6 +141,15 @@ func TestSMRConcurrent(t *testing.T) {
 	s.Close()
 
 	a, b := mm.GetAllocStats()
+	if a-b != 0 {
+		t.Errorf("Found memory leak of %d allocs", a-b)
+	}
+
+	fmt.Println("Reopening db....")
+	s = newTestIntPlasmaStore(cfg)
+	s.Close()
+
+	a, b = mm.GetAllocStats()
 	if a-b != 0 {
 		t.Errorf("Found memory leak of %d allocs", a-b)
 	}

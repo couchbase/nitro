@@ -12,11 +12,7 @@ func (s *Plasma) tryPageRelocation(pid PageId, pg Page, buf []byte, ctx *wCtx) (
 	offset, wbuf, res := s.lss.ReserveSpace(lssBlockTypeSize + len(bs))
 	writeLSSBlock(wbuf, lssPageReloc, bs)
 
-	if pg.InCache() {
-		pg.AddFlushRecord(offset, dataSz, numSegments)
-	} else {
-		pg.Evict(offset)
-	}
+	pg.AddFlushRecord(offset, dataSz, numSegments)
 
 	if ok = s.UpdateMapping(pid, pg, ctx); !ok {
 		discardLSSBlock(wbuf)
@@ -27,22 +23,24 @@ func (s *Plasma) tryPageRelocation(pid PageId, pg Page, buf []byte, ctx *wCtx) (
 	s.lss.FinalizeWrite(res)
 	s.lssCleanerWriter.sts.FlushDataSz += int64(dataSz) - int64(staleSz)
 	relocEnd := lssBlockEndOffset(offset, wbuf)
+	s.trySMRObjects(ctx, lssCleanerSMRInterval)
+
 	return true, relocEnd
 }
 
 func (s *Plasma) CleanLSS(proceed func() bool) error {
 	var pg Page
 	w := s.lssCleanerWriter
-	relocBuf := w.GetBuffer(0)
-	cleanerBuf := w.GetBuffer(1)
+	relocBuf := w.GetBuffer(bufReloc)
+	cleanerBuf := w.GetBuffer(bufCleaner)
 
 	relocated := 0
 	retries := 0
 	skipped := 0
 
 	callb := func(startOff, endOff LSSOffset, bs []byte) (cont bool, headOff LSSOffset, err error) {
-		tok := s.BeginTx()
-		defer s.EndTx(tok)
+		tok := w.BeginTx()
+		defer w.EndTx(tok)
 
 		typ := getLSSBlockType(bs)
 		switch typ {
@@ -66,7 +64,7 @@ func (s *Plasma) CleanLSS(proceed func() bool) error {
 					}
 					relocated++
 				} else {
-					allocs, _, _ := pg.GetMallocOps()
+					allocs, _, _, _ := pg.GetMallocOps()
 					s.discardDeltas(allocs)
 					skipped++
 				}

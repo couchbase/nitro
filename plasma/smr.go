@@ -14,8 +14,10 @@ const (
 )
 
 var (
-	smrChanBufSize      = runtime.NumCPU()
-	writerSMRBufferSize = 500
+	smrChanBufSize        = runtime.NumCPU()
+	writerSMRBufferSize   = 500
+	swapperSMRInterval    = 20
+	lssCleanerSMRInterval = 20
 )
 
 type reclaimObject struct {
@@ -26,11 +28,13 @@ type reclaimObject struct {
 
 type TxToken *skiplist.BarrierSession
 
-func (s *Plasma) BeginTx() TxToken {
+func (s *wCtx) BeginTx() TxToken {
+	s.safeOffset = s.lss.HeadOffset()
 	return TxToken(s.Skiplist.GetAccesBarrier().Acquire())
 }
 
-func (s *Plasma) EndTx(t TxToken) {
+func (s *wCtx) EndTx(t TxToken) {
+	s.safeOffset = expiredLSSOffset
 	s.Skiplist.GetAccesBarrier().Release(t)
 }
 
@@ -106,4 +110,16 @@ func (s *Plasma) trySMRObjects(ctx *wCtx, numObjects int) {
 		s.FreeObjects([][]reclaimObject{ctx.reclaimList})
 		ctx.reclaimList = nil
 	}
+}
+
+func (s *Plasma) findSafeLSSTrimOffset() LSSOffset {
+	minOffset := s.lss.HeadOffset()
+	for w := s.wCtxList; w != nil; w = w.next {
+		off := w.safeOffset
+		if off < expiredLSSOffset && off < minOffset {
+			minOffset = off
+		}
+	}
+
+	return minOffset
 }

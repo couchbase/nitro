@@ -15,6 +15,7 @@ const lssVersion = 0
 const headerSize = superBlockSize * 2
 const superBlockSize = 4096
 const lssReclaimBlockSize = 1024 * 1024 * 8
+const expiredLSSOffset = LSSOffset(^uint64(0))
 
 var ErrCorruptSuperBlock = errors.New("Superblock is corrupted")
 
@@ -22,6 +23,7 @@ type LSSOffset uint64
 type LSSResource interface{}
 type LSSBlockCallback func(LSSOffset, []byte) (bool, error)
 type LSSCleanerCallback func(start, end LSSOffset, bs []byte) (cont bool, cleanOff LSSOffset, err error)
+type LSSSafeTrimCallback func() LSSOffset
 
 type LSS interface {
 	ReserveSpace(size int) (LSSOffset, []byte, LSSResource)
@@ -34,6 +36,7 @@ type LSS interface {
 	RunCleaner(callb LSSCleanerCallback, buf []byte) error
 	BytesWritten() int64
 
+	SetSafeTrimCallback(LSSSafeTrimCallback)
 	HeadOffset() LSSOffset
 	TailOffset() LSSOffset
 	UsedSpace() int64
@@ -45,7 +48,7 @@ type lsStore struct {
 
 	startOffset int64
 
-	cleanerTrimOffset LSSOffset
+	cleanerTrimOffset int64
 
 	head, tail unsafe.Pointer
 	bufSize    int
@@ -64,10 +67,16 @@ type lsStore struct {
 	log            Log
 
 	bytesWritten int64
+
+	safeOffset LSSSafeTrimCallback
+}
+
+func (s *lsStore) SetSafeTrimCallback(callb LSSSafeTrimCallback) {
+	s.safeOffset = callb
 }
 
 func (s *lsStore) HeadOffset() LSSOffset {
-	return LSSOffset(s.log.Head())
+	return LSSOffset(atomic.LoadInt64(&s.cleanerTrimOffset))
 }
 
 func (s *lsStore) TailOffset() LSSOffset {
@@ -88,6 +97,7 @@ func NewLSStore(path string, segSize int64, bufSize int, nbufs int, commitDur ti
 		bufSize:        bufSize,
 		trimBatchSize:  int64(bufSize),
 		commitDuration: commitDur,
+		safeOffset:     func() LSSOffset { return expiredLSSOffset },
 	}
 
 	if s.log, err = newLog(path, segSize, commitDur == 0); err != nil {
@@ -143,7 +153,8 @@ func (s *lsStore) flush(fb *flushBuffer) {
 	doCommit := fb.doCommit || time.Since(s.lastCommitTS) > s.commitDuration
 
 	if doCommit {
-		s.log.Trim(int64(s.trimOffset))
+		off := minInt64(int64(s.safeOffset()), int64(s.trimOffset))
+		s.log.Trim(off)
 		s.log.Commit()
 		s.lastCommitTS = time.Now()
 	}
@@ -252,9 +263,9 @@ func (s *lsStore) RunCleaner(callb LSSCleanerCallback, buf []byte) error {
 			return false, err
 		}
 
-		if int64(cleanOff-s.cleanerTrimOffset) >= s.trimBatchSize {
+		if int64(cleanOff)-s.cleanerTrimOffset >= s.trimBatchSize {
 			s.TrimLog(cleanOff)
-			s.cleanerTrimOffset = cleanOff
+			atomic.StoreInt64(&s.cleanerTrimOffset, int64(cleanOff))
 		}
 
 		atomic.StoreInt64(&s.startOffset, int64(cleanOff))

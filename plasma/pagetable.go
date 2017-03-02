@@ -118,16 +118,14 @@ func (s *Plasma) UpdateMapping(pid PageId, pg Page, ctx *wCtx) bool {
 	n := pid.(*skiplist.Node)
 	pgi := pg.(*page)
 
-	beforeInCache := pg.InCache()
-	allocs, frees, memUsed := pg.GetMallocOps()
+	allocs, frees, nr, memUsed := pg.GetMallocOps()
 	newPtr := unsafe.Pointer(pgi.head)
 	if atomic.CompareAndSwapPointer(&n.Link, pgi.prevHeadPtr, newPtr) {
 		pgi.prevHeadPtr = newPtr
 
 		if pg.InCache() {
 			ctx.sts.AllocSz += int64(memUsed)
-		} else if beforeInCache {
-			ctx.sts.NumPagesSwapOut += 1
+			ctx.sts.NumRecordAllocs += int64(nr)
 		}
 
 		ctx.freePages(frees)
@@ -152,34 +150,14 @@ func (s *Plasma) ReadPage(pid PageId, pgRdr PageReader, swapin bool, ctx *wCtx) 
 
 retry:
 	ptr := atomic.LoadPointer(&n.Link)
+	pg = newPage(ctx, n.Item(), ptr)
 
-	if offset := uint64(uintptr(ptr)); offset&evictMask > 0 {
-		if pgRdr == nil {
-			pg = newPage(ctx, n.Item(), nil)
-			pg.SetNext(NextPid(pid))
-			return pg, nil
+	if swapin {
+		s.tryPageSwapin(pg)
+		if !s.UpdateMapping(pid, pg, ctx) {
+			goto retry
 		}
 
-		var err error
-		off := LSSOffset(offset & ^evictMask)
-		pg, err = pgRdr(off)
-		if err != nil {
-			return nil, err
-		}
-
-		ctx.sts.CacheMisses += 1
-
-		if swapin {
-			if !s.UpdateMapping(pid, pg, ctx) {
-				ctx.sts.SwapInConflicts += 1
-				goto retry
-			}
-
-			ctx.sts.NumPagesSwapIn += 1
-		}
-	} else {
-		pg = newPage(ctx, n.Item(), ptr)
-		ctx.sts.CacheHits += 1
 	}
 
 	return pg, nil

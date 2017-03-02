@@ -165,17 +165,17 @@ func (itr *MVCCIterator) Value() []byte {
 
 func (itr *MVCCIterator) Close() {
 	itr.snap.Close()
-	itr.snap.db.EndTx(itr.token)
+	itr.EndTx(itr.token)
 }
 
 func (s *Snapshot) NewIterator() *MVCCIterator {
-	tok := s.db.BeginTx()
 	s.Open()
 	itr := s.db.NewIterator().(*Iterator)
 	itr.filter = &snFilter{
 		sn: s.sn,
 	}
 
+	tok := itr.BeginTx()
 	return &MVCCIterator{
 		token:    tok,
 		snap:     s,
@@ -336,9 +336,9 @@ func (s *Plasma) Rollback(rollRP *RecoveryPoint) (*Snapshot, error) {
 
 	callb := func(pid PageId, partn RangePartition) error {
 		w := s.persistWriters[partn.Shard]
-		pgBuf := w.GetBuffer(0)
+		pgBuf := w.GetBuffer(bufPersist)
 	retry:
-		if pg, err := s.ReadPage(pid, w.pgRdrFn, true, w); err == nil {
+		if pg, err := s.ReadPage(pid, w.pgRdrFn, false, w); err == nil {
 			pg.Rollback(start, end)
 			pgBuf, fdSz, staleFdSz, numSegments := pg.Marshal(pgBuf, s.Config.MaxPageLSSSegments)
 			offset, wbuf, res := s.lss.ReserveSpace(len(pgBuf) + lssBlockTypeSize)

@@ -13,7 +13,7 @@ type lssBlockType uint16
 var lssBlockTypeSize = int(unsafe.Sizeof(*(new(lssBlockType))))
 
 const (
-	lssPageData lssBlockType = iota
+	lssPageData lssBlockType = iota + 1
 	lssPageReloc
 	lssPageUpdate
 	lssPageRemove
@@ -36,7 +36,7 @@ func getLSSBlockType(bs []byte) lssBlockType {
 }
 
 func (s *Plasma) Persist(pid PageId, evict bool, ctx *wCtx) Page {
-	buf := ctx.GetBuffer(0)
+	buf := ctx.GetBuffer(bufPersist)
 retry:
 
 	// Never read from lss
@@ -49,7 +49,7 @@ retry:
 
 		var ok bool
 		if evict {
-			pg.Evict(offset)
+			pg.Evict(offset, numSegments)
 		} else {
 			pg.AddFlushRecord(offset, dataSz, numSegments)
 		}
@@ -63,8 +63,8 @@ retry:
 			goto retry
 		}
 	} else if evict && pg.IsEvictable() {
-		offset, _ := pg.GetLSSOffset()
-		pg.Evict(offset)
+		offset, numSegs, _ := pg.GetFlushInfo()
+		pg.Evict(offset, numSegs)
 		if !s.UpdateMapping(pid, pg, ctx) {
 			goto retry
 		}
@@ -96,5 +96,6 @@ func pgFlushLSSType(pg Page, numSegments int) lssBlockType {
 	if numSegments > 0 {
 		return lssPageUpdate
 	}
+
 	return lssPageData
 }

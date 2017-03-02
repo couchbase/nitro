@@ -10,9 +10,8 @@ import (
 
 const (
 	swapperWorkChanBufSize = 40
-	swapperWorkBatchSize   = 4
+	swapperWorkBatchSize   = 16
 	swapperWaitInterval    = time.Microsecond * 10
-	swapperSMRInterval     = 20
 )
 
 type clockHandle struct {
@@ -23,7 +22,7 @@ type clockHandle struct {
 
 func (s *Plasma) acquireClockHandle() *clockHandle {
 	s.clockLock.Lock()
-	return s.ch
+	return s.clockHandle
 }
 
 func (s *Plasma) releaseClockHandle(h *clockHandle) {
@@ -61,7 +60,7 @@ func (s *Plasma) tryEvictPages(ctx *wCtx) {
 	sctx := ctx.SwapperContext()
 	for s.TriggerSwapper(sctx) {
 		h := s.acquireClockHandle()
-		tok := s.BeginTx()
+		tok := ctx.BeginTx()
 		pids := s.sweepClock(h)
 		s.releaseClockHandle(h)
 		for _, pid := range pids {
@@ -69,7 +68,15 @@ func (s *Plasma) tryEvictPages(ctx *wCtx) {
 				s.Persist(pid, true, ctx)
 			}
 		}
-		s.EndTx(tok)
+		ctx.EndTx(tok)
+	}
+}
+
+func (s *Plasma) initLRUClock() {
+	s.clockHandle = &clockHandle{
+		buf: make([]byte, maxPageEncodedSize),
+		itr: s.Skiplist.NewIterator2(s.cmp,
+			s.Skiplist.MakeBuf()),
 	}
 }
 
@@ -77,11 +84,6 @@ func (s *Plasma) swapperDaemon() {
 	var wg sync.WaitGroup
 
 	killch := make(chan struct{})
-	s.ch = &clockHandle{
-		buf: make([]byte, maxPageEncodedSize),
-		itr: s.Skiplist.NewIterator2(s.cmp,
-			s.Skiplist.MakeBuf()),
-	}
 
 	for i := 0; i < s.NumEvictorThreads; i++ {
 		wg.Add(1)
@@ -91,10 +93,12 @@ func (s *Plasma) swapperDaemon() {
 			for {
 				select {
 				case <-killch:
+					s.trySMRObjects(s.evictWriters[i], 0)
 					return
 				default:
 				}
-				if s.TriggerSwapper(sctx) && s.GetStats().NumCachedPages > 0 {
+
+				if s.TriggerSwapper(sctx) {
 					s.tryEvictPages(s.evictWriters[i])
 					s.trySMRObjects(s.evictWriters[i], swapperSMRInterval)
 				} else {

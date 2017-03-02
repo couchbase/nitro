@@ -17,6 +17,7 @@ type pgOpIterator interface {
 	Get() PageItem
 	Next()
 	Valid() bool
+	Close()
 }
 
 type acceptAllFilter struct{}
@@ -52,6 +53,7 @@ func (f *defaultFilter) Reset() {}
 type Iterator struct {
 	store *Plasma
 	*wCtx
+	nr        int64
 	currPid   PageId
 	nextPid   PageId
 	currPgItr pgOpIterator
@@ -72,6 +74,7 @@ func (s *Plasma) NewIterator() ItemIterator {
 func (itr *Iterator) initPgIterator(pid PageId, seekItm unsafe.Pointer) {
 	itr.currPid = pid
 	if pgPtr, err := itr.store.ReadPage(pid, itr.wCtx.pgRdrFn, true, itr.wCtx); err == nil {
+		itr.store.updateCacheMeta(pid)
 		pg := pgPtr.(*page)
 		if err == nil {
 			if pg.IsEmpty() {
@@ -80,7 +83,8 @@ func (itr *Iterator) initPgIterator(pid PageId, seekItm unsafe.Pointer) {
 
 			itr.nextPid = pg.Next()
 			itr.filter.Reset()
-			itr.currPgItr, _ = newPgOpIterator(pg.head, pg.cmp, seekItm, pg.head.hiItm, itr.filter)
+			itr.currPgItr, _ = newPgOpIterator(pg.head, pg.cmp, seekItm, pg.head.hiItm, itr.filter, itr.wCtx)
+			itr.nr = itr.sts.NumLSSReads
 			itr.currPgItr.Init()
 		} else {
 			itr.err = err
@@ -119,6 +123,12 @@ func (itr *Iterator) Valid() bool {
 // If the current page has no valid item, move to next page
 func (itr *Iterator) tryNextPg() {
 	for !itr.currPgItr.Valid() {
+		itr.currPgItr.Close()
+		if itr.sts.NumLSSReads-itr.nr > 0 {
+			itr.sts.CacheMisses++
+		} else {
+			itr.sts.CacheHits++
+		}
 		if itr.nextPid == itr.store.EndPageId() {
 			break
 		}
@@ -135,6 +145,7 @@ func (itr *Iterator) Next() error {
 
 // Delta chain sorted iterator
 type pdIterator struct {
+	pw     pageWalker
 	deltas []PageItem
 	i      int
 }
@@ -151,6 +162,10 @@ func (pdi *pdIterator) Valid() bool {
 
 func (pdi *pdIterator) Next() {
 	pdi.i++
+}
+
+func (pdi *pdIterator) Close() {
+	pdi.pw.Close()
 }
 
 type basePageItem struct{}
@@ -238,6 +253,8 @@ func (bpi *basePgIterator) Next() {
 	bpi.i++
 }
 
+func (bpi *basePgIterator) Close() {}
+
 // Merge two disjoint sorted sets
 type pdJoinIterator struct {
 	itrs [2]pgOpIterator
@@ -264,6 +281,11 @@ func (pdj *pdJoinIterator) Next() {
 
 func (pdj *pdJoinIterator) Get() PageItem {
 	return pdj.itrs[pdj.i].Get()
+}
+
+func (pdj *pdJoinIterator) Close() {
+	pdj.itrs[0].Close()
+	pdj.itrs[1].Close()
 }
 
 // Iterator merger
@@ -349,15 +371,22 @@ func (pdm *pdMergeIterator) Valid() bool {
 	return pdm.offset < pdm.items.Len()
 }
 
+func (pdm *pdMergeIterator) Close() {
+	pdm.itrs[0].Close()
+	pdm.itrs[1].Close()
+}
+
 func newPgOpIterator(head *pageDelta, cmp skiplist.CompareFn,
-	low, high unsafe.Pointer, filter ItemFilter) (iter pgOpIterator, fdSz int) {
+	low, high unsafe.Pointer, filter ItemFilter, ctx *wCtx) (iter pgOpIterator, fdSz int) {
 
 	var hasReloc bool
 	m := &pdMergeIterator{cmp: cmp, ItemFilter: filter}
 	pdCount := 0
 
 	pdi := &pdIterator{}
-	pw := newPgDeltaWalker(head)
+	pdi.pw = newPgDeltaWalker(head, ctx)
+	pw := &pdi.pw
+
 loop:
 	for ; !pw.End(); pw.Next() {
 		op := pw.Op()
@@ -379,10 +408,10 @@ loop:
 				high = sitm
 			}
 		case opPageMergeDelta:
-			deltaItr, fdSz1 := newPgOpIterator(pw.NextPd(), cmp, low, high, filter)
+			deltaItr, fdSz1 := newPgOpIterator(pw.NextPd(), cmp, low, high, filter, ctx)
 			mergeItr, fdSz2 := newPgOpIterator(
 				pw.MergeSibling(),
-				cmp, low, high, filter)
+				cmp, low, high, filter, ctx)
 
 			if !hasReloc {
 				fdSz += fdSz1 + fdSz2
