@@ -723,19 +723,27 @@ func (s *Plasma) unindexPage(pid PageId, ctx *wCtx) {
 }
 
 func (s *Plasma) tryPageRemoval(pid PageId, pg Page, ctx *wCtx) {
-	n := pid.(*skiplist.Node)
-	itm := n.Item()
-	prev, _, found := s.Skiplist.Lookup(itm, s.cmp, ctx.buf, ctx.slSts)
-	// Somebody completed the removal already
-	if !found {
+	itm := pg.MinItem()
+retry:
+	parent, curr, found := s.Skiplist.Lookup(itm, s.cmp, ctx.buf, ctx.slSts)
+	// Page has been removed already
+	if !found || PageId(curr) != pid {
 		return
 	}
 
-	pPid := PageId(prev)
+	pPid := PageId(parent)
 	pPg, err := s.ReadPage(pPid, ctx.pgRdrFn, false, ctx)
 	if err != nil {
-		s.logError(fmt.Sprintf("tryPageRemove: err=%v", err))
-		return
+		panic(err)
+	}
+
+	if pPg.NeedRemoval() {
+		goto retry
+	}
+
+	// Parent might have got a split
+	if pPg.Next() != pid {
+		goto retry
 	}
 
 	var pgBuf = ctx.GetBuffer(bufEncPage)
@@ -775,11 +783,15 @@ func (s *Plasma) tryPageRemoval(pid PageId, pg Page, ctx *wCtx) {
 			s.lss.FinalizeWrite(res)
 		}
 
+		return
+
 	} else if s.shouldPersist {
 		discardLSSBlock(wbufs[0])
 		discardLSSBlock(wbufs[1])
 		s.lss.FinalizeWrite(res)
 	}
+
+	goto retry
 }
 
 func (s *Plasma) isStartPage(pid PageId) bool {

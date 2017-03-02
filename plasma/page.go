@@ -1161,12 +1161,12 @@ func (pg *page) IsEvictable() bool {
 }
 
 func (pg *page) NeedsFlush() bool {
-	if pg.head == nil || pg.head.op == opSwapoutDelta {
+	if pg.head == nil {
 		return false
 	}
 
 	switch pg.head.op {
-	case opFlushPageDelta, opRelocPageDelta, opPageRemoveDelta:
+	case opFlushPageDelta, opRelocPageDelta, opPageRemoveDelta, opSwapoutDelta:
 		return false
 	}
 
