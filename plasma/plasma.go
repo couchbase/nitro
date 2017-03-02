@@ -50,6 +50,7 @@ type Plasma struct {
 	sync.RWMutex
 
 	// MVCC data structures
+	itemsCount   int64
 	mvcc         sync.RWMutex
 	currSn       uint64
 	numSnCreated int
@@ -551,6 +552,7 @@ func ComparePlasma(a, b unsafe.Pointer) int {
 
 type Writer struct {
 	*wCtx
+	count int64
 }
 
 // TODO: Refactor wCtx and Writer
@@ -1102,4 +1104,8 @@ func (s *Plasma) tryPageSwapin(pg Page) {
 		pw.SwapIn(pgi)
 		pw.Close()
 	}
+}
+
+func (s *Plasma) ItemsCount() int64 {
+	return s.itemsCount
 }
