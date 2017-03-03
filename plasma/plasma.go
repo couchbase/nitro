@@ -555,6 +555,11 @@ type Writer struct {
 	count int64
 }
 
+type Reader struct {
+	*wCtx
+	iter *MVCCIterator
+}
+
 // TODO: Refactor wCtx and Writer
 type wCtx struct {
 	*Plasma
@@ -650,6 +655,26 @@ func (s *Plasma) NewWriter() *Writer {
 	}
 
 	return w
+}
+
+func (s *Plasma) NewReader() *Reader {
+	iter := s.NewIterator().(*Iterator)
+	iter.filter = &snFilter{}
+
+	return &Reader{
+		wCtx: s.newWCtx(),
+		iter: &MVCCIterator{
+			Iterator: iter,
+		},
+	}
+}
+
+func (r *Reader) NewSnapshotIterator(snap *Snapshot) *MVCCIterator {
+	snap.Open()
+	r.iter.filter.(*snFilter).sn = snap.sn
+	r.iter.token = r.iter.BeginTx()
+	r.iter.snap = snap
+	return r.iter
 }
 
 func (s *Plasma) MemoryInUse() int64 {
