@@ -1174,9 +1174,7 @@ func (pg *page) NeedsFlush() bool {
 }
 
 func (pg *page) GetFlushInfo() (LSSOffset, int, int) {
-	if pg.head == nil {
-		return 0, 1, 0
-	} else if pg.head.op == opFlushPageDelta || pg.head.op == opRelocPageDelta {
+	if pg.head.op == opFlushPageDelta || pg.head.op == opRelocPageDelta {
 		fpd := (*flushPageDelta)(unsafe.Pointer(pg.head))
 		return fpd.offset, int(fpd.numSegments), int(fpd.flushDataSz)
 	} else if pg.head.op == opSwapoutDelta {

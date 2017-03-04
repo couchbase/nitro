@@ -55,7 +55,10 @@ func newStoreContext(indexLayer *skiplist.Skiplist, useMM bool, itemSize ItemSiz
 		getPageId: func(itm unsafe.Pointer, ctx *wCtx) PageId {
 			var pid PageId
 			if itm == skiplist.MinItem {
-				pid = indexLayer.HeadNode()
+				n := indexLayer.HeadNode()
+				if n.Link != nil {
+					pid = n
+				}
 			} else if itm == skiplist.MaxItem {
 				pid = indexLayer.TailNode()
 			} else {

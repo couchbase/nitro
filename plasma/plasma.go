@@ -705,6 +705,13 @@ func (s *Plasma) LSSDataSize() int64 {
 
 func (s *Plasma) indexPage(pid PageId, ctx *wCtx) {
 	n := pid.(*skiplist.Node)
+	if n.Item() == skiplist.MinItem {
+		link := n.Link
+		s.FreePageId(pid, ctx)
+		n = s.StartPageId().(*skiplist.Node)
+		n.Link = link
+		return
+	}
 retry:
 	if existNode, ok := s.Skiplist.Insert4(n, s.cmp, s.cmp, ctx.buf, n.Level(), false, false, ctx.slSts); !ok {
 		if pg := newPage(ctx, nil, existNode.Link); pg.NeedRemoval() {
