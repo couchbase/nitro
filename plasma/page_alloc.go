@@ -27,20 +27,23 @@ type allocCtx struct {
 	allocDeltaList []*pageDelta
 	freePageList   []pgFreeObj
 	memUsed        int
-	n              int
+	nrecAllocs     int
+	nrecSwapin     int
 }
 
-func (aCtx *allocCtx) GetMallocOps() ([]*pageDelta, []pgFreeObj, int, int) {
+func (aCtx *allocCtx) GetAllocOps() ([]*pageDelta, []pgFreeObj, int, int, int) {
 	a := aCtx.allocDeltaList
 	f := aCtx.freePageList
 	m := aCtx.memUsed
-	n := aCtx.n
+	nra := aCtx.nrecAllocs
+	nrs := aCtx.nrecSwapin
 
 	aCtx.memUsed = 0
-	aCtx.n = 0
+	aCtx.nrecAllocs = 0
+	aCtx.nrecSwapin = 0
 	aCtx.allocDeltaList = aCtx.allocDeltaList[:0]
 	aCtx.freePageList = aCtx.freePageList[:0]
-	return a, f, n, m
+	return a, f, nra, nrs, m
 }
 
 func (ctx *allocCtx) addDeltaAlloc(ptr unsafe.Pointer) {
@@ -98,7 +101,7 @@ func (pg *page) allocRecordDelta(itm unsafe.Pointer) *recordDelta {
 	l := pg.itemSize(itm)
 	size := recDeltaSize + l
 	pg.memUsed += int(size)
-	pg.n++
+	pg.nrecAllocs++
 
 	if pg.useMemMgmt {
 		ptr := pg.allocMM(size)
@@ -122,7 +125,7 @@ func (pg *page) allocBasePage(n int, dataSz uintptr, hiItm unsafe.Pointer) *base
 	l := pg.itemSize(hiItm)
 	size := basePageSize + dataSz + uintptr(n)*8 + l
 	pg.memUsed += int(size)
-	pg.n += n
+	pg.nrecAllocs += n
 
 	if pg.useMemMgmt {
 		ptr := pg.allocMM(size)

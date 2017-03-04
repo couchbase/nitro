@@ -106,6 +106,7 @@ type Stats struct {
 	NumRecordAllocs  int64
 	NumRecordFrees   int64
 	NumRecordSwapOut int64
+	NumRecordSwapIn  int64
 	AllocSzIndex     int64
 	FreeSzIndex      int64
 	ReclaimSzIndex   int64
@@ -155,6 +156,7 @@ func (s *Stats) Merge(o *Stats) {
 	s.NumRecordAllocs += o.NumRecordAllocs
 	s.NumRecordFrees += o.NumRecordFrees
 	s.NumRecordSwapOut += o.NumRecordSwapOut
+	s.NumRecordSwapIn += o.NumRecordSwapIn
 
 	s.BytesIncoming += o.BytesIncoming
 
@@ -193,6 +195,7 @@ func (s Stats) String() string {
 		"num_rec_allocs    = %d\n"+
 		"num_rec_frees     = %d\n"+
 		"num_rec_swapout   = %d\n"+
+		"num_rec_swapin    = %d\n"+
 		"bytes_incoming    = %d\n"+
 		"bytes_written     = %d\n"+
 		"write_amp         = %.2f\n"+
@@ -219,7 +222,7 @@ func (s Stats) String() string {
 		s.FreeSz-s.ReclaimSz,
 		s.AllocSzIndex, s.FreeSzIndex, s.ReclaimSzIndex,
 		s.NumPages, s.NumRecordAllocs, s.NumRecordFrees,
-		s.NumRecordSwapOut,
+		s.NumRecordSwapOut, s.NumRecordSwapIn,
 		s.BytesIncoming, s.BytesWritten,
 		s.WriteAmp, s.WriteAmpAvg,
 		s.LSSFrag, s.LSSDataSize, s.LSSUsedSpace,
@@ -710,7 +713,8 @@ func (s *Plasma) GetStats() Stats {
 			sts.WriteAmpAvg = bsOut / bsIn
 		}
 		cachedRecs := sts.NumRecordAllocs - sts.NumRecordFrees
-		totalRecs := cachedRecs + sts.NumRecordSwapOut
+		lssRecs := sts.NumRecordSwapOut - sts.NumRecordSwapIn
+		totalRecs := cachedRecs + lssRecs
 		if totalRecs > 0 {
 			sts.ResidentRatio = float64(cachedRecs) / float64(totalRecs)
 		}
@@ -1129,13 +1133,23 @@ func MemoryInUse2(ctx SwapperContext) (sz int64) {
 	return
 }
 
-func (s *Plasma) tryPageSwapin(pg Page) {
+func (s *Plasma) tryPageSwapin(pg Page) bool {
+	var ok bool
 	pgi := pg.(*page)
 	if pgi.head != nil && pgi.head.state.IsEvicted() {
 		pw := newPgDeltaWalker(pgi.head, pgi.ctx)
-		pw.SwapIn(pgi)
+		// Force the pagewalker to read the swapout delta
+		for !pw.End() {
+			if pw.Op() == opSwapoutDelta {
+				pw.Next()
+				break
+			}
+		}
+		ok = pw.SwapIn(pgi)
 		pw.Close()
 	}
+
+	return ok
 }
 
 func (s *Plasma) ItemsCount() int64 {

@@ -121,15 +121,14 @@ func (s *Plasma) UpdateMapping(pid PageId, pg Page, ctx *wCtx) bool {
 	n := pid.(*skiplist.Node)
 	pgi := pg.(*page)
 
-	allocs, frees, nr, memUsed := pg.GetMallocOps()
+	allocs, frees, nra, nrs, memUsed := pg.GetAllocOps()
 	newPtr := unsafe.Pointer(pgi.head)
 	if atomic.CompareAndSwapPointer(&n.Link, pgi.prevHeadPtr, newPtr) {
 		pgi.prevHeadPtr = newPtr
 
-		if pg.InCache() {
-			ctx.sts.AllocSz += int64(memUsed)
-			ctx.sts.NumRecordAllocs += int64(nr)
-		}
+		ctx.sts.AllocSz += int64(memUsed)
+		ctx.sts.NumRecordAllocs += int64(nra)
+		ctx.sts.NumRecordSwapIn += int64(nrs)
 
 		ctx.freePages(frees)
 		return true
@@ -156,11 +155,9 @@ retry:
 	pg = newPage(ctx, n.Item(), ptr)
 
 	if swapin {
-		s.tryPageSwapin(pg)
-		if !s.UpdateMapping(pid, pg, ctx) {
+		if s.tryPageSwapin(pg) && !s.UpdateMapping(pid, pg, ctx) {
 			goto retry
 		}
-
 	}
 
 	return pg, nil
