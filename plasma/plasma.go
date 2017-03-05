@@ -302,7 +302,7 @@ func New(cfg Config) (*Plasma, error) {
 
 	if s.shouldPersist {
 		commitDur := time.Duration(cfg.SyncInterval) * time.Second
-		s.lss, err = NewLSStore(cfg.File, cfg.LSSLogSegmentSize, cfg.FlushBufferSize, 2, commitDur)
+		s.lss, err = NewLSStore(cfg.File, cfg.LSSLogSegmentSize, cfg.FlushBufferSize, 2, cfg.UseMmap, commitDur)
 		if err != nil {
 			return nil, err
 		}

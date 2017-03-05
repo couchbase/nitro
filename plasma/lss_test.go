@@ -18,7 +18,7 @@ func TestLSSBasic(t *testing.T) {
 	nbuffers := 4
 
 	os.RemoveAll("test.data")
-	lss, err := NewLSStore("test.data", segmentSize, BufSize, nbuffers, 0)
+	lss, err := NewLSStore("test.data", segmentSize, BufSize, nbuffers, false, 0)
 	if err != nil {
 		panic(err)
 	}
@@ -57,7 +57,7 @@ func TestLSSConcurrent(t *testing.T) {
 	m := make(map[LSSOffset]int)
 
 	os.RemoveAll("test.data")
-	lss, _ := NewLSStore("test.data", segmentSize, BufSize, nbuffers, 0)
+	lss, _ := NewLSStore("test.data", segmentSize, BufSize, nbuffers, false, 0)
 
 	n := 10000
 	var wg sync.WaitGroup
@@ -90,7 +90,7 @@ func TestLSSCleaner(t *testing.T) {
 	nbuffers := 4
 
 	os.RemoveAll("test.data")
-	lss, _ := NewLSStore("test.data", segmentSize, BufSize, nbuffers, 0)
+	lss, _ := NewLSStore("test.data", segmentSize, BufSize, nbuffers, false, 0)
 
 	n := 1000000
 	var lock sync.Mutex
@@ -152,7 +152,7 @@ func TestLSSSuperBlock(t *testing.T) {
 	nbuffers := 2
 
 	os.RemoveAll("test.data")
-	lss, err := NewLSStore("test.data", segmentSize, BufSize, nbuffers, 0)
+	lss, err := NewLSStore("test.data", segmentSize, BufSize, nbuffers, false, 0)
 	if err != nil {
 		panic(err)
 	}
@@ -187,7 +187,7 @@ func TestLSSSuperBlock(t *testing.T) {
 	head := lss.HeadOffset()
 	lss.Close()
 
-	lss, err = NewLSStore("test.data", segmentSize, BufSize, nbuffers, 0)
+	lss, err = NewLSStore("test.data", segmentSize, BufSize, nbuffers, false, 0)
 	if err != nil {
 		panic(err)
 	}
@@ -208,7 +208,7 @@ func TestLSSPerf(t *testing.T) {
 	BufSize := 1024 * 1024
 	nbuffers := 2
 	segmentSize := int64(1024 * 1024 * 1024)
-	lss, _ := NewLSStore("test.data", segmentSize, BufSize, nbuffers, 0)
+	lss, _ := NewLSStore("test.data", segmentSize, BufSize, nbuffers, false, 0)
 
 	var count int64
 	n := runtime.GOMAXPROCS(0)

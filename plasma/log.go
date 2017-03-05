@@ -15,7 +15,6 @@ import (
 const (
 	logSBSize  = 4096
 	logVersion = 0
-	enableMmap = false
 )
 
 var segFileNameFormat = "log.%014d.data"
@@ -60,10 +59,11 @@ type multiFilelog struct {
 
 	index *fileIndex
 
-	sync bool
+	sync       bool
+	enableMmap bool
 }
 
-func newLog(path string, segmentSize int64, sync bool) (Log, error) {
+func newLog(path string, segmentSize int64, sync bool, mmap bool) (Log, error) {
 	var sbBuffer [logSBSize]byte
 	os.MkdirAll(path, 0755)
 	headerFile := filepath.Join(path, headerFileName)
@@ -85,6 +85,7 @@ func newLog(path string, segmentSize int64, sync bool) (Log, error) {
 		basePath:    path,
 		headOffset:  h,
 		tailOffset:  t,
+		enableMmap:  mmap,
 		sync:        sync,
 	}
 
@@ -95,7 +96,7 @@ func newLog(path string, segmentSize int64, sync bool) (Log, error) {
 	return log, err
 }
 
-func newLogFile(file string, flags int, maxSize int) (*logFile, error) {
+func newLogFile(file string, flags int, maxSize int, enableMmap bool) (*logFile, error) {
 	var err error
 	lf := new(logFile)
 	lf.fd, err = os.OpenFile(file, os.O_RDWR|flags, 0755)
@@ -115,7 +116,7 @@ func (lf *logFile) Close() error {
 	if err != nil {
 		return err
 	}
-	if enableMmap {
+	if lf.data != nil {
 		lf.data.Unmap()
 	}
 
@@ -136,7 +137,7 @@ func (l *multiFilelog) initIndex() error {
 	}
 
 	for i, f := range files {
-		if lf, err := newLogFile(f, 0, int(l.segmentSize)); err == nil {
+		if lf, err := newLogFile(f, 0, int(l.segmentSize), l.enableMmap); err == nil {
 			fi.index = append(fi.index, lf)
 			if i == len(files)-1 {
 				fi.w = lf.fd
@@ -175,7 +176,7 @@ retry:
 		bs = bs[:avail]
 	}
 
-	if enableMmap {
+	if l.enableMmap {
 		copy(bs, idx.index[fdIdx].data[fdOffset:])
 	} else {
 		if _, err := idx.index[fdIdx].fd.ReadAt(bs, fdOffset); err != nil {
@@ -217,7 +218,7 @@ func (l *multiFilelog) growLog() error {
 		idx.w.Sync()
 	}
 
-	lf, err := newLogFile(file, flags, int(l.segmentSize))
+	lf, err := newLogFile(file, flags, int(l.segmentSize), l.enableMmap)
 	if err != nil {
 		return err
 	}

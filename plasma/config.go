@@ -33,6 +33,7 @@ type Config struct {
 	SyncInterval       int
 
 	UseMemoryMgmt bool
+	UseMmap       bool
 }
 
 func applyConfigDefaults(cfg Config) Config {
