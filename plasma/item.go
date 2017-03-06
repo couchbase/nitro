@@ -96,7 +96,7 @@ func (itm *item) Value() (bs []byte) {
 	return
 }
 
-func (s *Plasma) newItem(k, v []byte, sn uint64, del bool, buf []byte) *item {
+func (s *Plasma) newItem(k, v []byte, sn uint64, del bool, buf *Buffer) *item {
 	kl := len(k)
 	vl := len(v)
 
@@ -109,7 +109,8 @@ func (s *Plasma) newItem(k, v []byte, sn uint64, del bool, buf []byte) *item {
 	if buf == nil {
 		ptr = s.alloc(sz)
 	} else {
-		ptr = unsafe.Pointer(&buf[0])
+		buf.Grow(0, int(sz))
+		ptr = buf.Ptr(0)
 	}
 
 	hdr := (*uint32)(ptr)

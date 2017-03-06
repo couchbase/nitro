@@ -65,7 +65,7 @@ type Page interface {
 	Rollback(s, end uint64)
 
 	Append(Page)
-	Marshal(buf []byte, maxSegments int) (bs []byte, fdSz int, staleFdSz int, numSegments int)
+	Marshal(b *Buffer, maxSegments int) (bs []byte, fdSz int, staleFdSz int, numSegments int)
 
 	GetVersion() uint16
 	IsFlushed() bool
@@ -439,7 +439,6 @@ func (pg *page) Lookup(itm unsafe.Pointer) unsafe.Pointer {
 	filter := pg.getLookupFilter()
 	head := pg.head
 	itmBuf := pg.ctx.GetBuffer(bufTempItem)
-	resultPtr := unsafe.Pointer(&itmBuf[0])
 
 loop:
 	pw := newPgDeltaWalker(head, pg.ctx)
@@ -452,7 +451,10 @@ loop:
 			ritm := pw.Item()
 			pgItm := pw.PageItem()
 			if filter.Process(pgItm).Len() > 0 && pg.equal(ritm, itm, hiItm) {
-				memcopy(resultPtr, ritm, int(pg.itemSize(ritm)))
+				l := int(pg.itemSize(ritm))
+				itmBuf.Grow(0, l)
+				resultPtr := itmBuf.Ptr(0)
+				memcopy(resultPtr, ritm, l)
 				return resultPtr
 			}
 		case opDeleteDelta:
@@ -472,7 +474,10 @@ loop:
 				bpItm := (*basePageItem)(items[index])
 				if filter.Process(bpItm).Len() > 0 {
 					ritm := items[index]
-					memcopy(resultPtr, ritm, int(pg.itemSize(ritm)))
+					l := int(pg.itemSize(ritm))
+					itmBuf.Grow(0, l)
+					resultPtr := itmBuf.Ptr(0)
+					memcopy(resultPtr, ritm, l)
 					return resultPtr
 				}
 			}
@@ -708,15 +713,15 @@ func (pg *page) NewIterator() ItemIterator {
 	}
 }
 
-func (pg *page) Marshal(buf []byte, maxSegments int) (bs []byte, dataSz, staleFdSz int, numSegments int) {
+func (pg *page) Marshal(buf *Buffer, maxSegments int) (bs []byte, dataSz, staleFdSz int, numSegments int) {
 	hiItm := pg.MaxItem()
 	offset, staleFdSz, numSegments := pg.marshal(buf, 0, pg.head, hiItm, false, maxSegments)
-	return buf[:offset], offset, staleFdSz, numSegments
+	return buf.Get(0, offset), offset, staleFdSz, numSegments
 }
 
-func (pg *page) marshalIndexKey(key unsafe.Pointer, woffset int, buf []byte) int {
+func (pg *page) marshalIndexKey(key unsafe.Pointer, woffset int, buf *Buffer) int {
 	if key == skiplist.MinItem || key == skiplist.MaxItem {
-		binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(0))
+		binary.BigEndian.PutUint16(buf.Get(woffset, 2), uint16(0))
 		woffset += 2
 	} else {
 		return pg.marshalItem(key, woffset, buf)
@@ -725,17 +730,18 @@ func (pg *page) marshalIndexKey(key unsafe.Pointer, woffset int, buf []byte) int
 	return woffset
 }
 
-func (pg *page) marshalItem(itm unsafe.Pointer, woffset int, buf []byte) int {
+func (pg *page) marshalItem(itm unsafe.Pointer, woffset int, b *Buffer) int {
 	l := int(pg.itemSize(itm))
+	buf := b.Get(0, woffset+l+2)
 	binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(l))
 	woffset += 2
-	memcopy(unsafe.Pointer(&buf[woffset]), itm, l)
+	memcopy(b.Ptr(woffset), itm, l)
 	woffset += l
 
 	return woffset
 }
 
-func (pg *page) marshal(buf []byte, woffset int, head *pageDelta,
+func (pg *page) marshal(buf *Buffer, woffset int, head *pageDelta,
 	hiItm unsafe.Pointer, child bool, maxSegments int) (offset int, staleFdSz int, numSegments int) {
 
 	if head == nil {
@@ -743,7 +749,7 @@ func (pg *page) marshal(buf []byte, woffset int, head *pageDelta,
 	}
 
 	var isFullMarshal bool = maxSegments == 0
-	stateBuf := buf[woffset : woffset+2]
+	stateBufOffset := woffset
 	hasReloc := false
 
 	if !child {
@@ -753,11 +759,11 @@ func (pg *page) marshal(buf []byte, woffset int, head *pageDelta,
 		woffset = pg.marshalIndexKey(pg.MinItem(), woffset, buf)
 
 		// chainlen
-		binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(head.chainLen))
+		binary.BigEndian.PutUint16(buf.Get(woffset, 2), uint16(head.chainLen))
 		woffset += 2
 
 		// numItems
-		binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(head.numItems))
+		binary.BigEndian.PutUint16(buf.Get(woffset, 2), uint16(head.numItems))
 		woffset += 2
 
 		// pageHigh
@@ -773,7 +779,7 @@ loop:
 		case opInsertDelta, opDeleteDelta:
 			itm := pw.Item()
 			if pg.cmp(itm, hiItm) < 0 {
-				binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(op))
+				binary.BigEndian.PutUint16(buf.Get(woffset, 2), uint16(op))
 				woffset += 2
 				woffset = pg.marshalItem(itm, woffset, buf)
 			}
@@ -782,7 +788,7 @@ loop:
 			if pg.cmp(itm, hiItm) < 0 {
 				hiItm = itm
 			}
-			binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(op))
+			binary.BigEndian.PutUint16(buf.Get(woffset, 2), uint16(op))
 			woffset += 2
 		case opPageMergeDelta:
 			mergeSibling := pw.MergeSibling()
@@ -796,16 +802,16 @@ loop:
 				// Encode items as insertDelta
 				for _, itm := range pw.BaseItems() {
 					if pg.cmp(itm, hiItm) < 0 {
-						binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(opInsertDelta))
+						binary.BigEndian.PutUint16(buf.Get(woffset, 2), uint16(opInsertDelta))
 						woffset += 2
 
 						woffset = pg.marshalItem(itm, woffset, buf)
 					}
 				}
 			} else {
-				binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(op))
+				binary.BigEndian.PutUint16(buf.Get(woffset, 2), uint16(op))
 				woffset += 2
-				bufnitm := buf[woffset : woffset+2]
+				bufNitmOffset := woffset
 				nItms := 0
 				woffset += 2
 				for _, itm := range pw.BaseItems() {
@@ -814,7 +820,7 @@ loop:
 						nItms++
 					}
 				}
-				binary.BigEndian.PutUint16(bufnitm, uint16(nItms))
+				binary.BigEndian.PutUint16(buf.Get(bufNitmOffset, 2), uint16(nItms))
 			}
 			break loop
 		case opFlushPageDelta, opRelocPageDelta, opSwapoutDelta:
@@ -822,9 +828,9 @@ loop:
 			if int(numSegs) > maxSegments {
 				isFullMarshal = true
 			} else if !isFullMarshal {
-				binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(opFlushPageDelta))
+				binary.BigEndian.PutUint16(buf.Get(woffset, 2), uint16(opFlushPageDelta))
 				woffset += 2
-				binary.BigEndian.PutUint64(buf[woffset:woffset+8], uint64(offset))
+				binary.BigEndian.PutUint64(buf.Get(woffset, 8), uint64(offset))
 				woffset += 8
 				numSegments = int(numSegs)
 				break loop
@@ -839,11 +845,11 @@ loop:
 			}
 		case opRollbackDelta:
 			start, end := pw.RollbackInfo()
-			binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(op))
+			binary.BigEndian.PutUint16(buf.Get(woffset, 2), uint16(op))
 			woffset += 2
-			binary.BigEndian.PutUint64(buf[woffset:woffset+8], uint64(start))
+			binary.BigEndian.PutUint64(buf.Get(woffset, 8), uint64(start))
 			woffset += 8
-			binary.BigEndian.PutUint64(buf[woffset:woffset+8], uint64(end))
+			binary.BigEndian.PutUint64(buf.Get(woffset, 8), uint64(end))
 			woffset += 8
 		case opPageRemoveDelta, opMetaDelta, opSwapinDelta:
 		default:
@@ -859,7 +865,7 @@ loop:
 		} else {
 			numSegments++
 		}
-		binary.BigEndian.PutUint16(stateBuf, uint16(state))
+		binary.BigEndian.PutUint16(buf.Get(stateBufOffset, 2), uint16(state))
 	}
 
 	pw.SwapIn(pg)
@@ -1014,11 +1020,12 @@ func (pg *page) Rollback(startSn, endSn uint64) {
 	pg.head = (*pageDelta)(unsafe.Pointer(pd))
 }
 
-func marshalPageSMO(pg Page, buf []byte) []byte {
+func marshalPageSMO(pg Page, b *Buffer) []byte {
 	woffset := 0
 
 	target := pg.(*page)
 	l := int(target.itemSize(target.low))
+	buf := b.Get(0, l+2)
 	binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(l))
 	woffset += 2
 	memcopy(unsafe.Pointer(&buf[woffset]), target.low, l)

@@ -30,10 +30,10 @@ type LSS interface {
 	ReserveSpaceMulti(sizes []int) ([]LSSOffset, [][]byte, LSSResource)
 	FinalizeWrite(LSSResource)
 	TrimLog(LSSOffset)
-	Read(LSSOffset, []byte) (int, error)
+	Read(LSSOffset, *Buffer) (int, error)
 	Sync(bool)
-	Visitor(callb LSSBlockCallback, buf []byte) error
-	RunCleaner(callb LSSCleanerCallback, buf []byte) error
+	Visitor(callb LSSBlockCallback, buf *Buffer) error
+	RunCleaner(callb LSSCleanerCallback, buf *Buffer) error
 	BytesWritten() int64
 
 	SetSafeTrimCallback(LSSSafeTrimCallback)
@@ -218,7 +218,7 @@ retry:
 	return offsets, bufs, LSSResource(fb)
 }
 
-func (s *lsStore) Read(lssOf LSSOffset, buf []byte) (int, error) {
+func (s *lsStore) Read(lssOf LSSOffset, buf *Buffer) (int, error) {
 	offset := int64(lssOf)
 retry:
 	tailOff := s.log.Tail()
@@ -236,12 +236,13 @@ retry:
 		goto retry
 	}
 
-	if err := s.log.Read(buf[:headerFBSize], offset); err != nil {
+	lenBuf := buf.Get(0, headerFBSize)
+	if err := s.log.Read(lenBuf, offset); err != nil {
 		return 0, err
 	}
 
-	l := int(binary.BigEndian.Uint32(buf[:headerFBSize]))
-	err := s.log.Read(buf[:l], offset+headerFBSize)
+	l := int(binary.BigEndian.Uint32(lenBuf))
+	err := s.log.Read(buf.Get(0, l), offset+headerFBSize)
 	return l, err
 }
 
@@ -250,7 +251,7 @@ func (s *lsStore) FinalizeWrite(res LSSResource) {
 	fb.Done()
 }
 
-func (s *lsStore) RunCleaner(callb LSSCleanerCallback, buf []byte) error {
+func (s *lsStore) RunCleaner(callb LSSCleanerCallback, buf *Buffer) error {
 	s.Lock()
 	defer s.Unlock()
 
@@ -275,11 +276,11 @@ func (s *lsStore) RunCleaner(callb LSSCleanerCallback, buf []byte) error {
 	return s.visitor(startOff, tailOff, fn, buf)
 }
 
-func (s *lsStore) Visitor(callb LSSBlockCallback, buf []byte) error {
+func (s *lsStore) Visitor(callb LSSBlockCallback, buf *Buffer) error {
 	return s.visitor(s.log.Head(), s.log.Tail(), callb, buf)
 }
 
-func (s *lsStore) visitor(start, end int64, callb LSSBlockCallback, buf []byte) error {
+func (s *lsStore) visitor(start, end int64, callb LSSBlockCallback, buf *Buffer) error {
 	curr := start
 	for curr < end {
 		n, err := s.Read(LSSOffset(curr), buf)
@@ -287,7 +288,7 @@ func (s *lsStore) visitor(start, end int64, callb LSSBlockCallback, buf []byte) 
 			return err
 		}
 
-		if cont, err := callb(LSSOffset(curr), buf[:n]); err == nil && !cont {
+		if cont, err := callb(LSSOffset(curr), buf.Get(0, n)); err == nil && !cont {
 			break
 		} else if err != nil {
 			return err
@@ -389,7 +390,7 @@ func (fb *flushBuffer) SetNext(nfb *flushBuffer) {
 	fb.next = nfb
 }
 
-func (fb *flushBuffer) Read(off int64, buf []byte) (l int, err error) {
+func (fb *flushBuffer) Read(off int64, buf *Buffer) (l int, err error) {
 	state := atomic.LoadUint64(&fb.state)
 	_, _, _, offset := decodeState(state)
 
@@ -400,7 +401,7 @@ func (fb *flushBuffer) Read(off int64, buf []byte) (l int, err error) {
 		payloadOffset := off - startOff
 		dataOffset := payloadOffset + headerFBSize
 		l = int(binary.BigEndian.Uint32(fb.b[payloadOffset:dataOffset]))
-		copy(buf, fb.b[dataOffset:dataOffset+int64(l)])
+		copy(buf.Get(0, l), fb.b[dataOffset:dataOffset+int64(l)])
 
 		if startOff != atomic.LoadInt64(&fb.baseOffset) {
 			err = errFBReadFailed
