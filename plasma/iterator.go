@@ -124,7 +124,7 @@ func (itr *Iterator) Get() unsafe.Pointer {
 }
 
 func (itr *Iterator) Valid() bool {
-	return itr.currPgItr.Valid()
+	return itr.currPgItr != nil && itr.currPgItr.Valid()
 }
 
 // If the current page has no valid item, move to next page
