@@ -443,13 +443,17 @@ retry:
 
 	newOffset := offset + size
 	if newOffset > len(fb.b) {
-		markedFull := true
-		newState := encodeState(true, nw, offset)
-		if !atomic.CompareAndSwapUint64(&fb.state, state, newState) {
-			runtime.Gosched()
-			goto retry
+		if offset == 0 {
+			fb.b = make([]byte, size)
+		} else {
+			markedFull := true
+			newState := encodeState(true, nw, offset)
+			if !atomic.CompareAndSwapUint64(&fb.state, state, newState) {
+				runtime.Gosched()
+				goto retry
+			}
+			return false, markedFull, nil, nil
 		}
-		return false, markedFull, nil, nil
 	}
 
 	newState := encodeState(false, nw+1, newOffset)
