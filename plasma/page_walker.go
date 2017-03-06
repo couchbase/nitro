@@ -119,18 +119,29 @@ func (w *pageWalker) SetEndAndRestart() {
 
 func (w *pageWalker) Close() {
 	if w.aCtx != nil {
-		allocs, _, _, _ := w.aCtx.GetMallocOps()
+		allocs, _, _, _, _ := w.aCtx.GetAllocOps()
 		w.discardDeltas(allocs)
 	}
 }
 
-func (w *pageWalker) SwapIn(pg *page) {
+func (w *pageWalker) SwapIn(pg *page) bool {
 	if w.aCtx != nil {
 		pg.allocDeltaList = append(pg.allocDeltaList, w.aCtx.allocDeltaList...)
 		pg.memUsed += w.aCtx.memUsed
-		pg.n += w.aCtx.n
+		pg.nrecAllocs += w.aCtx.nrecAllocs
+		pg.nrecSwapin += w.aCtx.nrecAllocs
 		pg.SwapIn(w.pgCache)
 		w.aCtx = nil
 		w.pgCache = nil
+		return true
 	}
+
+	return false
+}
+
+func (w *pageWalker) NumLSSRecords() int {
+	if w.aCtx != nil {
+		return w.aCtx.nrecAllocs
+	}
+	return 0
 }

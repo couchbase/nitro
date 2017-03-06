@@ -64,7 +64,7 @@ func (s *Plasma) CleanLSS(proceed func() bool) error {
 					}
 					relocated++
 				} else {
-					allocs, _, _, _ := pg.GetMallocOps()
+					allocs, _, _, _, _ := pg.GetAllocOps()
 					s.discardDeltas(allocs)
 					skipped++
 				}
@@ -112,7 +112,7 @@ func (s *Plasma) GetLSSInfo() (frag int, data int64, used int64) {
 	data = s.LSSDataSize()
 	used = s.lss.UsedSpace()
 
-	if used > 0 && data < used {
+	if used > 0 && data > 0 && data < used {
 		frag = int((used - data) * 100 / used)
 	}
 	return
@@ -121,7 +121,7 @@ func (s *Plasma) GetLSSInfo() (frag int, data int64, used int64) {
 func (s *Plasma) lssCleanerDaemon() {
 	shouldClean := func() bool {
 		frag, _, _ := s.GetLSSInfo()
-		return frag > s.Config.LSSCleanerThreshold
+		return frag > 0 && frag > s.Config.LSSCleanerThreshold
 	}
 
 loop:

@@ -50,6 +50,7 @@ type Plasma struct {
 	sync.RWMutex
 
 	// MVCC data structures
+	itemsCount   int64
 	mvcc         sync.RWMutex
 	currSn       uint64
 	numSnCreated int
@@ -105,6 +106,7 @@ type Stats struct {
 	NumRecordAllocs  int64
 	NumRecordFrees   int64
 	NumRecordSwapOut int64
+	NumRecordSwapIn  int64
 	AllocSzIndex     int64
 	FreeSzIndex      int64
 	ReclaimSzIndex   int64
@@ -154,6 +156,7 @@ func (s *Stats) Merge(o *Stats) {
 	s.NumRecordAllocs += o.NumRecordAllocs
 	s.NumRecordFrees += o.NumRecordFrees
 	s.NumRecordSwapOut += o.NumRecordSwapOut
+	s.NumRecordSwapIn += o.NumRecordSwapIn
 
 	s.BytesIncoming += o.BytesIncoming
 
@@ -192,6 +195,7 @@ func (s Stats) String() string {
 		"num_rec_allocs    = %d\n"+
 		"num_rec_frees     = %d\n"+
 		"num_rec_swapout   = %d\n"+
+		"num_rec_swapin    = %d\n"+
 		"bytes_incoming    = %d\n"+
 		"bytes_written     = %d\n"+
 		"write_amp         = %.2f\n"+
@@ -218,7 +222,7 @@ func (s Stats) String() string {
 		s.FreeSz-s.ReclaimSz,
 		s.AllocSzIndex, s.FreeSzIndex, s.ReclaimSzIndex,
 		s.NumPages, s.NumRecordAllocs, s.NumRecordFrees,
-		s.NumRecordSwapOut,
+		s.NumRecordSwapOut, s.NumRecordSwapIn,
 		s.BytesIncoming, s.BytesWritten,
 		s.WriteAmp, s.WriteAmpAvg,
 		s.LSSFrag, s.LSSDataSize, s.LSSUsedSpace,
@@ -301,7 +305,7 @@ func New(cfg Config) (*Plasma, error) {
 
 	if s.shouldPersist {
 		commitDur := time.Duration(cfg.SyncInterval) * time.Second
-		s.lss, err = NewLSStore(cfg.File, cfg.LSSLogSegmentSize, cfg.FlushBufferSize, 2, commitDur)
+		s.lss, err = NewLSStore(cfg.File, cfg.LSSLogSegmentSize, cfg.FlushBufferSize, 2, cfg.UseMmap, commitDur)
 		if err != nil {
 			return nil, err
 		}
@@ -551,6 +555,11 @@ func ComparePlasma(a, b unsafe.Pointer) int {
 
 type Writer struct {
 	*wCtx
+	count int64
+}
+
+type Reader struct {
+	iter *MVCCIterator
 }
 
 // TODO: Refactor wCtx and Writer
@@ -650,6 +659,25 @@ func (s *Plasma) NewWriter() *Writer {
 	return w
 }
 
+func (s *Plasma) NewReader() *Reader {
+	iter := s.NewIterator().(*Iterator)
+	iter.filter = &snFilter{}
+
+	return &Reader{
+		iter: &MVCCIterator{
+			Iterator: iter,
+		},
+	}
+}
+
+func (r *Reader) NewSnapshotIterator(snap *Snapshot) *MVCCIterator {
+	snap.Open()
+	r.iter.filter.(*snFilter).sn = snap.sn
+	r.iter.token = r.iter.BeginTx()
+	r.iter.snap = snap
+	return r.iter
+}
+
 func (s *Plasma) MemoryInUse() int64 {
 	var memSz int64
 	for w := s.wCtxList; w != nil; w = w.next {
@@ -683,7 +711,8 @@ func (s *Plasma) GetStats() Stats {
 			sts.WriteAmpAvg = bsOut / bsIn
 		}
 		cachedRecs := sts.NumRecordAllocs - sts.NumRecordFrees
-		totalRecs := cachedRecs + sts.NumRecordSwapOut
+		lssRecs := sts.NumRecordSwapOut - sts.NumRecordSwapIn
+		totalRecs := cachedRecs + lssRecs
 		if totalRecs > 0 {
 			sts.ResidentRatio = float64(cachedRecs) / float64(totalRecs)
 		}
@@ -703,6 +732,13 @@ func (s *Plasma) LSSDataSize() int64 {
 
 func (s *Plasma) indexPage(pid PageId, ctx *wCtx) {
 	n := pid.(*skiplist.Node)
+	if n.Item() == skiplist.MinItem {
+		link := n.Link
+		s.FreePageId(pid, ctx)
+		n = s.StartPageId().(*skiplist.Node)
+		n.Link = link
+		return
+	}
 retry:
 	if existNode, ok := s.Skiplist.Insert4(n, s.cmp, s.cmp, ctx.buf, n.Level(), false, false, ctx.slSts); !ok {
 		if pg := newPage(ctx, nil, existNode.Link); pg.NeedRemoval() {
@@ -1095,11 +1131,25 @@ func MemoryInUse2(ctx SwapperContext) (sz int64) {
 	return
 }
 
-func (s *Plasma) tryPageSwapin(pg Page) {
+func (s *Plasma) tryPageSwapin(pg Page) bool {
+	var ok bool
 	pgi := pg.(*page)
 	if pgi.head != nil && pgi.head.state.IsEvicted() {
 		pw := newPgDeltaWalker(pgi.head, pgi.ctx)
-		pw.SwapIn(pgi)
+		// Force the pagewalker to read the swapout delta
+		for !pw.End() {
+			if pw.Op() == opSwapoutDelta {
+				pw.Next()
+				break
+			}
+		}
+		ok = pw.SwapIn(pgi)
 		pw.Close()
 	}
+
+	return ok
+}
+
+func (s *Plasma) ItemsCount() int64 {
+	return s.itemsCount
 }

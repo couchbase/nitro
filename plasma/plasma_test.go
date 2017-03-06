@@ -667,3 +667,67 @@ func TestPlasmaAutoSwapper(t *testing.T) {
 	fmt.Printf("LSSInfo: frag:%d, ds:%d, used:%d\n", frag, ds, used)
 
 }
+
+// Robert Jenkins 32 bit integer
+func intHash(x int) int {
+	a := uint32(x)
+	a = (a + 0x7ed55d16) + (a << 12)
+	a = (a ^ 0xc761c23c) ^ (a >> 19)
+	a = (a + 0x165667b1) + (a << 5)
+	a = (a + 0xd3a2646c) ^ (a << 9)
+	a = (a + 0xfd7046c5) + (a << 3)
+	a = (a ^ 0xb55a4f09) ^ (a >> 16)
+	return int(a)
+}
+
+func TestConcurrDelOps(t *testing.T) {
+	var wg sync.WaitGroup
+
+	os.RemoveAll("teststore.data")
+	numThreads := 6
+	n := 10000000
+	nPerThr := n / numThreads
+	testCfg.MinPageItems = 200
+	s := newTestIntPlasmaStore(testCfg)
+	defer s.Close()
+
+	worker := func(w *Writer, wg *sync.WaitGroup, id int, insert bool, n int) {
+		defer wg.Done()
+
+		for i := 0; i < n; i++ {
+			val := intHash(i + id*n)
+			itm := skiplist.NewIntKeyItem(val)
+			if insert {
+				w.Insert(itm)
+			} else {
+				w.Delete(itm)
+			}
+		}
+	}
+
+	for i := 0; i < numThreads; i++ {
+		wg.Add(1)
+		w := s.NewWriter()
+		go worker(w, &wg, i, true, nPerThr)
+	}
+	wg.Wait()
+
+	for i := 0; i < numThreads; i++ {
+		wg.Add(1)
+		w := s.NewWriter()
+		go worker(w, &wg, i, false, nPerThr)
+	}
+	wg.Wait()
+
+	c := 0
+	itr := s.NewIterator()
+	for itr.SeekFirst(); itr.Valid(); itr.Next() {
+		c++
+	}
+
+	if c != 0 {
+		t.Errorf("Expected 0, got %d", c)
+	}
+
+	fmt.Println(s.GetStats())
+}

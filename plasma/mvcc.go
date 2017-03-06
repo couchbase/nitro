@@ -16,8 +16,13 @@ type Snapshot struct {
 	child    *Snapshot
 	db       *Plasma
 
+	count     int64
 	persisted bool
 	meta      []byte
+}
+
+func (sn *Snapshot) Count() int64 {
+	return sn.count
 }
 
 type rollbackSn struct {
@@ -165,6 +170,7 @@ func (itr *MVCCIterator) Value() []byte {
 
 func (itr *MVCCIterator) Close() {
 	itr.snap.Close()
+	itr.Iterator.Close()
 	itr.EndTx(itr.token)
 }
 
@@ -211,17 +217,22 @@ func (s *Plasma) newSnapshot() (snap *Snapshot) {
 	s.currSnapshot = nextSnap
 	s.updateMaxSn(nextSnap.sn, false)
 
-	if s.useMemMgmt {
-		var smrList [][]reclaimObject
-		for _, w := range s.wlist {
+	var smrList [][]reclaimObject
+	for _, w := range s.wlist {
+		if s.useMemMgmt {
 			if len(w.wCtx.reclaimList) > 0 {
 				smrList = append(smrList, w.wCtx.reclaimList)
 				w.wCtx.reclaimList = nil
 			}
+
 		}
 
-		s.FreeObjects(smrList)
+		s.itemsCount += w.count
+		w.count = 0
 	}
+
+	snap.count = s.itemsCount
+	s.FreeObjects(smrList)
 
 	return
 }
@@ -230,6 +241,7 @@ func (w *Writer) InsertKV(k, v []byte) error {
 	sn := atomic.LoadUint64(&w.currSn)
 	itmBuf := w.GetBuffer(bufTempItem)
 	itm := w.newItem(k, v, sn, false, itmBuf)
+	w.count++
 	return w.Insert(unsafe.Pointer(itm))
 }
 
@@ -237,6 +249,7 @@ func (w *Writer) DeleteKV(k []byte) error {
 	sn := atomic.LoadUint64(&w.currSn)
 	itmBuf := w.GetBuffer(bufTempItem)
 	itm := w.newItem(k, nil, sn, true, itmBuf)
+	w.count--
 	return w.Insert(unsafe.Pointer(itm))
 }
 
@@ -262,8 +275,9 @@ func (w *Writer) LookupKV(k []byte) ([]byte, error) {
 }
 
 type RecoveryPoint struct {
-	sn   uint64
-	meta []byte
+	sn    uint64
+	count int64
+	meta  []byte
 }
 
 func (rp *RecoveryPoint) Meta() []byte {
@@ -296,8 +310,9 @@ func (s *Plasma) CreateRecoveryPoint(sn *Snapshot, meta []byte) error {
 		// Prepare
 		s.mvcc.Lock()
 		rp := &RecoveryPoint{
-			sn:   sn.sn,
-			meta: meta,
+			sn:    sn.sn,
+			count: sn.count,
+			meta:  meta,
 		}
 
 		rps := append(s.recoveryPoints, rp)
@@ -366,6 +381,7 @@ func (s *Plasma) Rollback(rollRP *RecoveryPoint) (*Snapshot, error) {
 
 	s.lss.Sync(false)
 
+	s.itemsCount = rollRP.count
 	newSnap := s.newSnapshot()
 	var newRpts []*RecoveryPoint
 	for _, rp := range s.recoveryPoints {
@@ -399,7 +415,7 @@ func (s *Plasma) RemoveRecoveryPoint(rmRP *RecoveryPoint) {
 func marshalRPs(rps []*RecoveryPoint, version uint16) []byte {
 	var l int
 	for _, rp := range rps {
-		l += 4 + 8 + len(rp.meta)
+		l += 4 + 8 + 8 + len(rp.meta)
 	}
 
 	bs := make([]byte, 2+2+l)
@@ -408,10 +424,12 @@ func marshalRPs(rps []*RecoveryPoint, version uint16) []byte {
 	binary.BigEndian.PutUint16(bs[offset:offset+2], uint16(len(rps)))
 	offset += 2
 	for _, rp := range rps {
-		l := uint32(4 + 8 + len(rp.meta))
+		l := uint32(4 + 8 + 8 + len(rp.meta))
 		binary.BigEndian.PutUint32(bs[offset:offset+4], l)
 		offset += 4
 		binary.BigEndian.PutUint64(bs[offset:offset+8], rp.sn)
+		offset += 8
+		binary.BigEndian.PutUint64(bs[offset:offset+8], uint64(rp.count))
 		offset += 8
 		copy(bs[offset:], rp.meta)
 		offset += len(rp.meta)
@@ -431,6 +449,8 @@ func unmarshalRPs(bs []byte) (version uint16, rps []*RecoveryPoint) {
 		endOffset := offset + l
 		offset += 4
 		rp.sn = binary.BigEndian.Uint64(bs[offset : offset+8])
+		offset += 8
+		rp.count = int64(binary.BigEndian.Uint64(bs[offset : offset+8]))
 		offset += 8
 		rp.meta = append([]byte(nil), bs[offset:endOffset]...)
 		rps = append(rps, rp)

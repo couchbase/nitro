@@ -80,7 +80,7 @@ type Page interface {
 	Evict(offset LSSOffset, numSegments int)
 	SwapIn(ptr *pageDelta)
 
-	GetMallocOps() (a []*pageDelta, f []pgFreeObj, n int, sz int)
+	GetAllocOps() (a []*pageDelta, f []pgFreeObj, nra int, nrs int, sz int)
 	GetFlushDataSize() int
 	ComputeMemUsed() int
 	AddFlushRecord(off LSSOffset, dataSz int, numSegments int)
@@ -394,6 +394,7 @@ func (pg *page) newBasePage(itms []unsafe.Pointer) *pageDelta {
 	bp := pg.allocBasePage(n, sz, hiItm)
 	bp.op = opBasePage
 	bp.numItems = uint16(n)
+	bp.state = 0
 
 	var offset uintptr
 	for i, itm := range itms {
@@ -564,13 +565,12 @@ func (pg *page) doSplit(itm unsafe.Pointer, pid PageId, numItems int) *page {
 	splitPage := new(page)
 	*splitPage = *pg
 	splitPage.prevHeadPtr = nil
-	it, itms, _ := pg.collectItems(pg.head, itm, pg.head.hiItm)
+	it, itms, _, _ := pg.collectItems(pg.head, itm, pg.head.hiItm)
 	defer it.Close()
 	if len(itms) == 0 {
 		return nil
 	}
 	bp := pg.newBasePage(itms)
-	bp.state = 0
 	splitPage.head = bp
 
 	itm = (*basePage)(unsafe.Pointer(bp)).items[0]
@@ -589,8 +589,9 @@ func (pg *page) doSplit(itm unsafe.Pointer, pid PageId, numItems int) *page {
 func (pg *page) Compact() int {
 	state := pg.head.state
 
-	it, itms, fdataSz := pg.collectItems(pg.head, nil, pg.head.hiItm)
+	it, itms, fdataSz, numLSSRecs := pg.collectItems(pg.head, nil, pg.head.hiItm)
 	pg.free(false)
+	pg.nrecSwapin += numLSSRecs
 	pg.head = pg.newBasePage(itms)
 	it.Close()
 	state.IncrVersion()
@@ -652,15 +653,16 @@ loop:
 }
 
 func (pg *page) collectItems(head *pageDelta,
-	loItm, hiItm unsafe.Pointer) (itr pgOpIterator, itms []unsafe.Pointer, dataSz int) {
+	loItm, hiItm unsafe.Pointer) (itr pgOpIterator, itms []unsafe.Pointer, dataSz int, numLSSRecs int) {
 
-	it, fdSz := newPgOpIterator(pg.head, pg.cmp, loItm, hiItm, pg.getCompactFilter(), pg.ctx)
+	var sts pgOpIteratorStats
+	it := newPgOpIterator(pg.head, pg.cmp, loItm, hiItm, pg.getCompactFilter(), pg.ctx, &sts)
 	for it.Init(); it.Valid(); it.Next() {
 		itm := it.Get()
 		itms = append(itms, itm.Item())
 	}
 
-	return it, itms, fdSz
+	return it, itms, sts.fdSz, sts.numLSSRecords
 }
 
 type pageIterator struct {
@@ -684,12 +686,12 @@ func (pi *pageIterator) Next() error {
 }
 
 func (pi *pageIterator) SeekFirst() error {
-	pi.it, pi.itms, _ = pi.pg.collectItems(pi.pg.head, nil, pi.pg.head.hiItm)
+	pi.it, pi.itms, _, _ = pi.pg.collectItems(pi.pg.head, nil, pi.pg.head.hiItm)
 	return nil
 }
 
 func (pi *pageIterator) Seek(itm unsafe.Pointer) error {
-	pi.it, pi.itms, _ = pi.pg.collectItems(pi.pg.head, itm, pi.pg.head.hiItm)
+	pi.it, pi.itms, _, _ = pi.pg.collectItems(pi.pg.head, itm, pi.pg.head.hiItm)
 	return nil
 
 }
@@ -1174,9 +1176,7 @@ func (pg *page) NeedsFlush() bool {
 }
 
 func (pg *page) GetFlushInfo() (LSSOffset, int, int) {
-	if pg.head == nil {
-		return 0, 1, 0
-	} else if pg.head.op == opFlushPageDelta || pg.head.op == opRelocPageDelta {
+	if pg.head.op == opFlushPageDelta || pg.head.op == opRelocPageDelta {
 		fpd := (*flushPageDelta)(unsafe.Pointer(pg.head))
 		return fpd.offset, int(fpd.numSegments), int(fpd.flushDataSz)
 	} else if pg.head.op == opSwapoutDelta {

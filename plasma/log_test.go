@@ -13,7 +13,7 @@ var syncMode = true
 
 func TestLogOperation(t *testing.T) {
 	os.RemoveAll(logTestDataPath)
-	l, _ := newLog(logTestDataPath, 1024*1024, syncMode)
+	l, _ := newLog(logTestDataPath, 1024*1024, syncMode, false)
 	bs := make([]byte, 973)
 	n := 1024 * 20
 	for i := 0; i < n; i++ {
@@ -38,7 +38,7 @@ func TestLogOperation(t *testing.T) {
 
 	l.Close()
 
-	l, _ = newLog(logTestDataPath, 1024*1024, syncMode)
+	l, _ = newLog(logTestDataPath, 1024*1024, syncMode, false)
 
 	for i := 0; i < n; i++ {
 		copy(bs, []byte(fmt.Sprintf("hello %05d", i)))
@@ -54,7 +54,7 @@ func TestLogOperation(t *testing.T) {
 
 func TestLogLargeSize(t *testing.T) {
 	os.RemoveAll(logTestDataPath)
-	l, _ := newLog(logTestDataPath, 1024*10, syncMode)
+	l, _ := newLog(logTestDataPath, 1024*10, syncMode, false)
 	bs := make([]byte, 1024*1024)
 	for i, _ := range bs {
 		bs[i] = 1
@@ -73,7 +73,7 @@ func TestLogLargeSize(t *testing.T) {
 
 func TestLogTrim(t *testing.T) {
 	os.RemoveAll(logTestDataPath)
-	l, _ := newLog(logTestDataPath, 1024*1024, syncMode)
+	l, _ := newLog(logTestDataPath, 1024*1024, syncMode, false)
 	bs := make([]byte, 973)
 	bs2 := make([]byte, 973)
 	n := 1024 * 20
@@ -87,7 +87,7 @@ func TestLogTrim(t *testing.T) {
 	l.Commit()
 	l.Close()
 
-	l, _ = newLog(logTestDataPath, 1024*1024, syncMode)
+	l, _ = newLog(logTestDataPath, 1024*1024, syncMode, false)
 	l.Commit()
 
 	for i := 1024 * 10; i < n; i++ {
@@ -104,7 +104,7 @@ func TestLogTrim(t *testing.T) {
 
 func TestLogSuperblockCorruption(t *testing.T) {
 	os.RemoveAll(logTestDataPath)
-	l, _ := newLog(logTestDataPath, 1024*1024, syncMode)
+	l, _ := newLog(logTestDataPath, 1024*1024, syncMode, false)
 	bs := make([]byte, 973)
 	n := 1024 * 20
 	for i := 0; i < n/2; i++ {
@@ -134,7 +134,7 @@ func TestLogSuperblockCorruption(t *testing.T) {
 		w.Close()
 	}
 
-	l, err := newLog(logTestDataPath, 1024*1024, syncMode)
+	l, err := newLog(logTestDataPath, 1024*1024, syncMode, false)
 	if err != nil {
 		panic(err)
 	}

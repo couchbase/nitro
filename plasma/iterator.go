@@ -66,8 +66,7 @@ func (s *Plasma) NewIterator() ItemIterator {
 	return &Iterator{
 		store:  s,
 		filter: new(defaultFilter),
-		// TODO: merge with plasma store stats
-		wCtx: s.newWCtx2(),
+		wCtx:   s.newWCtx(),
 	}
 }
 
@@ -83,12 +82,20 @@ func (itr *Iterator) initPgIterator(pid PageId, seekItm unsafe.Pointer) {
 
 			itr.nextPid = pg.Next()
 			itr.filter.Reset()
-			itr.currPgItr, _ = newPgOpIterator(pg.head, pg.cmp, seekItm, pg.head.hiItm, itr.filter, itr.wCtx)
+			var sts pgOpIteratorStats
+			itr.currPgItr = newPgOpIterator(pg.head, pg.cmp, seekItm, pg.head.hiItm, itr.filter, itr.wCtx, &sts)
 			itr.nr = itr.sts.NumLSSReads
 			itr.currPgItr.Init()
 		} else {
 			itr.err = err
 		}
+	}
+}
+
+func (itr *Iterator) Close() {
+	if itr.currPgItr != nil {
+		itr.currPgItr.Close()
+		itr.currPgItr = nil
 	}
 }
 
@@ -117,7 +124,7 @@ func (itr *Iterator) Get() unsafe.Pointer {
 }
 
 func (itr *Iterator) Valid() bool {
-	return itr.currPgItr.Valid()
+	return itr.currPgItr != nil && itr.currPgItr.Valid()
 }
 
 // If the current page has no valid item, move to next page
@@ -130,6 +137,7 @@ func (itr *Iterator) tryNextPg() {
 			itr.sts.CacheHits++
 		}
 		if itr.nextPid == itr.store.EndPageId() {
+			itr.currPgItr = nil
 			break
 		}
 		itr.initPgIterator(itr.nextPid, nil)
@@ -376,8 +384,13 @@ func (pdm *pdMergeIterator) Close() {
 	pdm.itrs[1].Close()
 }
 
+type pgOpIteratorStats struct {
+	fdSz          int
+	numLSSRecords int
+}
+
 func newPgOpIterator(head *pageDelta, cmp skiplist.CompareFn,
-	low, high unsafe.Pointer, filter ItemFilter, ctx *wCtx) (iter pgOpIterator, fdSz int) {
+	low, high unsafe.Pointer, filter ItemFilter, ctx *wCtx, sts *pgOpIteratorStats) (iter pgOpIterator) {
 
 	var hasReloc bool
 	m := &pdMergeIterator{cmp: cmp, ItemFilter: filter}
@@ -394,13 +407,13 @@ loop:
 		case opRelocPageDelta:
 			if !hasReloc {
 				_, d, _ := pw.FlushInfo()
-				fdSz = int(d)
+				sts.fdSz += int(d)
 				hasReloc = true
 			}
 		case opFlushPageDelta:
 			if !hasReloc {
 				_, d, _ := pw.FlushInfo()
-				fdSz += int(d)
+				sts.fdSz += int(d)
 			}
 		case opPageSplitDelta:
 			sitm := pw.Item()
@@ -408,14 +421,17 @@ loop:
 				high = sitm
 			}
 		case opPageMergeDelta:
-			deltaItr, fdSz1 := newPgOpIterator(pw.NextPd(), cmp, low, high, filter, ctx)
-			mergeItr, fdSz2 := newPgOpIterator(
+			var mSts pgOpIteratorStats
+			deltaItr := newPgOpIterator(pw.NextPd(), cmp, low, high, filter, ctx, &mSts)
+			mergeItr := newPgOpIterator(
 				pw.MergeSibling(),
-				cmp, low, high, filter, ctx)
+				cmp, low, high, filter, ctx, &mSts)
 
 			if !hasReloc {
-				fdSz += fdSz1 + fdSz2
+				sts.fdSz += mSts.fdSz
 			}
+
+			sts.numLSSRecords += mSts.numLSSRecords
 
 			m.itrs[1] = &pdJoinIterator{
 				itrs: [2]pgOpIterator{deltaItr, mergeItr},
@@ -457,5 +473,6 @@ loop:
 		m.itrs[1] = &pdIterator{}
 	}
 
-	return m, fdSz
+	sts.numLSSRecords += pw.NumLSSRecords()
+	return m
 }

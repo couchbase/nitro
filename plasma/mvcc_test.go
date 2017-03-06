@@ -511,3 +511,69 @@ func TestMVCCIntervalGC(t *testing.T) {
 		t.Errorf("Expected 13000, got %d", c)
 	}
 }
+
+func TestMVCCItemsCount(t *testing.T) {
+	os.RemoveAll("teststore.data")
+	s := newTestIntPlasmaStore(testSnCfg)
+
+	n, m, o := 10000, 9950, 8000
+	w := s.NewWriter()
+	for i := 0; i < n; i++ {
+		w.InsertKV([]byte(fmt.Sprintf("key-%10d", i)), []byte(fmt.Sprintf("val-%10d", i)))
+	}
+
+	snap1 := s.NewSnapshot()
+	s.CreateRecoveryPoint(snap1, []byte("snap1"))
+
+	for i := 0; i < m; i++ {
+		w.DeleteKV([]byte(fmt.Sprintf("key-%10d", i)))
+	}
+
+	snap2 := s.NewSnapshot()
+	s.CreateRecoveryPoint(snap2, []byte("snap2"))
+
+	if int(snap1.Count()) != n {
+		t.Errorf("Expected count %d, got %d", n, snap1.Count())
+	}
+
+	if int(snap2.Count()) != n-m {
+		t.Errorf("Expected count %d, got %d", n-m, snap2.Count())
+	}
+
+	rpts := s.GetRecoveryPoints()
+	rp1, rp2 := rpts[0], rpts[1]
+
+	rollSn2, _ := s.Rollback(rp2)
+	if int(rollSn2.Count()) != n-m {
+		t.Errorf("Expected count %d, got %d", n-m, rollSn2.Count())
+	}
+
+	rollSn1, _ := s.Rollback(rp1)
+	if int(rollSn1.Count()) != n {
+		t.Errorf("Expected count %d, got %d", n, rollSn1.Count())
+	}
+
+	for i := 0; i < o; i++ {
+		w.DeleteKV([]byte(fmt.Sprintf("key-%10d", i)))
+	}
+
+	snap3 := s.NewSnapshot()
+	s.CreateRecoveryPoint(snap3, []byte("snap3"))
+	s.Close()
+
+	fmt.Println("Reopening db...")
+	s = newTestIntPlasmaStore(testSnCfg)
+	defer s.Close()
+
+	rpts = s.GetRecoveryPoints()
+	rp1, rp3 := rpts[0], rpts[1]
+	rollSn3, _ := s.Rollback(rp3)
+	if int(rollSn3.Count()) != n-o {
+		t.Errorf("Expected count %d, got %d", n, rollSn3.Count())
+	}
+
+	rollSn1, _ = s.Rollback(rp1)
+	if int(rollSn1.Count()) != n {
+		t.Errorf("Expected count %d, got %d", n, rollSn1.Count())
+	}
+}
