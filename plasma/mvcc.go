@@ -170,6 +170,7 @@ func (itr *MVCCIterator) Value() []byte {
 
 func (itr *MVCCIterator) Close() {
 	itr.snap.Close()
+	itr.Iterator.Close()
 	itr.EndTx(itr.token)
 }
 

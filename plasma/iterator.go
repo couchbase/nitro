@@ -92,6 +92,13 @@ func (itr *Iterator) initPgIterator(pid PageId, seekItm unsafe.Pointer) {
 	}
 }
 
+func (itr *Iterator) Close() {
+	if itr.currPgItr != nil {
+		itr.currPgItr.Close()
+		itr.currPgItr = nil
+	}
+}
+
 func (itr *Iterator) SeekFirst() error {
 	itr.initPgIterator(itr.store.Skiplist.HeadNode(), nil)
 	itr.tryNextPg()
@@ -130,6 +137,7 @@ func (itr *Iterator) tryNextPg() {
 			itr.sts.CacheHits++
 		}
 		if itr.nextPid == itr.store.EndPageId() {
+			itr.currPgItr = nil
 			break
 		}
 		itr.initPgIterator(itr.nextPid, nil)

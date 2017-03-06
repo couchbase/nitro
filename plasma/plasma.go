@@ -559,7 +559,6 @@ type Writer struct {
 }
 
 type Reader struct {
-	*wCtx
 	iter *MVCCIterator
 }
 
@@ -665,7 +664,6 @@ func (s *Plasma) NewReader() *Reader {
 	iter.filter = &snFilter{}
 
 	return &Reader{
-		wCtx: s.newWCtx(),
 		iter: &MVCCIterator{
 			Iterator: iter,
 		},
