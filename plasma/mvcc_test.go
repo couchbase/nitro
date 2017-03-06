@@ -577,3 +577,39 @@ func TestMVCCItemsCount(t *testing.T) {
 		t.Errorf("Expected count %d, got %d", n, rollSn1.Count())
 	}
 }
+
+func TestLargeItems(t *testing.T) {
+	os.RemoveAll("teststore.data")
+	s := newTestIntPlasmaStore(testSnCfg)
+
+	size := 1024 * 1024
+	n := 1000
+	w := s.NewWriter()
+	bs := make([]byte, size)
+	for i := 0; i < n; i++ {
+		copy(bs, []byte(fmt.Sprintf("key- %d", i)))
+		w.InsertKV(bs, []byte(fmt.Sprintf("val-%10d", i)))
+	}
+
+	s.PersistAll()
+	s.Close()
+
+	s = newTestIntPlasmaStore(testSnCfg)
+	defer s.Close()
+
+	snap := s.NewSnapshot()
+
+	count := 0
+	itr := snap.NewIterator()
+	for itr.SeekFirst(); itr.Valid(); itr.Next() {
+		kl := len(itr.Key())
+		if kl != size {
+			t.Errorf("Expected keylen %d, got %d", size, kl)
+		}
+		count++
+	}
+
+	if count != n {
+		t.Errorf("Expected count:%d, got:%d", n, count)
+	}
+}
