@@ -36,6 +36,12 @@ const (
 	NoFullMarshal = ^0
 )
 
+const (
+	minKeyEncoded byte = iota + 1
+	maxKeyEncoded
+	itemKeyEncoded
+)
+
 var pageHeaderSize = int(unsafe.Sizeof(*new(pageDelta)))
 
 type PageId interface{}
@@ -719,11 +725,41 @@ func (pg *page) Marshal(buf *Buffer, maxSegments int) (bs []byte, dataSz, staleF
 	return buf.Get(0, offset), offset, staleFdSz, numSegments
 }
 
+func (pg *page) unmarshalIndexKey(data []byte, roffset int) (unsafe.Pointer, int) {
+	flag := data[roffset]
+	roffset += 1
+	switch flag {
+	case itemKeyEncoded:
+		itm := unsafe.Pointer(&data[roffset])
+		roffset += int(pg.itemSize(itm))
+		return itm, roffset
+	case minKeyEncoded:
+		return skiplist.MinItem, roffset
+	case maxKeyEncoded:
+		return skiplist.MaxItem, roffset
+	}
+
+	panic(fmt.Sprintf("invalid flag %d", flag))
+}
+
+func (pg *page) unmarshalItem(data []byte, roffset int) (unsafe.Pointer, int) {
+	itm := unsafe.Pointer(&data[roffset])
+	l := pg.itemSize(itm)
+	roffset += int(l)
+	return itm, roffset
+
+}
+
 func (pg *page) marshalIndexKey(key unsafe.Pointer, woffset int, buf *Buffer) int {
-	if key == skiplist.MinItem || key == skiplist.MaxItem {
-		binary.BigEndian.PutUint16(buf.Get(woffset, 2), uint16(0))
-		woffset += 2
+	flag := buf.Get(woffset, 1)
+	woffset += 1
+	if key == skiplist.MinItem {
+		flag[0] = minKeyEncoded
+
+	} else if key == skiplist.MaxItem {
+		flag[0] = maxKeyEncoded
 	} else {
+		flag[0] = itemKeyEncoded
 		return pg.marshalItem(key, woffset, buf)
 	}
 
@@ -732,9 +768,7 @@ func (pg *page) marshalIndexKey(key unsafe.Pointer, woffset int, buf *Buffer) in
 
 func (pg *page) marshalItem(itm unsafe.Pointer, woffset int, b *Buffer) int {
 	l := int(pg.itemSize(itm))
-	buf := b.Get(0, woffset+l+2)
-	binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(l))
-	woffset += 2
+	b.Grow(0, woffset+l)
 	memcopy(b.Ptr(woffset), itm, l)
 	woffset += l
 
@@ -900,14 +934,7 @@ func (pg *page) unmarshalDelta(data []byte, ctx *wCtx) (offset LSSOffset, hasCha
 	roffset += 2
 	pg.state = state
 
-	l := int(binary.BigEndian.Uint16(data[roffset : roffset+2]))
-	roffset += 2
-	if l == 0 {
-		pg.low = skiplist.MinItem
-	} else {
-		pg.low = unsafe.Pointer(&data[roffset])
-		roffset += l
-	}
+	pg.low, roffset = pg.unmarshalIndexKey(data, roffset)
 
 	chainLen := binary.BigEndian.Uint16(data[roffset : roffset+2])
 	roffset += 2
@@ -915,16 +942,8 @@ func (pg *page) unmarshalDelta(data []byte, ctx *wCtx) (offset LSSOffset, hasCha
 	numItems := binary.BigEndian.Uint16(data[roffset : roffset+2])
 	roffset += 2
 
-	l = int(binary.BigEndian.Uint16(data[roffset : roffset+2]))
-	roffset += 2
-
-	var hiItm unsafe.Pointer
-	if l == 0 {
-		hiItm = skiplist.MaxItem
-	} else {
-		hiItm = unsafe.Pointer(&data[roffset])
-		roffset += l
-	}
+	var itm, hiItm unsafe.Pointer
+	hiItm, roffset = pg.unmarshalIndexKey(data, roffset)
 
 	lastPd := (*pageDelta)(unsafe.Pointer(pg.allocMetaDelta(hiItm)))
 	lastPd.op = opMetaDelta
@@ -943,10 +962,7 @@ loop:
 
 		switch op {
 		case opInsertDelta, opDeleteDelta:
-			l := int(binary.BigEndian.Uint16(data[roffset : roffset+2]))
-			roffset += 2
-			itm := unsafe.Pointer(&data[roffset])
-			roffset += l
+			itm, roffset = pg.unmarshalItem(data, roffset)
 			rpd := pg.allocRecordDelta(itm)
 			*(*pageDelta)(unsafe.Pointer(rpd)) = *pg.head
 			rpd.next = nil
@@ -963,14 +979,12 @@ loop:
 		case opBasePage:
 			nItms := int(binary.BigEndian.Uint16(data[roffset : roffset+2]))
 			roffset += 2
-			var itms []unsafe.Pointer
 			size := 0
+			var itms []unsafe.Pointer
 			for i := 0; i < nItms; i++ {
-				l := int(binary.BigEndian.Uint16(data[roffset : roffset+2]))
-				roffset += 2
-				itms = append(itms, unsafe.Pointer(&data[roffset]))
-				roffset += l
-				size += l
+				itm, roffset = pg.unmarshalItem(data, roffset)
+				itms = append(itms, itm)
+				size += int(pg.itemSize(itm))
 			}
 
 			bp := pg.newBasePage(itms)
@@ -1076,9 +1090,9 @@ func decodePageState(data []byte) (state pageState, key unsafe.Pointer) {
 	state = pageState(binary.BigEndian.Uint16(data[roffset : roffset+2]))
 	roffset += 2
 
-	l := int(binary.BigEndian.Uint16(data[roffset : roffset+2]))
-	roffset += 2
-	if l == 0 {
+	flag := data[roffset]
+	roffset += 1
+	if flag == minKeyEncoded {
 		key = skiplist.MinItem
 	} else {
 		key = unsafe.Pointer(&data[roffset])
