@@ -156,7 +156,8 @@ type MVCCIterator struct {
 
 func (itr *MVCCIterator) Seek(k []byte) {
 	sn := atomic.LoadUint64(&itr.snap.db.currSn)
-	itm := unsafe.Pointer(itr.snap.db.newItem(k, nil, sn, false, nil))
+	kbuf := itr.Iterator.GetBuffer(bufTempItem)
+	itm := unsafe.Pointer(itr.snap.db.newItem(k, nil, sn, false, kbuf))
 	itr.Iterator.Seek(itm)
 }
 
