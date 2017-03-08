@@ -13,6 +13,9 @@ type storePtr struct {
 func newTestPage() (*page, *storePtr) {
 	sp := new(storePtr)
 	pg := &page{
+		ctx: &wCtx{
+			pgBuffers: make([]*Buffer, maxCtxBuffers),
+		},
 		allocCtx: new(allocCtx),
 		low:      skiplist.MinItem,
 		head: &pageDelta{
