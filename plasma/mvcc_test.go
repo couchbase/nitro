@@ -298,7 +298,7 @@ func TestMVCCRecoveryPoint(t *testing.T) {
 		s.RemoveRecoveryPoint(rpts[i])
 	}
 
-	fmt.Printf("(1) Recovery points gcSn:%d, minRPSn:%v\n", s.gcSn, s.rpSns)
+	fmt.Printf("(1) Recovery points gcSn:%d, minRPSn:%v\n", s.gcSn, (*[]uint64)(s.rpSns))
 	for _, rpt := range s.GetRecoveryPoints() {
 		fmt.Printf("recovery_point sn:%d meta:%s\n", rpt.sn, string(rpt.meta))
 	}
@@ -309,7 +309,7 @@ func TestMVCCRecoveryPoint(t *testing.T) {
 	fmt.Println("Reopening database...")
 	s = newTestIntPlasmaStore(testSnCfg)
 
-	fmt.Printf("(2) Recovery points gcSn:%d, minRPSn:%v\n", s.gcSn, s.rpSns)
+	fmt.Printf("(2) Recovery points gcSn:%d, minRPSn:%v\n", s.gcSn, (*[]uint64)(s.rpSns))
 	for _, rpt := range s.GetRecoveryPoints() {
 		fmt.Printf("recovery_point sn:%d meta:%s\n", rpt.sn, string(rpt.meta))
 	}
@@ -350,7 +350,7 @@ func TestMVCCRecoveryPoint(t *testing.T) {
 	s = newTestIntPlasmaStore(testSnCfg)
 
 	w = s.NewWriter()
-	fmt.Printf("(3) Recovery points gcSn:%d, minRPSn:%v\n", s.gcSn, s.rpSns)
+	fmt.Printf("(3) Recovery points gcSn:%d, minRPSn:%v\n", s.gcSn, (*[]uint64)(s.rpSns))
 	for _, rpt := range s.GetRecoveryPoints() {
 		fmt.Printf("recovery_point sn:%d meta:%s\n", rpt.sn, string(rpt.meta))
 	}
