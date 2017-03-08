@@ -119,6 +119,7 @@ func NewLSStore(path string, segSize int64, bufSize int, nbufs int, mmap bool, c
 
 	head.baseOffset = s.log.Tail()
 	s.startOffset = s.log.Head()
+	s.cleanerTrimOffset = s.startOffset
 
 	s.head = unsafe.Pointer(head)
 	s.tail = s.head
@@ -153,8 +154,8 @@ func (s *lsStore) flush(fb *flushBuffer) {
 	doCommit := fb.doCommit || time.Since(s.lastCommitTS) > s.commitDuration
 
 	if doCommit {
-		off := minInt64(int64(s.safeOffset()), int64(s.trimOffset))
-		s.log.Trim(off)
+		off := minLSSOffset(s.safeOffset(), s.trimOffset)
+		s.log.Trim(int64(off))
 		s.log.Commit()
 		s.lastCommitTS = time.Now()
 	}
