@@ -14,10 +14,11 @@ const (
 )
 
 var (
-	smrChanBufSize        = runtime.NumCPU()
-	writerSMRBufferSize   = 500
-	swapperSMRInterval    = 20
-	lssCleanerSMRInterval = 20
+	smrChanBufSize         = runtime.NumCPU()
+	writerSMRBufferSize    = 500
+	swapperSMRInterval     = 20
+	lssCleanerSMRInterval  = 20
+	pageVisitorSMRInterval = 100
 )
 
 type reclaimObject struct {

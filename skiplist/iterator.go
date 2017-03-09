@@ -21,7 +21,9 @@ type Iterator struct {
 	buf        *ActionBuffer
 	deleted    bool
 
-	bs *BarrierSession
+	bs          *BarrierSession
+	count       uint
+	smrInterval uint
 }
 
 // NewIterator creates an iterator for skiplist
@@ -35,9 +37,10 @@ func (s *Skiplist) NewIterator(cmp CompareFn,
 func (s *Skiplist) NewIterator2(cmp CompareFn,
 	buf *ActionBuffer) *Iterator {
 	return &Iterator{
-		cmp: cmp,
-		s:   s,
-		buf: buf,
+		cmp:         cmp,
+		s:           s,
+		buf:         buf,
+		smrInterval: ^uint(0),
 	}
 }
 
@@ -130,11 +133,30 @@ retry:
 		it.prev = it.curr
 		it.curr = next
 	}
+
+	it.count++
+	if it.count%it.smrInterval == 0 {
+		it.Refresh()
+	}
 }
 
 // Close is a destructor
 func (it *Iterator) Close() {
 	if it.bs != nil {
 		it.s.barrier.Release(it.bs)
+	}
+}
+
+func (it *Iterator) SetRefreshInterval(interval int) {
+	it.smrInterval = uint(interval)
+}
+
+func (it *Iterator) Refresh() {
+	if it.Valid() {
+		currBs := it.bs
+		itm := it.Get()
+		it.bs = it.s.barrier.Acquire()
+		it.Seek(itm)
+		it.s.barrier.Release(currBs)
 	}
 }
