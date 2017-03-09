@@ -29,7 +29,10 @@ type reclaimObject struct {
 type TxToken *skiplist.BarrierSession
 
 func (s *wCtx) BeginTx() TxToken {
-	s.safeOffset = s.lss.HeadOffset()
+	if s.lss != nil {
+		s.safeOffset = s.lss.HeadOffset()
+	}
+
 	return TxToken(s.Skiplist.GetAccesBarrier().Acquire())
 }
 

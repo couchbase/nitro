@@ -237,7 +237,13 @@ func New(cfg Config) (*Plasma, error) {
 
 	cfg = applyConfigDefaults(cfg)
 
-	s := &Plasma{Config: cfg}
+	s := &Plasma{
+		Config:      cfg,
+		stopmon:     make(chan struct{}),
+		stoplssgc:   make(chan struct{}),
+		stopswapper: make(chan struct{}),
+	}
+
 	slCfg := skiplist.DefaultConfig()
 	if cfg.UseMemoryMgmt {
 		s.smrChan = make(chan unsafe.Pointer, smrChanBufSize)
@@ -325,10 +331,6 @@ func New(cfg Config) (*Plasma, error) {
 			s.evictWriters[i] = s.newWCtx()
 		}
 		s.lssCleanerWriter = s.newWCtx()
-
-		s.stoplssgc = make(chan struct{})
-		s.stopswapper = make(chan struct{})
-		s.stopmon = make(chan struct{})
 
 		if cfg.AutoLSSCleaning {
 			go s.lssCleanerDaemon()
