@@ -2,6 +2,7 @@ package plasma
 
 import (
 	"github.com/couchbase/nitro/skiplist"
+	"math/rand"
 	"testing"
 	"unsafe"
 )
@@ -347,5 +348,27 @@ func TestPageMarshal(t *testing.T) {
 
 	if y != 1000 {
 		t.Errorf("expected 1000 items, got %d", y)
+	}
+}
+
+func BenchmarkPageIterator(b *testing.B) {
+	pg, _ := newTestPage()
+	for i := 0; i < 400; i++ {
+		pg.Insert(skiplist.NewIntKeyItem(rand.Int()))
+	}
+
+	pg.Compact()
+	for i := 0; i < 200; i++ {
+		pg.Insert(skiplist.NewIntKeyItem(rand.Int()))
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		seekItm := skiplist.NewIntKeyItem(rand.Int())
+		var sts pgOpIteratorStats
+		itr := newPgOpIterator(pg.head, pg.cmp, seekItm, pg.head.hiItm, new(defaultFilter), pg.ctx, &sts)
+		for itr.Init(); itr.Valid(); itr.Next() {
+		}
+		itr.Close()
 	}
 }
