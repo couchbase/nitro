@@ -410,3 +410,7 @@ func readLogSB(fd *os.File, buf []byte) (headOff, tailOff, gen int64, err error)
 
 	return hs[sbIndex], ts[sbIndex], gens[sbIndex] + 1, nil
 }
+
+func GetLogVersion() uint32 {
+	return uint32(logVersion)
+}
