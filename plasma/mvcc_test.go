@@ -613,3 +613,25 @@ func TestLargeItems(t *testing.T) {
 		t.Errorf("Expected count:%d, got:%d", n, count)
 	}
 }
+
+func TestTooLargeKey(t *testing.T) {
+	os.RemoveAll("teststore.data")
+	s := newTestIntPlasmaStore(testCfg)
+	defer s.Close()
+
+	tooBigKey := make([]byte, 0x7fffffff, 0x7fffffff)
+	w := s.NewWriter()
+
+	err := w.InsertKV(tooBigKey, nil)
+	if err != ErrKeyTooLarge {
+		t.Errorf("Expected too large key InsertKV to fail")
+	}
+	err = w.DeleteKV(tooBigKey)
+	if err != ErrKeyTooLarge {
+		t.Errorf("Expected too large key DeleteKV to fail")
+	}
+	_, err = w.LookupKV(tooBigKey)
+	if err != ErrKeyTooLarge {
+		t.Errorf("Expected too large key LookupKV to fail")
+	}
+}

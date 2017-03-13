@@ -96,7 +96,12 @@ func (itm *item) Value() (bs []byte) {
 	return
 }
 
-func (s *Plasma) newItem(k, v []byte, sn uint64, del bool, buf *Buffer) *item {
+func (s *Plasma) newItem(k, v []byte, sn uint64, del bool, buf *Buffer) (
+	*item, error) {
+	if len(k) > itmLenMask {
+		return nil, ErrKeyTooLarge
+	}
+
 	kl := len(k)
 	vl := len(v)
 
@@ -135,7 +140,7 @@ func (s *Plasma) newItem(k, v []byte, sn uint64, del bool, buf *Buffer) *item {
 		memcopy(unsafe.Pointer(uintptr(ptr)+itmHdrLen), unsafe.Pointer(&k[0]), kl)
 	}
 
-	return (*item)(ptr)
+	return (*item)(ptr), nil
 }
 
 func cmpItem(a, b unsafe.Pointer) int {
