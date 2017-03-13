@@ -839,8 +839,15 @@ retry:
 	goto retry
 }
 
-func (s *Plasma) isStartPage(pid PageId) bool {
-	return pid.(*skiplist.Node) == s.Skiplist.HeadNode()
+func (s *Plasma) isMergablePage(pid PageId, ctx *wCtx) bool {
+	n := pid.(*skiplist.Node)
+	if n == s.Skiplist.HeadNode() {
+		return false
+	}
+
+	// Make sure that the page is visible in the index layer
+	_, curr, ok := s.Skiplist.Lookup(n.Item(), s.cmp, ctx.buf, ctx.slSts)
+	return ok && curr == n
 }
 
 func (s *Plasma) StartPageId() PageId {
@@ -925,7 +932,7 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 				s.lss.FinalizeWrite(res)
 			}
 		}
-	} else if !s.isStartPage(pid) && pg.NeedMerge(s.Config.MinPageItems) {
+	} else if pg.NeedMerge(s.Config.MinPageItems) && s.isMergablePage(pid, ctx) {
 		pg.Close()
 		if updated = s.UpdateMapping(pid, pg, ctx); updated {
 			s.tryPageRemoval(pid, pg, ctx)
