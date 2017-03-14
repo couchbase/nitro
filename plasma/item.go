@@ -96,7 +96,12 @@ func (itm *item) Value() (bs []byte) {
 	return
 }
 
-func (s *Plasma) newItem(k, v []byte, sn uint64, del bool, buf []byte) *item {
+func (s *Plasma) newItem(k, v []byte, sn uint64, del bool, buf *Buffer) (
+	*item, error) {
+	if len(k) > itmLenMask {
+		return nil, ErrKeyTooLarge
+	}
+
 	kl := len(k)
 	vl := len(v)
 
@@ -109,7 +114,8 @@ func (s *Plasma) newItem(k, v []byte, sn uint64, del bool, buf []byte) *item {
 	if buf == nil {
 		ptr = s.alloc(sz)
 	} else {
-		ptr = unsafe.Pointer(&buf[0])
+		buf.Grow(0, int(sz))
+		ptr = buf.Ptr(0)
 	}
 
 	hdr := (*uint32)(ptr)
@@ -134,7 +140,7 @@ func (s *Plasma) newItem(k, v []byte, sn uint64, del bool, buf []byte) *item {
 		memcopy(unsafe.Pointer(uintptr(ptr)+itmHdrLen), unsafe.Pointer(&k[0]), kl)
 	}
 
-	return (*item)(ptr)
+	return (*item)(ptr), nil
 }
 
 func cmpItem(a, b unsafe.Pointer) int {

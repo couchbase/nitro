@@ -43,10 +43,42 @@ func (s *pageItemSorter) Swap(i, j int) {
 	s.itms[i], s.itms[j] = s.itms[j], s.itms[i]
 }
 
-func minInt64(a, b int64) int64 {
+func minLSSOffset(a, b LSSOffset) LSSOffset {
 	if a < b {
 		return a
 	}
 
 	return b
+}
+
+type Buffer struct {
+	bs []byte
+}
+
+func (b *Buffer) Grow(offset, size int) {
+	if len(b.bs) < offset+size {
+		sz := len(b.bs) * 2
+		if sz < offset+size {
+			sz = offset + size
+		}
+
+		newBuf := make([]byte, sz)
+		copy(newBuf, b.bs)
+		b.bs = newBuf
+	}
+}
+
+func (b *Buffer) Get(offset int, size int) []byte {
+	b.Grow(offset, size)
+	return b.bs[offset : offset+size]
+}
+
+func (b *Buffer) Ptr(offset int) unsafe.Pointer {
+	return unsafe.Pointer(&b.bs[offset])
+}
+
+func newBuffer(size int) *Buffer {
+	return &Buffer{
+		bs: make([]byte, size),
+	}
 }

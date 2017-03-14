@@ -5,8 +5,7 @@ import (
 	"unsafe"
 )
 
-// TODO: Make failsafe buffer
-var maxPageEncodedSize = 1024 * 1024 * 1
+var maxPageEncodedSize = 1024 * 4
 
 type lssBlockType uint16
 

@@ -14,10 +14,11 @@ const (
 )
 
 var (
-	smrChanBufSize        = runtime.NumCPU()
-	writerSMRBufferSize   = 500
-	swapperSMRInterval    = 20
-	lssCleanerSMRInterval = 20
+	smrChanBufSize         = runtime.NumCPU()
+	writerSMRBufferSize    = 500
+	swapperSMRInterval     = 20
+	lssCleanerSMRInterval  = 20
+	pageVisitorSMRInterval = 100
 )
 
 type reclaimObject struct {
@@ -29,7 +30,10 @@ type reclaimObject struct {
 type TxToken *skiplist.BarrierSession
 
 func (s *wCtx) BeginTx() TxToken {
-	s.safeOffset = s.lss.HeadOffset()
+	if s.lss != nil {
+		s.safeOffset = s.lss.HeadOffset()
+	}
+
 	return TxToken(s.Skiplist.GetAccesBarrier().Acquire())
 }
 

@@ -298,7 +298,7 @@ func TestMVCCRecoveryPoint(t *testing.T) {
 		s.RemoveRecoveryPoint(rpts[i])
 	}
 
-	fmt.Printf("(1) Recovery points gcSn:%d, minRPSn:%v\n", s.gcSn, s.rpSns)
+	fmt.Printf("(1) Recovery points gcSn:%d, minRPSn:%v\n", s.gcSn, (*[]uint64)(s.rpSns))
 	for _, rpt := range s.GetRecoveryPoints() {
 		fmt.Printf("recovery_point sn:%d meta:%s\n", rpt.sn, string(rpt.meta))
 	}
@@ -309,7 +309,7 @@ func TestMVCCRecoveryPoint(t *testing.T) {
 	fmt.Println("Reopening database...")
 	s = newTestIntPlasmaStore(testSnCfg)
 
-	fmt.Printf("(2) Recovery points gcSn:%d, minRPSn:%v\n", s.gcSn, s.rpSns)
+	fmt.Printf("(2) Recovery points gcSn:%d, minRPSn:%v\n", s.gcSn, (*[]uint64)(s.rpSns))
 	for _, rpt := range s.GetRecoveryPoints() {
 		fmt.Printf("recovery_point sn:%d meta:%s\n", rpt.sn, string(rpt.meta))
 	}
@@ -350,7 +350,7 @@ func TestMVCCRecoveryPoint(t *testing.T) {
 	s = newTestIntPlasmaStore(testSnCfg)
 
 	w = s.NewWriter()
-	fmt.Printf("(3) Recovery points gcSn:%d, minRPSn:%v\n", s.gcSn, s.rpSns)
+	fmt.Printf("(3) Recovery points gcSn:%d, minRPSn:%v\n", s.gcSn, (*[]uint64)(s.rpSns))
 	for _, rpt := range s.GetRecoveryPoints() {
 		fmt.Printf("recovery_point sn:%d meta:%s\n", rpt.sn, string(rpt.meta))
 	}
@@ -575,5 +575,63 @@ func TestMVCCItemsCount(t *testing.T) {
 	rollSn1, _ = s.Rollback(rp1)
 	if int(rollSn1.Count()) != n {
 		t.Errorf("Expected count %d, got %d", n, rollSn1.Count())
+	}
+}
+
+func TestLargeItems(t *testing.T) {
+	os.RemoveAll("teststore.data")
+	s := newTestIntPlasmaStore(testSnCfg)
+
+	size := 1024 * 1024
+	n := 1000
+	w := s.NewWriter()
+	bs := make([]byte, size)
+	for i := 0; i < n; i++ {
+		copy(bs, []byte(fmt.Sprintf("key- %d", i)))
+		w.InsertKV(bs, []byte(fmt.Sprintf("val-%10d", i)))
+	}
+
+	s.PersistAll()
+	s.Close()
+
+	s = newTestIntPlasmaStore(testSnCfg)
+	defer s.Close()
+
+	snap := s.NewSnapshot()
+
+	count := 0
+	itr := snap.NewIterator()
+	for itr.SeekFirst(); itr.Valid(); itr.Next() {
+		kl := len(itr.Key())
+		if kl != size {
+			t.Errorf("Expected keylen %d, got %d", size, kl)
+		}
+		count++
+	}
+
+	if count != n {
+		t.Errorf("Expected count:%d, got:%d", n, count)
+	}
+}
+
+func TestTooLargeKey(t *testing.T) {
+	os.RemoveAll("teststore.data")
+	s := newTestIntPlasmaStore(testCfg)
+	defer s.Close()
+
+	tooBigKey := make([]byte, 0x7fffffff, 0x7fffffff)
+	w := s.NewWriter()
+
+	err := w.InsertKV(tooBigKey, nil)
+	if err != ErrKeyTooLarge {
+		t.Errorf("Expected too large key InsertKV to fail")
+	}
+	err = w.DeleteKV(tooBigKey)
+	if err != ErrKeyTooLarge {
+		t.Errorf("Expected too large key DeleteKV to fail")
+	}
+	_, err = w.LookupKV(tooBigKey)
+	if err != ErrKeyTooLarge {
+		t.Errorf("Expected too large key LookupKV to fail")
 	}
 }

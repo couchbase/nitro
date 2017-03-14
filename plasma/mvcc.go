@@ -9,6 +9,7 @@ import (
 
 var ErrItemNotFound = errors.New("item not found")
 var ErrItemNoValue = errors.New("item has no value")
+var ErrKeyTooLarge = errors.New("key is too large")
 
 type Snapshot struct {
 	sn       uint64
@@ -156,7 +157,9 @@ type MVCCIterator struct {
 
 func (itr *MVCCIterator) Seek(k []byte) {
 	sn := atomic.LoadUint64(&itr.snap.db.currSn)
-	itm := unsafe.Pointer(itr.snap.db.newItem(k, nil, sn, false, nil))
+	kbuf := itr.Iterator.GetBuffer(bufTempItem)
+	newItm, _ := itr.snap.db.newItem(k, nil, sn, false, kbuf)
+	itm := unsafe.Pointer(newItm)
 	itr.Iterator.Seek(itm)
 }
 
@@ -166,6 +169,10 @@ func (itr *MVCCIterator) Key() []byte {
 
 func (itr *MVCCIterator) Value() []byte {
 	return (*item)(itr.Get()).Value()
+}
+
+func (itr *MVCCIterator) HasValue() bool {
+	return (*item)(itr.Get()).HasValue()
 }
 
 func (itr *MVCCIterator) Close() {
@@ -240,7 +247,11 @@ func (s *Plasma) newSnapshot() (snap *Snapshot) {
 func (w *Writer) InsertKV(k, v []byte) error {
 	sn := atomic.LoadUint64(&w.currSn)
 	itmBuf := w.GetBuffer(bufTempItem)
-	itm := w.newItem(k, v, sn, false, itmBuf)
+	itm, err := w.newItem(k, v, sn, false, itmBuf)
+	if err != nil {
+		return err
+	}
+
 	w.count++
 	return w.Insert(unsafe.Pointer(itm))
 }
@@ -248,14 +259,22 @@ func (w *Writer) InsertKV(k, v []byte) error {
 func (w *Writer) DeleteKV(k []byte) error {
 	sn := atomic.LoadUint64(&w.currSn)
 	itmBuf := w.GetBuffer(bufTempItem)
-	itm := w.newItem(k, nil, sn, true, itmBuf)
+	itm, err := w.newItem(k, nil, sn, true, itmBuf)
+	if err != nil {
+		return err
+	}
+
 	w.count--
 	return w.Insert(unsafe.Pointer(itm))
 }
 
 func (w *Writer) LookupKV(k []byte) ([]byte, error) {
 	itmBuf := w.GetBuffer(bufTempItem)
-	itm := w.newItem(k, nil, 0, false, itmBuf)
+	itm, err := w.newItem(k, nil, 0, false, itmBuf)
+	if err != nil {
+		return nil, err
+	}
+
 	o, err := w.Lookup(unsafe.Pointer(itm))
 	itm = (*item)(o)
 

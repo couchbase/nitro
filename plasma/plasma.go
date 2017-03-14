@@ -237,7 +237,13 @@ func New(cfg Config) (*Plasma, error) {
 
 	cfg = applyConfigDefaults(cfg)
 
-	s := &Plasma{Config: cfg}
+	s := &Plasma{
+		Config:      cfg,
+		stopmon:     make(chan struct{}),
+		stoplssgc:   make(chan struct{}),
+		stopswapper: make(chan struct{}),
+	}
+
 	slCfg := skiplist.DefaultConfig()
 	if cfg.UseMemoryMgmt {
 		s.smrChan = make(chan unsafe.Pointer, smrChanBufSize)
@@ -325,10 +331,6 @@ func New(cfg Config) (*Plasma, error) {
 			s.evictWriters[i] = s.newWCtx()
 		}
 		s.lssCleanerWriter = s.newWCtx()
-
-		s.stoplssgc = make(chan struct{})
-		s.stopswapper = make(chan struct{})
-		s.stopmon = make(chan struct{})
 
 		if cfg.AutoLSSCleaning {
 			go s.lssCleanerDaemon()
@@ -519,6 +521,8 @@ func (s *Plasma) doRecovery() error {
 }
 
 func (s *Plasma) Close() {
+	s.PersistAll()
+
 	if s.EnableShapshots {
 		// Force SMR flush
 		s.NewSnapshot().Close()
@@ -566,7 +570,7 @@ type Reader struct {
 type wCtx struct {
 	*Plasma
 	buf       *skiplist.ActionBuffer
-	pgBuffers [][]byte
+	pgBuffers []*Buffer
 	slSts     *skiplist.Stats
 	sts       *Stats
 	dbIter    *skiplist.Iterator
@@ -620,7 +624,7 @@ func (s *Plasma) newWCtx2() *wCtx {
 		buf:        s.Skiplist.MakeBuf(),
 		slSts:      &s.Skiplist.Stats,
 		sts:        new(Stats),
-		pgBuffers:  make([][]byte, maxCtxBuffers),
+		pgBuffers:  make([]*Buffer, maxCtxBuffers),
 		next:       s.wCtxList,
 		safeOffset: expiredLSSOffset,
 	}
@@ -633,9 +637,9 @@ func (s *Plasma) newWCtx2() *wCtx {
 	return ctx
 }
 
-func (ctx *wCtx) GetBuffer(id int) []byte {
+func (ctx *wCtx) GetBuffer(id int) *Buffer {
 	if ctx.pgBuffers[id] == nil {
-		ctx.pgBuffers[id] = make([]byte, maxPageEncodedSize)
+		ctx.pgBuffers[id] = newBuffer(maxPageEncodedSize)
 	}
 
 	return ctx.pgBuffers[id]
@@ -791,6 +795,8 @@ retry:
 	var metaBuf = ctx.GetBuffer(bufEncMeta)
 	var fdSz, staleFdSz int
 
+	var metaBS, pgBS []byte
+
 	s.tryPageSwapin(pg)
 	pPg.Merge(pg)
 
@@ -800,19 +806,19 @@ retry:
 
 	if s.shouldPersist {
 		var numSegments int
-		metaBuf = marshalPageSMO(pg, metaBuf)
-		pgBuf, fdSz, staleFdSz, numSegments = pPg.Marshal(pgBuf, FullMarshal)
+		metaBS = marshalPageSMO(pg, metaBuf)
+		pgBS, fdSz, staleFdSz, numSegments = pPg.Marshal(pgBuf, FullMarshal)
 
 		sizes := []int{
-			lssBlockTypeSize + len(metaBuf),
-			lssBlockTypeSize + len(pgBuf),
+			lssBlockTypeSize + len(metaBS),
+			lssBlockTypeSize + len(pgBS),
 		}
 
 		offsets, wbufs, res = s.lss.ReserveSpaceMulti(sizes)
 
-		writeLSSBlock(wbufs[0], lssPageRemove, metaBuf)
+		writeLSSBlock(wbufs[0], lssPageRemove, metaBS)
 
-		writeLSSBlock(wbufs[1], lssPageData, pgBuf)
+		writeLSSBlock(wbufs[1], lssPageData, pgBS)
 		pPg.AddFlushRecord(offsets[1], fdSz, numSegments)
 	}
 
@@ -835,8 +841,15 @@ retry:
 	goto retry
 }
 
-func (s *Plasma) isStartPage(pid PageId) bool {
-	return pid.(*skiplist.Node) == s.Skiplist.HeadNode()
+func (s *Plasma) isMergablePage(pid PageId, ctx *wCtx) bool {
+	n := pid.(*skiplist.Node)
+	if n == s.Skiplist.HeadNode() {
+		return false
+	}
+
+	// Make sure that the page is visible in the index layer
+	_, curr, ok := s.Skiplist.Lookup(n.Item(), s.cmp, ctx.buf, ctx.slSts)
+	return ok && curr == n
 }
 
 func (s *Plasma) StartPageId() PageId {
@@ -864,6 +877,7 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 		var fdSz, splitFdSz, staleFdSz, numSegments, numSegmentsSplit int
 		var pgBuf = ctx.GetBuffer(bufEncPage)
 		var splitPgBuf = ctx.GetBuffer(bufEncMeta)
+		var pgBS, splitPgBS []byte
 
 		newPg := pg.Split(splitPid)
 
@@ -883,21 +897,21 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 
 		// Replace one page with two pages
 		if s.shouldPersist {
-			pgBuf, fdSz, staleFdSz, numSegments = pg.Marshal(pgBuf, s.Config.MaxPageLSSSegments)
-			splitPgBuf, splitFdSz, _, numSegmentsSplit = newPg.Marshal(splitPgBuf, 1)
+			pgBS, fdSz, staleFdSz, numSegments = pg.Marshal(pgBuf, s.Config.MaxPageLSSSegments)
+			splitPgBS, splitFdSz, _, numSegmentsSplit = newPg.Marshal(splitPgBuf, 1)
 
 			sizes := []int{
-				lssBlockTypeSize + len(pgBuf),
-				lssBlockTypeSize + len(splitPgBuf),
+				lssBlockTypeSize + len(pgBS),
+				lssBlockTypeSize + len(splitPgBS),
 			}
 
 			offsets, wbufs, res = s.lss.ReserveSpaceMulti(sizes)
 
 			typ := pgFlushLSSType(pg, numSegments)
-			writeLSSBlock(wbufs[0], typ, pgBuf)
+			writeLSSBlock(wbufs[0], typ, pgBS)
 			pg.AddFlushRecord(offsets[0], fdSz, numSegments)
 
-			writeLSSBlock(wbufs[1], lssPageData, splitPgBuf)
+			writeLSSBlock(wbufs[1], lssPageData, splitPgBS)
 			newPg.AddFlushRecord(offsets[1], splitFdSz, numSegmentsSplit)
 		}
 
@@ -920,7 +934,7 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 				s.lss.FinalizeWrite(res)
 			}
 		}
-	} else if !s.isStartPage(pid) && pg.NeedMerge(s.Config.MinPageItems) {
+	} else if pg.NeedMerge(s.Config.MinPageItems) && s.isMergablePage(pid, ctx) {
 		pg.Close()
 		if updated = s.UpdateMapping(pid, pg, ctx); updated {
 			s.tryPageRemoval(pid, pg, ctx)
@@ -1052,11 +1066,11 @@ func (s *Plasma) fetchPageFromLSS2(baseOffset LSSOffset, ctx *wCtx,
 	aCtx *allocCtx, sCtx *storeCtx) (*page, error) {
 	pg := newPage2(nil, nil, ctx, sCtx, aCtx).(*page)
 	offset := baseOffset
-	data := ctx.GetBuffer(bufFetch)
+	dataBuf := ctx.GetBuffer(bufFetch)
 	numSegments := 0
 loop:
 	for {
-		l, err := s.lss.Read(offset, data)
+		l, err := s.lss.Read(offset, dataBuf)
 		if err != nil {
 			return nil, err
 		}
@@ -1064,6 +1078,7 @@ loop:
 		ctx.sts.NumLSSReads++
 		ctx.sts.LSSReadBytes += int64(l)
 
+		data := dataBuf.Get(0, l)
 		typ := getLSSBlockType(data)
 		switch typ {
 		case lssPageData, lssPageReloc, lssPageUpdate:

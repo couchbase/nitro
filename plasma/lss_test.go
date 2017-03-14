@@ -25,13 +25,14 @@ func TestLSSBasic(t *testing.T) {
 
 	n := 8000
 	var offs []LSSOffset
-	bufread := make([]byte, 1024*1024)
+	b := newBuffer(0)
+	bufread := b.Get(0, 1024*1024)
 	for i := 0; i < n; i++ {
 		offset, buf, res := lss.ReserveSpace(1024)
 		binary.BigEndian.PutUint64(buf[:8], uint64(i))
 		lss.FinalizeWrite(res)
 		offs = append(offs, offset)
-		lss.Read(offs[i], bufread)
+		lss.Read(offs[i], b)
 		got := int(binary.BigEndian.Uint64(bufread[:8]))
 		if got != i {
 			fmt.Printf("%d expected %d, got %d\n", offs[i], i, got)
@@ -40,7 +41,7 @@ func TestLSSBasic(t *testing.T) {
 
 	empty := []byte{0, 0, 0, 0, 0, 0, 0, 0}
 	for i := 0; i < n; i++ {
-		lss.Read(offs[i], bufread)
+		lss.Read(offs[i], b)
 		got := int(binary.BigEndian.Uint64(bufread[:8]))
 		if got != i {
 			t.Errorf("expected %d, got %d", i, got)
@@ -99,7 +100,6 @@ func TestLSSCleaner(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		buf := make([]byte, 1024*1024)
 		cleaned := 0
 		for cleaned < n/2 {
 			lss.RunCleaner(func(off, endOff LSSOffset, bs []byte) (bool, LSSOffset, error) {
@@ -112,11 +112,12 @@ func TestLSSCleaner(t *testing.T) {
 					return false, endOff, nil
 				}
 				return true, endOff, nil
-			}, buf)
+			}, newBuffer(0))
 		}
 	}()
 
-	bufread := make([]byte, 1024*1024)
+	b := newBuffer(0)
+	bufread := b.Get(0, 1024*1024)
 	for i := 0; i < n; i++ {
 		offset, buf, res := lss.ReserveSpace(1024)
 		binary.BigEndian.PutUint64(buf[:8], uint64(i))
@@ -125,7 +126,7 @@ func TestLSSCleaner(t *testing.T) {
 		offs[i] = offset
 		lock.Unlock()
 
-		lss.Read(offset, bufread)
+		lss.Read(offset, b)
 		got := int(binary.BigEndian.Uint64(bufread[:8]))
 		if got != i {
 			fmt.Printf("%d expected %d, got %d\n", offs[i], i, got)
@@ -137,7 +138,7 @@ func TestLSSCleaner(t *testing.T) {
 
 	empty := []byte{0, 0, 0, 0, 0, 0, 0, 0}
 	for i, off := range offs {
-		lss.Read(off, bufread)
+		lss.Read(off, b)
 		got := int(binary.BigEndian.Uint64(bufread[:8]))
 		if got != i {
 			t.Errorf("expected %d, got %d", i, got)
@@ -161,7 +162,6 @@ func TestLSSSuperBlock(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		buf := make([]byte, 1024*1024)
 		cleaned := 0
 		for cleaned < n/2 {
 			lss.RunCleaner(func(off, endOff LSSOffset, bs []byte) (bool, LSSOffset, error) {
@@ -171,7 +171,7 @@ func TestLSSSuperBlock(t *testing.T) {
 				} else {
 					return false, off, nil
 				}
-			}, buf)
+			}, newBuffer(0))
 		}
 	}()
 

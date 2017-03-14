@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-func (s *Plasma) tryPageRelocation(pid PageId, pg Page, buf []byte, ctx *wCtx) (bool, LSSOffset) {
+func (s *Plasma) tryPageRelocation(pid PageId, pg Page, buf *Buffer, ctx *wCtx) (bool, LSSOffset) {
 	var ok bool
 	bs, dataSz, staleSz, numSegments := pg.Marshal(buf, FullMarshal)
 	offset, wbuf, res := s.lss.ReserveSpace(lssBlockTypeSize + len(bs))
