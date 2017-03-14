@@ -230,7 +230,7 @@ func TestIteratorSimple(t *testing.T) {
 	}
 
 	if i != 1000000 {
-		t.Errorf("expected %d, got %d", i)
+		t.Errorf("expected %d, got %d", 1000000, i)
 	}
 
 }
@@ -408,7 +408,8 @@ func TestPlasmaLSSCleaner(t *testing.T) {
 
 	_, ds0, used0 := s.GetLSSInfo()
 	s.PersistAll()
-	fmt.Println(s.GetStats(), "\n")
+	fmt.Println(s.GetStats())
+	fmt.Println()
 
 	donech := make(chan bool)
 
@@ -441,7 +442,7 @@ func TestPlasmaLSSCleaner(t *testing.T) {
 
 	fmt.Printf("LSSInfo: frag:%d, ds:%d, used:%d\n", frag, ds, used)
 	if used > used0*110/100 || ds > ds0*110/100 {
-		t.Errorf("Expected better cleaning with frag ~ 10%")
+		t.Errorf("Expected better cleaning with frag ~ 10%%")
 	}
 
 	donech <- true
