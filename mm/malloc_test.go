@@ -19,3 +19,10 @@ func TestMalloc(t *testing.T) {
 	fmt.Println("size:", Size())
 	fmt.Println(Stats())
 }
+
+func TestSizeAt(t *testing.T) {
+	p := Malloc(89)
+	if sz := SizeAt(p); sz != 96 {
+		t.Errorf("Expected sizeclass 96, but got %d", sz)
+	}
+}
