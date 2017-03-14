@@ -50,8 +50,8 @@ func invokeDump(dirs []string) error {
 	for index, dir := range dirs {
 		cfg := plasma.DefaultConfig()
 		cfg.File = dir
-		cfg.NumPersistorThreads = 0
-		cfg.NumEvictorThreads = 0
+		cfg.AutoLSSCleaning = false
+		cfg.AutoSwapper = false
 		store, err := plasma.New(cfg)
 		if err != nil || store == nil {
 			return fmt.Errorf("Unable to open store %s, err = %v",
@@ -68,18 +68,29 @@ func invokeDump(dirs []string) error {
 
 		fmt.Printf("{\"%s\":", dir)
 
-		fmt.Printf("[")
-		for iter.SeekFirst(); iter.Valid(); iter.Next() {
+		fmt.Printf("[\n")
+		for iter.SeekFirst(); iter.Valid(); {
+			var v []byte
 			k := iter.Key()
-			v := iter.Value()
+			if iter.HasValue() {
+				v = iter.Value()
+			}
+
+			var s string
 			if inHex {
-				fmt.Printf("{\"k\":\"%s\",\"v\":\"%s\"}",
+				s = fmt.Sprintf("{\"k\":\"%s\",\"v\":\"%s\"}",
 					hex.EncodeToString(k), hex.EncodeToString(v))
 			} else {
-				fmt.Printf("{\"k\":\"%s\",\"v\":\"%s\"}",
+				s = fmt.Sprintf("{\"k\":\"%s\",\"v\":\"%s\"}",
 					string(k), string(v))
 			}
-			fmt.Printf(",\n")
+
+			iter.Next()
+			if iter.Valid() {
+				s += ","
+			}
+
+			fmt.Println(s)
 		}
 		fmt.Printf("]")
 

@@ -521,6 +521,8 @@ func (s *Plasma) doRecovery() error {
 }
 
 func (s *Plasma) Close() {
+	s.PersistAll()
+
 	if s.EnableShapshots {
 		// Force SMR flush
 		s.NewSnapshot().Close()

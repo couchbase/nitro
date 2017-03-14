@@ -171,6 +171,10 @@ func (itr *MVCCIterator) Value() []byte {
 	return (*item)(itr.Get()).Value()
 }
 
+func (itr *MVCCIterator) HasValue() bool {
+	return (*item)(itr.Get()).HasValue()
+}
+
 func (itr *MVCCIterator) Close() {
 	itr.snap.Close()
 	itr.Iterator.Close()

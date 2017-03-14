@@ -107,7 +107,7 @@ func TestDump(t *testing.T) {
 
 	for i := 0; i < len(kvs); i++ {
 		entry := kvs[i].(map[string]interface{})
-		k := fmt.Sprintf("key%d", i)
+		k := fmt.Sprintf("key%05d", i)
 		v := fmt.Sprintf("val%d", i)
 		if strings.Compare(k, entry["k"].(string)) != 0 {
 			t.Errorf("Mismatch in key [%s != %s]!", k, entry["k"].(string))
