@@ -29,6 +29,8 @@ import (
 	"unsafe"
 )
 
+const version = 1
+
 var (
 	// ErrMaxSnapshotsLimitReached means 32 bit integer overflow of snap number
 	ErrMaxSnapshotsLimitReached = fmt.Errorf("Maximum snapshots limit reached")
@@ -890,6 +892,7 @@ func (m *Nitro) StoreToDisk(dir string, snap *Snapshot, concurr int, itmCallback
 		defer m.shutdownWg1.Done()
 	}
 
+	manifestdir := dir
 	datadir := filepath.Join(dir, "data")
 	os.MkdirAll(datadir, 0755)
 	shards := runtime.NumCPU()
@@ -980,9 +983,12 @@ func (m *Nitro) StoreToDisk(dir string, snap *Snapshot, concurr int, itmCallback
 		return nil
 	}
 
-	if err = m.Visitor(snap, visitorCallback, shards, concurr); err == nil {
-		bs, _ := json.Marshal(files)
-		err = ioutil.WriteFile(filepath.Join(datadir, "files.json"), bs, 0660)
+	manifest, _ := json.Marshal(map[string]interface{}{"version": version})
+	if err = ioutil.WriteFile(filepath.Join(manifestdir, "nitro.json"), manifest, 0660); err == nil {
+		if err = m.Visitor(snap, visitorCallback, shards, concurr); err == nil {
+			bs, _ := json.Marshal(files)
+			err = ioutil.WriteFile(filepath.Join(datadir, "files.json"), bs, 0660)
+		}
 	}
 
 	return err
@@ -994,8 +1000,21 @@ func (m *Nitro) LoadFromDisk(dir string, concurr int, callb ItemCallback) (*Snap
 	var files []string
 	var bs []byte
 	var err error
-	datadir := filepath.Join(dir, "data")
+	manifestdir := dir
+	var version int
 
+	// Read file version
+	if bs, err := ioutil.ReadFile(filepath.Join(manifestdir, "nitro.json")); err == nil {
+		mMap := make(map[string]int)
+		if err = json.Unmarshal(bs, &mMap); err != nil {
+			return nil, err
+		}
+		version = mMap["version"]
+	} else if !os.IsNotExist(err) {
+		return nil, err
+	}
+
+	datadir := filepath.Join(dir, "data")
 	if bs, err = ioutil.ReadFile(filepath.Join(datadir, "files.json")); err != nil {
 		return nil, err
 	}
@@ -1026,7 +1045,7 @@ func (m *Nitro) LoadFromDisk(dir string, concurr int, callb ItemCallback) (*Snap
 	for i, file := range files {
 		segments[i] = b.NewSegment()
 		segments[i].SetNodeCallback(nodeCallb)
-		r := m.newFileReader(m.fileType)
+		r := m.newFileReader(m.fileType, version)
 		datafile := filepath.Join(datadir, file)
 		if err := r.Open(datafile); err != nil {
 			return nil, err
@@ -1098,7 +1117,7 @@ func (m *Nitro) LoadFromDisk(dir string, concurr int, callb ItemCallback) (*Snap
 		}()
 
 		for i, file := range files {
-			r := m.newFileReader(m.fileType)
+			r := m.newFileReader(m.fileType, version)
 			deltafile := filepath.Join(deltadir, file)
 			if err := r.Open(deltafile); err != nil {
 				return nil, err
