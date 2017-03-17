@@ -72,6 +72,7 @@ func (s *Plasma) NewIterator() ItemIterator {
 
 func (itr *Iterator) initPgIterator(pid PageId, seekItm unsafe.Pointer) {
 	itr.currPid = pid
+	itr.nr = itr.sts.NumLSSReads
 	if pgPtr, err := itr.store.ReadPage(pid, itr.wCtx.pgRdrFn, true, itr.wCtx); err == nil {
 		itr.store.updateCacheMeta(pid)
 		pg := pgPtr.(*page)
@@ -84,7 +85,6 @@ func (itr *Iterator) initPgIterator(pid PageId, seekItm unsafe.Pointer) {
 			itr.filter.Reset()
 			var sts pgOpIteratorStats
 			itr.currPgItr = newPgOpIterator(pg.head, pg.cmp, seekItm, pg.head.hiItm, itr.filter, itr.wCtx, &sts)
-			itr.nr = itr.sts.NumLSSReads
 			itr.currPgItr.Init()
 		} else {
 			itr.err = err

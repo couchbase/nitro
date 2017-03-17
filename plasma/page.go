@@ -1214,7 +1214,6 @@ func (pg *page) Evict(offset LSSOffset, numSegments int) {
 	hiItm := sod.hiItm
 	*(*pageDelta)(unsafe.Pointer(sod)) = *pg.head
 	sod.hiItm = hiItm
-	sod.state.SetEvicted(true)
 	sod.op = opSwapoutDelta
 	sod.offset = offset
 
@@ -1225,6 +1224,7 @@ func (pg *page) Evict(offset LSSOffset, numSegments int) {
 		sod.numSegments = int32(numSegments)
 	}
 	sod.next = nil
+	sod.state.SetEvicted(true)
 	pg.head = (*pageDelta)(unsafe.Pointer(sod))
 }
 

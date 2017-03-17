@@ -1152,7 +1152,7 @@ func (s *Plasma) tryPageSwapin(pg Page) bool {
 	if pgi.head != nil && pgi.head.state.IsEvicted() {
 		pw := newPgDeltaWalker(pgi.head, pgi.ctx)
 		// Force the pagewalker to read the swapout delta
-		for !pw.End() {
+		for ; !pw.End(); pw.Next() {
 			if pw.Op() == opSwapoutDelta {
 				pw.Next()
 				break
