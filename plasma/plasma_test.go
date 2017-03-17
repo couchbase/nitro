@@ -494,6 +494,43 @@ func TestPlasmaCleanerPerf(t *testing.T) {
 
 }
 
+func TestPlasmaIteratorSwapin(t *testing.T) {
+	os.RemoveAll("teststore.data")
+	s := newTestIntPlasmaStore(testCfg)
+	defer s.Close()
+
+	n := 1000000
+	w := s.NewWriter()
+	for i := 0; i < n; i++ {
+		if i%100 != 0 {
+			w.Insert(skiplist.NewIntKeyItem(i))
+		}
+	}
+
+	s.EvictAll()
+
+	for i := 0; i < n; i++ {
+		if i%100 == 0 {
+			w.Insert(skiplist.NewIntKeyItem(i))
+		}
+	}
+
+	itr := s.NewIterator()
+	c := 0
+	for itr.SeekFirst(); itr.Valid(); itr.Next() {
+		c++
+	}
+
+	if c != n {
+		t.Errorf("Expected %d items, got %d", n, c)
+	}
+
+	miss := s.GetStats().CacheMisses
+	if miss != 4901 {
+		t.Errorf("Expected cache miss=4901, but got %d", miss)
+	}
+}
+
 func TestPlasmaEviction(t *testing.T) {
 	os.RemoveAll("teststore.data")
 	s := newTestIntPlasmaStore(testCfg)
