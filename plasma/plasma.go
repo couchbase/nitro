@@ -521,12 +521,11 @@ func (s *Plasma) doRecovery() error {
 }
 
 func (s *Plasma) Close() {
-	s.PersistAll()
-
 	if s.EnableShapshots {
 		// Force SMR flush
 		s.NewSnapshot().Close()
 	}
+
 	close(s.stopmon)
 	if s.Config.AutoLSSCleaning {
 		s.stoplssgc <- struct{}{}
@@ -539,6 +538,7 @@ func (s *Plasma) Close() {
 	}
 
 	if s.Config.shouldPersist {
+		s.PersistAll()
 		s.lss.Close()
 	}
 
@@ -1152,7 +1152,7 @@ func (s *Plasma) tryPageSwapin(pg Page) bool {
 	if pgi.head != nil && pgi.head.state.IsEvicted() {
 		pw := newPgDeltaWalker(pgi.head, pgi.ctx)
 		// Force the pagewalker to read the swapout delta
-		for !pw.End() {
+		for ; !pw.End(); pw.Next() {
 			if pw.Op() == opSwapoutDelta {
 				pw.Next()
 				break

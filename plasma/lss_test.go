@@ -18,9 +18,13 @@ func TestLSSBasic(t *testing.T) {
 	nbuffers := 4
 
 	os.RemoveAll("test.data")
-	lss, err := NewLSStore("test.data", segmentSize, BufSize, nbuffers, false, 0)
+	lSS, err := NewLSStore("test.data", segmentSize, BufSize, nbuffers, false, 0)
 	if err != nil {
 		panic(err)
+	}
+	lss, ok := lSS.(*lsStore)
+	if !ok {
+		panic("Incorrect implementation")
 	}
 
 	n := 8000
@@ -47,6 +51,17 @@ func TestLSSBasic(t *testing.T) {
 			t.Errorf("expected %d, got %d", i, got)
 		}
 		copy(bufread[:8], empty)
+	}
+	tailFb := lss.currBuf()
+	if tailFb.IsFull() {
+		t.Errorf("expected tail flush buffer to be non-full")
+	}
+	if tailFb.StartOffset() < 7339920 {
+		t.Errorf("got start offset = %v", lss.currBuf().StartOffset())
+	}
+	_, err = tailFb.Read(0, nil)
+	if err != errFBReadFailed {
+		t.Errorf("expected read failure: %v", errFBReadFailed)
 	}
 }
 

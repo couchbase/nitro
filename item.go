@@ -57,15 +57,15 @@ func (m *Nitro) allocItem(l int, useMM bool) (itm *Item) {
 	return
 }
 
-// EncodeItem encodes in [2 byte len][item_bytes] format.
+// EncodeItem encodes in [4 byte len][item_bytes] format.
 func (m *Nitro) EncodeItem(itm *Item, buf []byte, w io.Writer) error {
 	l := 2
 	if len(buf) < l {
 		return errNotEnoughSpace
 	}
 
-	binary.BigEndian.PutUint16(buf[0:2], uint16(itm.dataLen))
-	if _, err := w.Write(buf[0:2]); err != nil {
+	binary.BigEndian.PutUint32(buf[0:4], uint32(itm.dataLen))
+	if _, err := w.Write(buf[0:4]); err != nil {
 		return err
 	}
 	if _, err := w.Write(itm.Bytes()); err != nil {
@@ -75,15 +75,26 @@ func (m *Nitro) EncodeItem(itm *Item, buf []byte, w io.Writer) error {
 	return nil
 }
 
-// DecodeItem decodes encoded [2 byte len][item_bytes] format.
-func (m *Nitro) DecodeItem(buf []byte, r io.Reader) (*Item, error) {
-	if _, err := io.ReadFull(r, buf[0:2]); err != nil {
-		return nil, err
+// DecodeItem decodes encoded item
+// v0: [2 byte len][item_bytes] format.
+// v1: [4 byte len][item_bytes] format.
+func (m *Nitro) DecodeItem(ver int, buf []byte, r io.Reader) (*Item, error) {
+	var l int
+
+	if ver == 0 {
+		if _, err := io.ReadFull(r, buf[0:2]); err != nil {
+			return nil, err
+		}
+		l = int(binary.BigEndian.Uint16(buf[0:2]))
+	} else {
+		if _, err := io.ReadFull(r, buf[0:4]); err != nil {
+			return nil, err
+		}
+		l = int(binary.BigEndian.Uint32(buf[0:4]))
 	}
 
-	l := binary.BigEndian.Uint16(buf[0:2])
 	if l > 0 {
-		itm := m.allocItem(int(l), m.useMemoryMgmt)
+		itm := m.allocItem(l, m.useMemoryMgmt)
 		data := itm.Bytes()
 		_, err := io.ReadFull(r, data)
 		return itm, err

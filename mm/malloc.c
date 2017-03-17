@@ -64,6 +64,14 @@ char *mm_stats() {
 #endif
 }
 
+size_t mm_sizeat(void *p) {
+#ifdef JEMALLOC
+    return je_sallocx(p, 0);
+#else
+    return 0;
+#endif
+}
+
 size_t mm_size() {
     size_t resident, sz;
     sz = sizeof(size_t);

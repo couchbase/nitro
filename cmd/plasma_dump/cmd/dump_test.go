@@ -100,7 +100,7 @@ func TestDump(t *testing.T) {
 	}
 	store_data, ok := m[0].(map[string]interface{})
 	if !ok {
-		t.Fatalf("JSON Unmarshal failed", m)
+		t.Fatalf("JSON Unmarshal failed")
 	}
 
 	kvs := store_data[dirName].([]interface{})

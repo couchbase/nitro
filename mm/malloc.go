@@ -48,6 +48,11 @@ func Free(p unsafe.Pointer) {
 	C.mm_free(p)
 }
 
+// SizeAt returns real allocated size from an allocated pointer
+func SizeAt(p unsafe.Pointer) int {
+	return int(C.mm_sizeat(p))
+}
+
 // Stats returns allocator statistics
 // Returns jemalloc stats
 func Stats() string {

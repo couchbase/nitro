@@ -51,10 +51,10 @@ func (m *Nitro) newFileWriter(t FileType) FileWriter {
 	return w
 }
 
-func (m *Nitro) newFileReader(t FileType) FileReader {
+func (m *Nitro) newFileReader(t FileType, ver int) FileReader {
 	var r FileReader
 	if t == RawdbFile {
-		r = &rawFileReader{db: m}
+		r = &rawFileReader{db: m, version: ver}
 	}
 	return r
 }
@@ -93,11 +93,12 @@ func (f *rawFileWriter) Close() error {
 }
 
 type rawFileReader struct {
-	db   *Nitro
-	fd   *os.File
-	r    *bufio.Reader
-	buf  []byte
-	path string
+	version int
+	db      *Nitro
+	fd      *os.File
+	r       *bufio.Reader
+	buf     []byte
+	path    string
 }
 
 func (f *rawFileReader) Open(path string) error {
@@ -111,7 +112,7 @@ func (f *rawFileReader) Open(path string) error {
 }
 
 func (f *rawFileReader) ReadItem() (*Item, error) {
-	return f.db.DecodeItem(f.buf, f.r)
+	return f.db.DecodeItem(f.version, f.buf, f.r)
 }
 
 func (f *rawFileReader) Close() error {
