@@ -88,7 +88,7 @@ func (pg *page) allocMetaDelta(hiItm unsafe.Pointer) *metaPageDelta {
 			d.hiItm = hiItm
 		} else {
 			d.hiItm = unsafe.Pointer(uintptr(ptr) + metaDeltaSize)
-			memcopy(d.hiItm, hiItm, int(l))
+			pg.copyItem(d.hiItm, hiItm, int(l))
 		}
 		pg.addDeltaAlloc(ptr)
 		return d
@@ -110,7 +110,7 @@ func (pg *page) allocRecordDelta(itm unsafe.Pointer) *recordDelta {
 			d.itm = itm
 		} else {
 			d.itm = unsafe.Pointer(uintptr(ptr) + recDeltaSize)
-			memcopy(d.itm, itm, int(l))
+			pg.copyItem(d.itm, itm, int(l))
 		}
 		pg.addDeltaAlloc(ptr)
 		return d
@@ -139,7 +139,7 @@ func (pg *page) allocBasePage(n int, dataSz uintptr, hiItm unsafe.Pointer) *base
 			bp.hiItm = hiItm
 		} else {
 			bp.hiItm = unsafe.Pointer(uintptr(ptr) + basePageSize + uintptr(n)*8 + dataSz)
-			memcopy(bp.hiItm, hiItm, int(l))
+			pg.copyItem(bp.hiItm, hiItm, int(l))
 		}
 		pg.addDeltaAlloc(ptr)
 		return bp
@@ -164,7 +164,7 @@ func (pg *page) allocSplitPageDelta(hiItm unsafe.Pointer) *splitPageDelta {
 			d.hiItm = hiItm
 		} else {
 			d.hiItm = unsafe.Pointer(uintptr(ptr) + splitPageDeltaSize)
-			memcopy(d.hiItm, hiItm, int(l))
+			pg.copyItem(d.hiItm, hiItm, int(l))
 		}
 		pg.addDeltaAlloc(ptr)
 		return d
@@ -187,7 +187,7 @@ func (pg *page) allocMergePageDelta(hiItm unsafe.Pointer) *mergePageDelta {
 			d.hiItm = hiItm
 		} else {
 			d.hiItm = unsafe.Pointer(uintptr(ptr) + mergePageDeltaSize)
-			memcopy(d.hiItm, hiItm, int(l))
+			pg.copyItem(d.hiItm, hiItm, int(l))
 		}
 		pg.addDeltaAlloc(ptr)
 		return d
@@ -242,7 +242,7 @@ func (pg *page) allocSwapoutDelta(hiItm unsafe.Pointer) *swapoutDelta {
 			d.hiItm = hiItm
 		} else {
 			d.hiItm = unsafe.Pointer(uintptr(ptr) + mergePageDeltaSize)
-			memcopy(d.hiItm, hiItm, int(l))
+			copyItem(d.hiItm, hiItm, int(l))
 		}
 		pg.addDeltaAlloc(ptr)
 		return (*swapoutDelta)(ptr)

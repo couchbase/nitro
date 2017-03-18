@@ -14,6 +14,7 @@ const evictMask = uint64(0x8000000000000000)
 type storeCtx struct {
 	useMemMgmt       bool
 	itemSize         ItemSizeFn
+	copyItem         ItemCopyFn
 	cmp              skiplist.CompareFn
 	getPageId        func(unsafe.Pointer, *wCtx) PageId
 	getCompactFilter FilterGetter
@@ -33,7 +34,7 @@ func (ctx *storeCtx) dup(itm unsafe.Pointer) unsafe.Pointer {
 
 	l := ctx.itemSize(itm)
 	p := ctx.alloc(l)
-	memcopy(p, itm, int(l))
+	ctx.copyItem(p, itm, int(l))
 	return p
 }
 
@@ -46,12 +47,13 @@ func (ctx *storeCtx) freeMM(ptr unsafe.Pointer) {
 }
 
 func newStoreContext(indexLayer *skiplist.Skiplist, useMM bool, itemSize ItemSizeFn,
-	cmp skiplist.CompareFn, getCompactFilter, getLookupFilter FilterGetter) *storeCtx {
+	cmp skiplist.CompareFn, copyItem ItemCopyFn, getCompactFilter, getLookupFilter FilterGetter) *storeCtx {
 
 	return &storeCtx{
 		useMemMgmt: useMM,
 		cmp:        cmp,
 		itemSize:   itemSize,
+		copyItem:   copyItem,
 		getPageId: func(itm unsafe.Pointer, ctx *wCtx) PageId {
 			var pid PageId
 			if itm == skiplist.MinItem {

@@ -279,6 +279,7 @@ type swapinDelta struct {
 }
 
 type ItemSizeFn func(unsafe.Pointer) uintptr
+type ItemCopyFn func(a, b unsafe.Pointer, l int)
 type FilterGetter func() ItemFilter
 
 type page struct {
@@ -406,7 +407,7 @@ func (pg *page) newBasePage(itms []unsafe.Pointer) *pageDelta {
 	for i, itm := range itms {
 		itmsz := pg.itemSize(itm)
 		dstItm := unsafe.Pointer(uintptr(bp.data) + offset)
-		memcopy(dstItm, itm, int(itmsz))
+		pg.copyItem(dstItm, itm, int(itmsz))
 		bp.items[i] = dstItm
 		offset += itmsz
 	}
@@ -460,7 +461,7 @@ loop:
 				l := int(pg.itemSize(ritm))
 				itmBuf.Grow(0, l)
 				resultPtr := itmBuf.Ptr(0)
-				memcopy(resultPtr, ritm, l)
+				pg.copyItem(resultPtr, ritm, l)
 				return resultPtr
 			}
 		case opDeleteDelta:
@@ -483,7 +484,7 @@ loop:
 					l := int(pg.itemSize(ritm))
 					itmBuf.Grow(0, l)
 					resultPtr := itmBuf.Ptr(0)
-					memcopy(resultPtr, ritm, l)
+					pg.copyItem(resultPtr, ritm, l)
 					return resultPtr
 				}
 			}
@@ -769,7 +770,7 @@ func (pg *page) marshalIndexKey(key unsafe.Pointer, woffset int, buf *Buffer) in
 func (pg *page) marshalItem(itm unsafe.Pointer, woffset int, b *Buffer) int {
 	l := int(pg.itemSize(itm))
 	b.Grow(0, woffset+l)
-	memcopy(b.Ptr(woffset), itm, l)
+	pg.copyItem(b.Ptr(woffset), itm, l)
 	woffset += l
 
 	return woffset

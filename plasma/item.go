@@ -15,9 +15,10 @@ import (
 // [insert bit][val bit][len]
 
 const (
-	itmInsertMask = 0x80000000
-	itmHasValMask = 0x40000000
-	itmLenMask    = 0x3fffffff
+	itmInsertFlag = 0x80000000
+	itmHasValFlag = 0x40000000
+	itmPtrKeyFlag = 0x20000000
+	itmLenMask    = 0x1fffffff
 	itmHdrLen     = 4
 	itmSnSize     = 8
 	itmKlenSize   = 4
@@ -27,11 +28,22 @@ const (
 type item uint32
 
 func (itm *item) Size() int {
+	sz := itm.ActualSize()
+	if *itm&itmPtrKeyFlag > 0 {
+		itm = itm.getPtrKeyItem()
+		_, klen := itm.k()
+		sz += klen
+	}
+
+	return sz
+}
+
+func (itm *item) ActualSize() int {
 	return itm.l() + itmHdrLen + itmSnSize
 }
 
 func (itm *item) IsInsert() bool {
-	return itmInsertMask&*itm > 0
+	return itmInsertFlag&*itm > 0
 
 }
 
@@ -48,7 +60,7 @@ func (itm *item) At(int) PageItem {
 }
 
 func (itm *item) HasValue() bool {
-	return itmHasValMask&*itm > 0
+	return itmHasValFlag&*itm > 0
 }
 
 func (itm *item) Sn() uint64 {
@@ -76,8 +88,18 @@ func (itm *item) k() (uintptr, int) {
 	return kptr, klen
 }
 
+func (itm *item) getPtrKeyItem() *item {
+	for *itm&itmPtrKeyFlag > 0 {
+		itm = (*item)(unsafe.Pointer(uintptr(unsafe.Pointer(itm)) + uintptr(itm.Size())))
+	}
+
+	return itm
+}
+
 func (itm *item) Key() (bs []byte) {
+	itm = itm.getPtrKeyItem()
 	kptr, klen := itm.k()
+
 	sh := (*reflect.SliceHeader)(unsafe.Pointer(&bs))
 	sh.Data = kptr
 	sh.Len = klen
@@ -102,6 +124,7 @@ func (s *Plasma) newItem(k, v []byte, sn uint64, del bool, buf *Buffer) (
 		return nil, ErrKeyTooLarge
 	}
 
+	// kl = 0, means read key from the key memory chunk
 	kl := len(k)
 	vl := len(v)
 
@@ -121,11 +144,11 @@ func (s *Plasma) newItem(k, v []byte, sn uint64, del bool, buf *Buffer) (
 	hdr := (*uint32)(ptr)
 	*hdr = 0
 	if !del {
-		*hdr |= itmInsertMask
+		*hdr |= itmInsertFlag
 	}
 
 	if vl > 0 {
-		*hdr |= itmHasValMask | uint32(vl+kl+itmKlenSize)
+		*hdr |= itmHasValFlag | uint32(vl+kl+itmKlenSize)
 		klen := (*uint32)(unsafe.Pointer(uintptr(ptr) + itmHdrLen))
 		*klen = uint32(kl)
 
@@ -171,4 +194,8 @@ func itemStringer(itm unsafe.Pointer) string {
 		v = string(x.Value())
 	}
 	return fmt.Sprintf("item key:%s val:%s sn:%d insert: %v", string(x.Key()), v, x.Sn(), x.IsInsert())
+}
+
+func copyItem(a, b unsafe.Pointer, sz int) {
+	memcopy(a, b, sz)
 }

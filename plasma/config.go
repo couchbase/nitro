@@ -13,6 +13,7 @@ type Config struct {
 	MaxPageLSSSegments int
 	Compare            skiplist.CompareFn
 	ItemSize           ItemSizeFn
+	CopyItem           ItemCopyFn
 
 	LSSLogSegmentSize   int64
 	File                string
@@ -68,6 +69,10 @@ func applyConfigDefaults(cfg Config) Config {
 		cfg.MaxPageLSSSegments = 4
 	}
 
+	if cfg.CopyItem == nil {
+		cfg.CopyItem = memcopy
+	}
+
 	return cfg
 }
 
@@ -83,6 +88,7 @@ func DefaultConfig() Config {
 			}
 			return uintptr((*item)(itm).Size())
 		},
+		CopyItem:            copyItem,
 		FlushBufferSize:     1024 * 1024 * 1,
 		LSSCleanerThreshold: 10,
 		AutoLSSCleaning:     true,
