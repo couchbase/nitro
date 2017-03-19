@@ -280,6 +280,8 @@ type swapinDelta struct {
 
 type ItemSizeFn func(unsafe.Pointer) uintptr
 type ItemCopyFn func(a, b unsafe.Pointer, l int)
+type ItemRunSizeFn func(src []unsafe.Pointer) uintptr
+type ItemRunCopyFn func(src, dst []unsafe.Pointer, dstData unsafe.Pointer)
 type FilterGetter func() ItemFilter
 
 type page struct {
@@ -386,7 +388,6 @@ func (pg *page) newRemovePageDelta() *pageDelta {
 }
 
 func (pg *page) newBasePage(itms []unsafe.Pointer) *pageDelta {
-	var sz uintptr
 	var hiItm unsafe.Pointer
 
 	if pg.head != nil {
@@ -394,25 +395,15 @@ func (pg *page) newBasePage(itms []unsafe.Pointer) *pageDelta {
 	}
 
 	n := len(itms)
-	for _, itm := range itms {
-		sz += pg.itemSize(itm)
-	}
+	sz := pg.itemRunSize(itms)
 
 	bp := pg.allocBasePage(n, sz, hiItm)
 	bp.op = opBasePage
 	bp.numItems = uint16(n)
 	bp.state = 0
-
-	var offset uintptr
-	for i, itm := range itms {
-		itmsz := pg.itemSize(itm)
-		dstItm := unsafe.Pointer(uintptr(bp.data) + offset)
-		pg.copyItem(dstItm, itm, int(itmsz))
-		bp.items[i] = dstItm
-		offset += itmsz
-	}
-
 	bp.numItems = uint16(n)
+	pg.copyItemRun(itms, bp.items, bp.data)
+
 	if pg.head != nil {
 		bp.rightSibling = pg.head.rightSibling
 	}

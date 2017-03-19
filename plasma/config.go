@@ -14,6 +14,8 @@ type Config struct {
 	Compare            skiplist.CompareFn
 	ItemSize           ItemSizeFn
 	CopyItem           ItemCopyFn
+	ItemRunSize        ItemRunSizeFn
+	CopyItemRun        ItemRunCopyFn
 
 	IndexKeySize ItemSizeFn
 	CopyIndexKey ItemCopyFn
@@ -82,6 +84,28 @@ func applyConfigDefaults(cfg Config) Config {
 
 	if cfg.IndexKeySize == nil {
 		cfg.IndexKeySize = cfg.ItemSize
+	}
+
+	if cfg.ItemRunSize == nil {
+		cfg.ItemRunSize = func(srcItms []unsafe.Pointer) uintptr {
+			var sz uintptr
+			for _, itm := range srcItms {
+				sz += cfg.ItemSize(itm)
+			}
+
+			return sz
+		}
+
+		cfg.CopyItemRun = func(srcItms, dstItms []unsafe.Pointer, data unsafe.Pointer) {
+			var offset uintptr
+			for i, itm := range srcItms {
+				dstItm := unsafe.Pointer(uintptr(data) + offset)
+				sz := cfg.ItemSize(itm)
+				cfg.CopyItem(dstItm, itm, int(sz))
+				dstItms[i] = dstItm
+				offset += sz
+			}
+		}
 	}
 
 	return cfg

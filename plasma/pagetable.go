@@ -17,6 +17,8 @@ type storeCtx struct {
 	copyItem         ItemCopyFn
 	copyIndexKey     ItemCopyFn
 	indexKeySize     ItemSizeFn
+	itemRunSize      ItemRunSizeFn
+	copyItemRun      ItemRunCopyFn
 	cmp              skiplist.CompareFn
 	getPageId        func(unsafe.Pointer, *wCtx) PageId
 	getCompactFilter FilterGetter
@@ -57,6 +59,8 @@ func newStoreContext(indexLayer *skiplist.Skiplist, cfg Config,
 		itemSize:     cfg.ItemSize,
 		copyItem:     cfg.CopyItem,
 		indexKeySize: cfg.IndexKeySize,
+		copyItemRun:  cfg.CopyItemRun,
+		itemRunSize:  cfg.ItemRunSize,
 		copyIndexKey: cfg.CopyIndexKey,
 		getPageId: func(itm unsafe.Pointer, ctx *wCtx) PageId {
 			var pid PageId
