@@ -635,3 +635,32 @@ func TestTooLargeKey(t *testing.T) {
 		t.Errorf("Expected too large key LookupKV to fail")
 	}
 }
+
+func TestMVCCItemUpdateSize(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.UseMemoryMgmt = true
+	os.RemoveAll("teststore.data")
+	cfg.File = "teststore.data"
+	s, _ := New(cfg)
+	w := s.NewWriter()
+	for i := 0; i < 10000; i++ {
+		w.InsertKV([]byte(fmt.Sprintf("key-%10d", i)), []byte(fmt.Sprintf("val-%10d", i)))
+	}
+
+	s.NewSnapshot()
+
+	for i := 0; i < 10000; i++ {
+		w.DeleteKV([]byte(fmt.Sprintf("key-%10d", i)))
+	}
+	s.NewSnapshot()
+
+	w.CompactAll()
+	s.PersistAll()
+
+	fmt.Println(s.GetStats())
+	s.Close()
+
+	s, _ = New(cfg)
+	fmt.Println(s.GetStats())
+	s.Close()
+}
