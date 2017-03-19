@@ -587,7 +587,7 @@ type wCtx struct {
 
 func (ctx *wCtx) freePages(pages []pgFreeObj) {
 	for _, pg := range pages {
-		nr, size := computeMemUsed(pg.h, ctx.itemSize)
+		nr, size := computeMemUsed(pg.h, ctx.itemSizeAct)
 		ctx.sts.FreeSz += int64(size)
 
 		ctx.sts.NumRecordFrees += int64(nr)

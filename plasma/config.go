@@ -13,6 +13,7 @@ type Config struct {
 	MaxPageLSSSegments int
 	Compare            skiplist.CompareFn
 	ItemSize           ItemSizeFn
+	ItemSizeActual     ItemSizeFn
 	CopyItem           ItemCopyFn
 	ItemRunSize        ItemRunSizeFn
 	CopyItemRun        ItemRunCopyFn
@@ -108,6 +109,10 @@ func applyConfigDefaults(cfg Config) Config {
 		}
 	}
 
+	if cfg.ItemSizeActual == nil {
+		cfg.ItemSizeActual = cfg.ItemSize
+	}
+
 	return cfg
 }
 
@@ -123,8 +128,16 @@ func DefaultConfig() Config {
 			}
 			return uintptr((*item)(itm).Size())
 		},
+		ItemSizeActual: func(itm unsafe.Pointer) uintptr {
+			if itm == skiplist.MinItem || itm == skiplist.MaxItem {
+				return 0
+			}
+			return uintptr((*item)(itm).ActualSize())
+		},
 		CopyItem:            copyItem,
 		CopyIndexKey:        copyItem,
+		ItemRunSize:         itemRunSize,
+		CopyItemRun:         copyItemRun,
 		FlushBufferSize:     1024 * 1024 * 1,
 		LSSCleanerThreshold: 10,
 		AutoLSSCleaning:     true,

@@ -1253,7 +1253,7 @@ func (pg *page) SetNumSegments(n int) {
 }
 
 func (pg *page) ComputeMemUsed() int {
-	_, size := computeMemUsed(pg.head, pg.itemSize)
+	_, size := computeMemUsed(pg.head, pg.itemSizeAct)
 	return size
 }
 
