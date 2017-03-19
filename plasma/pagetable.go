@@ -15,6 +15,8 @@ type storeCtx struct {
 	useMemMgmt       bool
 	itemSize         ItemSizeFn
 	copyItem         ItemCopyFn
+	copyIndexKey     ItemCopyFn
+	indexKeySize     ItemSizeFn
 	cmp              skiplist.CompareFn
 	getPageId        func(unsafe.Pointer, *wCtx) PageId
 	getCompactFilter FilterGetter
@@ -46,14 +48,16 @@ func (ctx *storeCtx) freeMM(ptr unsafe.Pointer) {
 	mm.Free(ptr)
 }
 
-func newStoreContext(indexLayer *skiplist.Skiplist, useMM bool, itemSize ItemSizeFn,
-	cmp skiplist.CompareFn, copyItem ItemCopyFn, getCompactFilter, getLookupFilter FilterGetter) *storeCtx {
+func newStoreContext(indexLayer *skiplist.Skiplist, cfg Config,
+	getCompactFilter, getLookupFilter FilterGetter) *storeCtx {
 
 	return &storeCtx{
-		useMemMgmt: useMM,
-		cmp:        cmp,
-		itemSize:   itemSize,
-		copyItem:   copyItem,
+		useMemMgmt:   cfg.UseMemoryMgmt,
+		cmp:          cfg.Compare,
+		itemSize:     cfg.ItemSize,
+		copyItem:     cfg.CopyItem,
+		indexKeySize: cfg.IndexKeySize,
+		copyIndexKey: cfg.CopyIndexKey,
 		getPageId: func(itm unsafe.Pointer, ctx *wCtx) PageId {
 			var pid PageId
 			if itm == skiplist.MinItem {
@@ -65,7 +69,7 @@ func newStoreContext(indexLayer *skiplist.Skiplist, useMM bool, itemSize ItemSiz
 				pid = indexLayer.TailNode()
 			} else {
 				var found bool
-				_, pid, found = indexLayer.Lookup(itm, cmp, ctx.buf, ctx.slSts)
+				_, pid, found = indexLayer.Lookup(itm, cfg.Compare, ctx.buf, ctx.slSts)
 				if !found {
 					return nil
 				}
@@ -100,9 +104,9 @@ func (s *Plasma) newIndexKey(itm unsafe.Pointer) unsafe.Pointer {
 	}
 
 	if s.useMemMgmt {
-		size := s.itemSize(itm)
+		size := s.IndexKeySize(itm)
 		key := s.allocMM(size)
-		memcopy(key, itm, int(size))
+		s.CopyIndexKey(key, itm, int(size))
 		return key
 	}
 

@@ -296,8 +296,7 @@ func New(cfg Config) (*Plasma, error) {
 		}
 	}
 
-	s.storeCtx = newStoreContext(sl, cfg.UseMemoryMgmt, cfg.ItemSize,
-		cfg.Compare, cfg.CopyItem, cfGetter, lfGetter)
+	s.storeCtx = newStoreContext(sl, cfg, cfGetter, lfGetter)
 
 	s.gCtx = s.newWCtx()
 	if s.useMemMgmt {

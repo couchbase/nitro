@@ -15,6 +15,9 @@ type Config struct {
 	ItemSize           ItemSizeFn
 	CopyItem           ItemCopyFn
 
+	IndexKeySize ItemSizeFn
+	CopyIndexKey ItemCopyFn
+
 	LSSLogSegmentSize   int64
 	File                string
 	FlushBufferSize     int
@@ -73,6 +76,14 @@ func applyConfigDefaults(cfg Config) Config {
 		cfg.CopyItem = memcopy
 	}
 
+	if cfg.CopyIndexKey == nil {
+		cfg.CopyIndexKey = memcopy
+	}
+
+	if cfg.IndexKeySize == nil {
+		cfg.IndexKeySize = cfg.ItemSize
+	}
+
 	return cfg
 }
 
@@ -89,6 +100,7 @@ func DefaultConfig() Config {
 			return uintptr((*item)(itm).Size())
 		},
 		CopyItem:            copyItem,
+		CopyIndexKey:        copyItem,
 		FlushBufferSize:     1024 * 1024 * 1,
 		LSSCleanerThreshold: 10,
 		AutoLSSCleaning:     true,

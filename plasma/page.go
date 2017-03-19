@@ -1039,11 +1039,11 @@ func marshalPageSMO(pg Page, b *Buffer) []byte {
 	woffset := 0
 
 	target := pg.(*page)
-	l := int(target.itemSize(target.low))
+	l := int(target.indexKeySize(target.low))
 	buf := b.Get(0, l+2)
 	binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(l))
 	woffset += 2
-	memcopy(unsafe.Pointer(&buf[woffset]), target.low, l)
+	target.copyIndexKey(unsafe.Pointer(&buf[woffset]), target.low, l)
 	woffset += l
 
 	return buf[:woffset]
