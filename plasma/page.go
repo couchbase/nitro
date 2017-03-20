@@ -767,6 +767,23 @@ func (pg *page) marshalItem(itm unsafe.Pointer, woffset int, b *Buffer) int {
 	return woffset
 }
 
+func (pg *page) marshalBaseItems(itms []unsafe.Pointer, hiItm unsafe.Pointer, woffset int, buf *Buffer) (int, int) {
+	count := 0
+	for _, itm := range itms {
+		if pg.cmp(itm, hiItm) < 0 {
+			count++
+		} else {
+			break
+		}
+	}
+
+	for i := 0; i < count; i++ {
+		woffset = pg.marshalItem(itms[i], woffset, buf)
+	}
+
+	return woffset, count
+}
+
 func (pg *page) marshal(buf *Buffer, woffset int, head *pageDelta,
 	hiItm unsafe.Pointer, child bool, maxSegments int) (offset int, staleFdSz int, numSegments int) {
 
@@ -838,14 +855,9 @@ loop:
 				binary.BigEndian.PutUint16(buf.Get(woffset, 2), uint16(op))
 				woffset += 2
 				bufNitmOffset := woffset
-				nItms := 0
+				var nItms int
 				woffset += 2
-				for _, itm := range pw.BaseItems() {
-					if pg.cmp(itm, hiItm) < 0 {
-						woffset = pg.marshalItem(itm, woffset, buf)
-						nItms++
-					}
-				}
+				woffset, nItms = pg.marshalBaseItems(pw.BaseItems(), hiItm, woffset, buf)
 				binary.BigEndian.PutUint16(buf.Get(bufNitmOffset, 2), uint16(nItms))
 			}
 			break loop
