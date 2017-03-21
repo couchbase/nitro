@@ -94,15 +94,6 @@ func (it *Iterator) GetNode() *Node {
 	return it.curr
 }
 
-// Delete removes the current item from the skiplist
-func (it *Iterator) Delete() {
-	it.s.softDelete(it.curr, &it.s.Stats)
-	// It will observe that current item is deleted
-	// Run delete helper and move to the next possible item
-	it.Next()
-	it.deleted = true
-}
-
 // Next moves iterator to the next item
 func (it *Iterator) Next() {
 	if it.deleted {

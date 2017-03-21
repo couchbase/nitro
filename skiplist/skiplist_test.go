@@ -31,12 +31,15 @@ func TestInsert(t *testing.T) {
 	}
 
 	itr := s.NewIterator(cmp, buf)
+	itr.SetRefreshInterval(50)
 	count := 0
 	itr.SeekFirst()
 	itr.Seek(NewByteKeyItem([]byte(fmt.Sprintf("%010d", 1500))))
+	var seekItm unsafe.Pointer
 	for ; itr.Valid(); itr.Next() {
 		expected := fmt.Sprintf("%010d", count+1500)
-		got := string(*(*byteKeyItem)(itr.Get()))
+		seekItm = itr.Get()
+		got := string(*(*byteKeyItem)(seekItm))
 		count++
 		if got != expected {
 			t.Errorf("Expected %s, got %v", expected, got)
@@ -45,6 +48,30 @@ func TestInsert(t *testing.T) {
 
 	if count != 250 {
 		t.Errorf("Expected count = 250, got %v", count)
+	}
+
+	got := itr.SeekWithCmp(seekItm, CompareInt, CompareInt)
+	if !got {
+		t.Errorf("Expected seekWithCmp to work")
+	}
+	itr.Close()
+
+	// Reopen iterator with smaller refresh interval
+	itr = s.NewIterator(cmp, buf)
+	count = 0
+	itr.SeekFirst()
+	itr.Seek(NewByteKeyItem([]byte(fmt.Sprintf("%010d", 1500))))
+	for ; itr.Valid(); itr.Next() {
+		expected := fmt.Sprintf("%010d", count+1500)
+		seekItm = itr.Get()
+		got := string(*(*byteKeyItem)(seekItm))
+		count++
+		if got != expected {
+			t.Errorf("Expected %s, got %v", expected, got)
+		}
+		if count == 124 {
+			itr.Refresh()
+		}
 	}
 }
 
@@ -87,7 +114,7 @@ func doGet(sl *Skiplist, wg *sync.WaitGroup, n int) {
 func TestInsertPerf(t *testing.T) {
 	var wg sync.WaitGroup
 	sl := New()
-	n := 1000000
+	n := 1000
 	t0 := time.Now()
 	total := n * runtime.GOMAXPROCS(0)
 	for i := 0; i < runtime.GOMAXPROCS(0); i++ {
@@ -104,7 +131,7 @@ func TestInsertPerf(t *testing.T) {
 func TestGetPerf(t *testing.T) {
 	var wg sync.WaitGroup
 	sl := New()
-	n := 1000000
+	n := 1000
 	wg.Add(1)
 	go doInsert(sl, &wg, n, false)
 	wg.Wait()
@@ -124,7 +151,7 @@ func TestGetPerf(t *testing.T) {
 func TestGetRangeSplitItems(t *testing.T) {
 	var wg sync.WaitGroup
 	sl := New()
-	n := 1000000
+	n := 1000
 	wg.Add(1)
 	go doInsert(sl, &wg, n, false)
 	wg.Wait()
@@ -150,7 +177,7 @@ func TestGetRangeSplitItems(t *testing.T) {
 func TestBuilder(t *testing.T) {
 	var wg sync.WaitGroup
 
-	n := 50000000
+	n := 50000
 	nsplit := 8
 	segs := make([]*Segment, nsplit)
 	t0 := time.Now()
