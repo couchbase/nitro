@@ -14,6 +14,12 @@ const evictMask = uint64(0x8000000000000000)
 type storeCtx struct {
 	useMemMgmt       bool
 	itemSize         ItemSizeFn
+	itemSizeAct      ItemSizeFn
+	copyItem         ItemCopyFn
+	copyIndexKey     ItemCopyFn
+	indexKeySize     ItemSizeFn
+	itemRunSize      ItemRunSizeFn
+	copyItemRun      ItemRunCopyFn
 	cmp              skiplist.CompareFn
 	getPageId        func(unsafe.Pointer, *wCtx) PageId
 	getCompactFilter FilterGetter
@@ -33,7 +39,7 @@ func (ctx *storeCtx) dup(itm unsafe.Pointer) unsafe.Pointer {
 
 	l := ctx.itemSize(itm)
 	p := ctx.alloc(l)
-	memcopy(p, itm, int(l))
+	ctx.copyItem(p, itm, int(l))
 	return p
 }
 
@@ -45,13 +51,19 @@ func (ctx *storeCtx) freeMM(ptr unsafe.Pointer) {
 	mm.Free(ptr)
 }
 
-func newStoreContext(indexLayer *skiplist.Skiplist, useMM bool, itemSize ItemSizeFn,
-	cmp skiplist.CompareFn, getCompactFilter, getLookupFilter FilterGetter) *storeCtx {
+func newStoreContext(indexLayer *skiplist.Skiplist, cfg Config,
+	getCompactFilter, getLookupFilter FilterGetter) *storeCtx {
 
 	return &storeCtx{
-		useMemMgmt: useMM,
-		cmp:        cmp,
-		itemSize:   itemSize,
+		useMemMgmt:   cfg.UseMemoryMgmt,
+		cmp:          cfg.Compare,
+		itemSize:     cfg.ItemSize,
+		itemSizeAct:  cfg.ItemSizeActual,
+		copyItem:     cfg.CopyItem,
+		indexKeySize: cfg.IndexKeySize,
+		copyItemRun:  cfg.CopyItemRun,
+		itemRunSize:  cfg.ItemRunSize,
+		copyIndexKey: cfg.CopyIndexKey,
 		getPageId: func(itm unsafe.Pointer, ctx *wCtx) PageId {
 			var pid PageId
 			if itm == skiplist.MinItem {
@@ -63,7 +75,7 @@ func newStoreContext(indexLayer *skiplist.Skiplist, useMM bool, itemSize ItemSiz
 				pid = indexLayer.TailNode()
 			} else {
 				var found bool
-				_, pid, found = indexLayer.Lookup(itm, cmp, ctx.buf, ctx.slSts)
+				_, pid, found = indexLayer.Lookup(itm, cfg.Compare, ctx.buf, ctx.slSts)
 				if !found {
 					return nil
 				}
@@ -98,9 +110,9 @@ func (s *Plasma) newIndexKey(itm unsafe.Pointer) unsafe.Pointer {
 	}
 
 	if s.useMemMgmt {
-		size := s.itemSize(itm)
+		size := s.IndexKeySize(itm)
 		key := s.allocMM(size)
-		memcopy(key, itm, int(size))
+		s.CopyIndexKey(key, itm, int(size))
 		return key
 	}
 

@@ -8,8 +8,11 @@
 // and limitations under the License.
 package skiplist
 
-import "testing"
-import "fmt"
+import (
+	"fmt"
+	"testing"
+	"unsafe"
+)
 
 func TestMerger(t *testing.T) {
 	var lists []*Skiplist
@@ -40,6 +43,8 @@ func TestMerger(t *testing.T) {
 	}
 
 	mit := NewMergeIterator(iters)
+	var seekPtr unsafe.Pointer
+	var seekPt int
 
 	i := 0
 	for mit.SeekFirst(); mit.Valid(); i++ {
@@ -47,10 +52,28 @@ func TestMerger(t *testing.T) {
 			continue
 		}
 		expected := fmt.Sprintf("%010d", i)
-		got := string(*((*byteKeyItem)(mit.Get())))
+		seekPtr = mit.Get()
+		seekPt = i
+		got := string(*((*byteKeyItem)(seekPtr)))
 		if got != expected {
 			t.Errorf("Expected %s, got %v", expected, got)
 		}
 		mit.Next()
 	}
+	ok := mit.Seek(seekPtr)
+	if !ok {
+		t.Errorf("Expected seek to work")
+	}
+	seekPtr = mit.Get()
+	got := string(*((*byteKeyItem)(seekPtr)))
+
+	expected := fmt.Sprintf("%010d", seekPt)
+	if got != expected {
+		t.Errorf("Expected %s, got %v", expected, got)
+	}
+	node := mit.GetNode()
+	if node == nil {
+		t.Errorf("Expected getNode to work")
+	}
+
 }

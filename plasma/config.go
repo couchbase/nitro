@@ -13,6 +13,13 @@ type Config struct {
 	MaxPageLSSSegments int
 	Compare            skiplist.CompareFn
 	ItemSize           ItemSizeFn
+	ItemSizeActual     ItemSizeFn
+	CopyItem           ItemCopyFn
+	ItemRunSize        ItemRunSizeFn
+	CopyItemRun        ItemRunCopyFn
+
+	IndexKeySize ItemSizeFn
+	CopyIndexKey ItemCopyFn
 
 	LSSLogSegmentSize   int64
 	File                string
@@ -68,6 +75,44 @@ func applyConfigDefaults(cfg Config) Config {
 		cfg.MaxPageLSSSegments = 4
 	}
 
+	if cfg.CopyItem == nil {
+		cfg.CopyItem = memcopy
+	}
+
+	if cfg.CopyIndexKey == nil {
+		cfg.CopyIndexKey = memcopy
+	}
+
+	if cfg.IndexKeySize == nil {
+		cfg.IndexKeySize = cfg.ItemSize
+	}
+
+	if cfg.ItemRunSize == nil {
+		cfg.ItemRunSize = func(srcItms []unsafe.Pointer) uintptr {
+			var sz uintptr
+			for _, itm := range srcItms {
+				sz += cfg.ItemSize(itm)
+			}
+
+			return sz
+		}
+
+		cfg.CopyItemRun = func(srcItms, dstItms []unsafe.Pointer, data unsafe.Pointer) {
+			var offset uintptr
+			for i, itm := range srcItms {
+				dstItm := unsafe.Pointer(uintptr(data) + offset)
+				sz := cfg.ItemSize(itm)
+				cfg.CopyItem(dstItm, itm, int(sz))
+				dstItms[i] = dstItm
+				offset += sz
+			}
+		}
+	}
+
+	if cfg.ItemSizeActual == nil {
+		cfg.ItemSizeActual = cfg.ItemSize
+	}
+
 	return cfg
 }
 
@@ -83,6 +128,16 @@ func DefaultConfig() Config {
 			}
 			return uintptr((*item)(itm).Size())
 		},
+		ItemSizeActual: func(itm unsafe.Pointer) uintptr {
+			if itm == skiplist.MinItem || itm == skiplist.MaxItem {
+				return 0
+			}
+			return uintptr((*item)(itm).ActualSize())
+		},
+		CopyItem:            copyItem,
+		CopyIndexKey:        copyItem,
+		ItemRunSize:         itemRunSize,
+		CopyItemRun:         copyItemRun,
 		FlushBufferSize:     1024 * 1024 * 1,
 		LSSCleanerThreshold: 10,
 		AutoLSSCleaning:     true,

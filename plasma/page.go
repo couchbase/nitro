@@ -279,6 +279,9 @@ type swapinDelta struct {
 }
 
 type ItemSizeFn func(unsafe.Pointer) uintptr
+type ItemCopyFn func(a, b unsafe.Pointer, l int)
+type ItemRunSizeFn func(src []unsafe.Pointer) uintptr
+type ItemRunCopyFn func(src, dst []unsafe.Pointer, dstData unsafe.Pointer)
 type FilterGetter func() ItemFilter
 
 type page struct {
@@ -385,7 +388,6 @@ func (pg *page) newRemovePageDelta() *pageDelta {
 }
 
 func (pg *page) newBasePage(itms []unsafe.Pointer) *pageDelta {
-	var sz uintptr
 	var hiItm unsafe.Pointer
 
 	if pg.head != nil {
@@ -393,25 +395,15 @@ func (pg *page) newBasePage(itms []unsafe.Pointer) *pageDelta {
 	}
 
 	n := len(itms)
-	for _, itm := range itms {
-		sz += pg.itemSize(itm)
-	}
+	sz := pg.itemRunSize(itms)
 
 	bp := pg.allocBasePage(n, sz, hiItm)
 	bp.op = opBasePage
 	bp.numItems = uint16(n)
 	bp.state = 0
-
-	var offset uintptr
-	for i, itm := range itms {
-		itmsz := pg.itemSize(itm)
-		dstItm := unsafe.Pointer(uintptr(bp.data) + offset)
-		memcopy(dstItm, itm, int(itmsz))
-		bp.items[i] = dstItm
-		offset += itmsz
-	}
-
 	bp.numItems = uint16(n)
+	pg.copyItemRun(itms, bp.items, bp.data)
+
 	if pg.head != nil {
 		bp.rightSibling = pg.head.rightSibling
 	}
@@ -460,7 +452,7 @@ loop:
 				l := int(pg.itemSize(ritm))
 				itmBuf.Grow(0, l)
 				resultPtr := itmBuf.Ptr(0)
-				memcopy(resultPtr, ritm, l)
+				pg.copyItem(resultPtr, ritm, l)
 				return resultPtr
 			}
 		case opDeleteDelta:
@@ -483,7 +475,7 @@ loop:
 					l := int(pg.itemSize(ritm))
 					itmBuf.Grow(0, l)
 					resultPtr := itmBuf.Ptr(0)
-					memcopy(resultPtr, ritm, l)
+					pg.copyItem(resultPtr, ritm, l)
 					return resultPtr
 				}
 			}
@@ -769,10 +761,27 @@ func (pg *page) marshalIndexKey(key unsafe.Pointer, woffset int, buf *Buffer) in
 func (pg *page) marshalItem(itm unsafe.Pointer, woffset int, b *Buffer) int {
 	l := int(pg.itemSize(itm))
 	b.Grow(0, woffset+l)
-	memcopy(b.Ptr(woffset), itm, l)
+	pg.copyItem(b.Ptr(woffset), itm, l)
 	woffset += l
 
 	return woffset
+}
+
+func (pg *page) marshalBaseItems(itms []unsafe.Pointer, hiItm unsafe.Pointer, woffset int, buf *Buffer) (int, int) {
+	count := 0
+	for _, itm := range itms {
+		if pg.cmp(itm, hiItm) < 0 {
+			count++
+		} else {
+			break
+		}
+	}
+
+	for i := 0; i < count; i++ {
+		woffset = pg.marshalItem(itms[i], woffset, buf)
+	}
+
+	return woffset, count
 }
 
 func (pg *page) marshal(buf *Buffer, woffset int, head *pageDelta,
@@ -846,14 +855,9 @@ loop:
 				binary.BigEndian.PutUint16(buf.Get(woffset, 2), uint16(op))
 				woffset += 2
 				bufNitmOffset := woffset
-				nItms := 0
+				var nItms int
 				woffset += 2
-				for _, itm := range pw.BaseItems() {
-					if pg.cmp(itm, hiItm) < 0 {
-						woffset = pg.marshalItem(itm, woffset, buf)
-						nItms++
-					}
-				}
+				woffset, nItms = pg.marshalBaseItems(pw.BaseItems(), hiItm, woffset, buf)
 				binary.BigEndian.PutUint16(buf.Get(bufNitmOffset, 2), uint16(nItms))
 			}
 			break loop
@@ -1038,11 +1042,11 @@ func marshalPageSMO(pg Page, b *Buffer) []byte {
 	woffset := 0
 
 	target := pg.(*page)
-	l := int(target.itemSize(target.low))
+	l := int(target.indexKeySize(target.low))
 	buf := b.Get(0, l+2)
 	binary.BigEndian.PutUint16(buf[woffset:woffset+2], uint16(l))
 	woffset += 2
-	memcopy(unsafe.Pointer(&buf[woffset]), target.low, l)
+	target.copyIndexKey(unsafe.Pointer(&buf[woffset]), target.low, l)
 	woffset += l
 
 	return buf[:woffset]
@@ -1249,7 +1253,7 @@ func (pg *page) SetNumSegments(n int) {
 }
 
 func (pg *page) ComputeMemUsed() int {
-	_, size := computeMemUsed(pg.head, pg.itemSize)
+	_, size := computeMemUsed(pg.head, pg.itemSizeAct)
 	return size
 }
 

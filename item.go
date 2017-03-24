@@ -59,7 +59,7 @@ func (m *Nitro) allocItem(l int, useMM bool) (itm *Item) {
 
 // EncodeItem encodes in [4 byte len][item_bytes] format.
 func (m *Nitro) EncodeItem(itm *Item, buf []byte, w io.Writer) error {
-	l := 2
+	l := 4
 	if len(buf) < l {
 		return errNotEnoughSpace
 	}
