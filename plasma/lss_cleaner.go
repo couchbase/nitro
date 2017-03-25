@@ -42,6 +42,9 @@ func (s *Plasma) CleanLSS(proceed func() bool) error {
 		tok := w.BeginTx()
 		defer w.EndTx(tok)
 
+		w.sts.LSSReadBytes += int64(len(bs))
+		w.sts.NumLSSReads += 1
+
 		typ := getLSSBlockType(bs)
 		switch typ {
 		case lssPageData, lssPageReloc:
