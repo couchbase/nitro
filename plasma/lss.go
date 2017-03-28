@@ -164,7 +164,7 @@ func (s *lsStore) flush(fb *flushBuffer) {
 	atomic.StorePointer(&s.head, unsafe.Pointer(nextFb))
 }
 
-func (s *lsStore) initNextBuffer(currFb *flushBuffer) {
+func (s *lsStore) initNextBuffer(currFb *flushBuffer, minSize int) {
 	nextFb := currFb.NextBuffer()
 
 	for !nextFb.IsReset() {
@@ -173,6 +173,10 @@ func (s *lsStore) initNextBuffer(currFb *flushBuffer) {
 
 	atomic.StoreInt64(&nextFb.baseOffset, currFb.EndOffset())
 	nextFb.seqno = currFb.seqno + 1
+
+	if len(nextFb.b) < minSize {
+		nextFb.b = make([]byte, minSize)
+	}
 
 	// 1 writer rc for parent to enforce ordering of flush callback
 	// 1 writer rc for the guy who closes the buffer
@@ -207,7 +211,8 @@ retry:
 	success, markedFull, offsets, bufs := fb.Alloc(sizes)
 	if !success {
 		if markedFull {
-			s.initNextBuffer(fb)
+			minSize := lssAllocSize(sizes)
+			s.initNextBuffer(fb, minSize)
 			fb.Done()
 			goto retry
 		}
@@ -313,7 +318,7 @@ retry:
 		goto retry
 	}
 
-	s.initNextBuffer(fb)
+	s.initNextBuffer(fb, 0)
 	fb.doCommit = commit
 	fb.Done()
 
@@ -428,6 +433,15 @@ func (fb *flushBuffer) SetTrimLogOffset(off LSSOffset) bool {
 	return false
 }
 
+func lssAllocSize(sizes []int) int {
+	size := 0
+	for _, sz := range sizes {
+		size += sz + headerFBSize
+	}
+
+	return size
+}
+
 func (fb *flushBuffer) Alloc(sizes []int) (status bool, markedFull bool, offs []LSSOffset, bufs [][]byte) {
 retry:
 	state := atomic.LoadUint64(&fb.state)
@@ -437,24 +451,17 @@ retry:
 		return false, false, nil, nil
 	}
 
-	size := 0
-	for _, sz := range sizes {
-		size += sz + headerFBSize
-	}
+	size := lssAllocSize(sizes)
 
 	newOffset := offset + size
 	if newOffset > len(fb.b) {
-		if offset == 0 {
-			fb.b = make([]byte, size)
-		} else {
-			markedFull := true
-			newState := encodeState(true, nw, offset)
-			if !atomic.CompareAndSwapUint64(&fb.state, state, newState) {
-				runtime.Gosched()
-				goto retry
-			}
-			return false, markedFull, nil, nil
+		markedFull := true
+		newState := encodeState(true, nw, offset)
+		if !atomic.CompareAndSwapUint64(&fb.state, state, newState) {
+			runtime.Gosched()
+			goto retry
 		}
+		return false, markedFull, nil, nil
 	}
 
 	newState := encodeState(false, nw+1, newOffset)
