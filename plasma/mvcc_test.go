@@ -583,13 +583,23 @@ func TestLargeItems(t *testing.T) {
 	s := newTestIntPlasmaStore(testSnCfg)
 
 	size := 1024 * 1024
-	n := 1000
-	w := s.NewWriter()
-	bs := make([]byte, size)
-	for i := 0; i < n; i++ {
-		copy(bs, []byte(fmt.Sprintf("key- %d", i)))
-		w.InsertKV(bs, []byte(fmt.Sprintf("val-%10d", i)))
+	n := 250
+	thr := 4
+	var wg sync.WaitGroup
+	for x := 0; x < thr; x++ {
+		wg.Add(1)
+		go func(x int) {
+			defer wg.Done()
+			w := s.NewWriter()
+			bs := make([]byte, size)
+			for i := 0; i < n; i++ {
+				copy(bs, []byte(fmt.Sprintf("key-%d-%d", x, i)))
+				w.InsertKV(bs, []byte(fmt.Sprintf("val-%10d", i)))
+			}
+		}(x)
 	}
+
+	wg.Wait()
 
 	s.PersistAll()
 	s.Close()
@@ -609,8 +619,8 @@ func TestLargeItems(t *testing.T) {
 		count++
 	}
 
-	if count != n {
-		t.Errorf("Expected count:%d, got:%d", n, count)
+	if count != n*thr {
+		t.Errorf("Expected count:%d, got:%d", n*thr, count)
 	}
 }
 
