@@ -1253,11 +1253,11 @@ func (pg *page) SetNumSegments(n int) {
 }
 
 func (pg *page) ComputeMemUsed() int {
-	_, size := computeMemUsed(pg.head, pg.itemSizeAct)
+	_, _, size := computeMemUsed(pg.head, pg.itemSizeAct, nil, nil)
 	return size
 }
 
-func computeMemUsed(pd *pageDelta, itemSize ItemSizeFn) (n int, size int) {
+func computeMemUsed(pd *pageDelta, itemSize ItemSizeFn, cmp skiplist.CompareFn, hiItm unsafe.Pointer) (n int, m int, size int) {
 loop:
 	for ; pd != nil; pd = pd.next {
 		switch pd.op {
@@ -1267,6 +1267,10 @@ loop:
 			for _, itm := range bp.items {
 				dataSz += int(itemSize(itm))
 				n++
+
+				if hiItm != nil && cmp(itm, hiItm) < 0 {
+					m++
+				}
 			}
 
 			size += int(basePageSize) + dataSz + len(bp.items)*8 + int(itemSize(bp.hiItm))
@@ -1275,17 +1279,24 @@ loop:
 			rpd := (*recordDelta)(unsafe.Pointer(pd))
 			size += pageHeaderSize + int(itemSize(rpd.itm)) + 8
 			n++
+			if hiItm != nil && cmp(rpd.itm, hiItm) < 0 {
+				m++
+			}
 		case opPageRemoveDelta:
 			size += int(removePageDeltaSize)
 		case opPageSplitDelta:
 			spd := (*splitPageDelta)(unsafe.Pointer(pd))
 			size += int(recDeltaSize + itemSize(spd.itm))
+			if hiItm != nil && cmp(spd.itm, hiItm) < 0 {
+				hiItm = spd.itm
+			}
 		case opPageMergeDelta:
 			pdm := (*mergePageDelta)(unsafe.Pointer(pd))
-			nx, sx := computeMemUsed(pdm.mergeSibling, itemSize)
+			nx, mx, sx := computeMemUsed(pdm.mergeSibling, itemSize, cmp, hiItm)
 			size += int(mergePageDeltaSize + itemSize(pdm.hiItm))
 			size += sx
 			n += nx
+			m += mx
 		case opFlushPageDelta, opRelocPageDelta:
 			size += int(flushPageDeltaSize)
 		case opRollbackDelta:
@@ -1299,14 +1310,15 @@ loop:
 			break loop
 		case opSwapinDelta:
 			sid := (*swapinDelta)(unsafe.Pointer(pd))
-			nx, sx := computeMemUsed(sid.ptr, itemSize)
+			nx, mx, sx := computeMemUsed(sid.ptr, itemSize, cmp, hiItm)
 			size += int(swapinDeltaSize)
 			size += sx
 			n += nx
+			m += mx
 		default:
 			panic(fmt.Sprintf("unsupported delta %d", pd.op))
 		}
 	}
 
-	return n, size
+	return n, m, size
 }
