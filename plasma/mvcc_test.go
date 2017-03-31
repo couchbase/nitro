@@ -674,3 +674,40 @@ func TestMVCCItemUpdateSize(t *testing.T) {
 	fmt.Println(s.GetStats())
 	s.Close()
 }
+
+func TestEvictionStats(t *testing.T) {
+	os.RemoveAll("teststore.data")
+	s := newTestIntPlasmaStore(testSnCfg)
+	defer s.Close()
+
+	w := s.NewWriter()
+	for i := 0; i < 10000; i++ {
+		w.InsertKV([]byte(fmt.Sprintf("key-%10d", i)), []byte(fmt.Sprintf("val-%10d", i)))
+	}
+
+	s.NewSnapshot().Close()
+	SetMemoryQuota(100)
+	time.Sleep(time.Second)
+	snap := s.NewSnapshot()
+	nswapout := s.GetStats().NumRecordSwapOut
+
+	SetMemoryQuota(maxMemoryQuota)
+	itr := snap.NewIterator()
+	snap.Close()
+	defer itr.Close()
+	for itr.SeekFirst(); itr.Valid(); itr.Next() {
+	}
+
+	nswapin := s.GetStats().NumRecordSwapIn
+	if nswapin != nswapout {
+		t.Errorf("Expected swapin (%d) =swapout (%d)")
+	}
+
+	allocs := s.GetStats().NumRecordAllocs
+	free := s.GetStats().NumRecordFrees
+
+	if n := allocs - free; n != 10000 {
+		t.Errorf("Expected 10000, got %d", n)
+	}
+
+}

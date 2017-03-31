@@ -587,12 +587,17 @@ type wCtx struct {
 
 func (ctx *wCtx) freePages(pages []pgFreeObj) {
 	for _, pg := range pages {
-		nr, size := computeMemUsed(pg.h, ctx.itemSizeAct)
+		var hiItm unsafe.Pointer
+		if pg.evicted {
+			hiItm = pg.h.hiItm
+		}
+
+		nr, mr, size := computeMemUsed(pg.h, ctx.itemSizeAct, ctx.cmp, hiItm)
 		ctx.sts.FreeSz += int64(size)
 
 		ctx.sts.NumRecordFrees += int64(nr)
 		if pg.evicted {
-			ctx.sts.NumRecordSwapOut += int64(nr)
+			ctx.sts.NumRecordSwapOut += int64(mr)
 		}
 
 		if ctx.useMemMgmt {
