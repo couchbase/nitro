@@ -84,6 +84,7 @@ func (s *Plasma) swapperDaemon() {
 	var wg sync.WaitGroup
 
 	killch := make(chan struct{})
+	ddur := NewDecayInterval(swapperWaitInterval, time.Second)
 
 	for i := 0; i < s.NumEvictorThreads; i++ {
 		wg.Add(1)
@@ -101,8 +102,9 @@ func (s *Plasma) swapperDaemon() {
 				if s.TriggerSwapper(sctx) {
 					s.tryEvictPages(s.evictWriters[i])
 					s.trySMRObjects(s.evictWriters[i], swapperSMRInterval)
+					ddur.Reset()
 				} else {
-					time.Sleep(swapperWaitInterval)
+					ddur.Sleep()
 				}
 			}
 		}(i)
