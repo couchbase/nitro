@@ -132,7 +132,9 @@ func (s *lsStore) Close() {
 }
 
 func (s *lsStore) UsedSpace() int64 {
-	return s.log.Size()
+	tailOff := s.log.Tail()
+	startOff := atomic.LoadInt64(&s.startOffset)
+	return tailOff - startOff
 }
 
 func (s *lsStore) flush(fb *flushBuffer) {
