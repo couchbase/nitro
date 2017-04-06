@@ -4,6 +4,7 @@ import (
 	"github.com/couchbase/nitro/skiplist"
 	"reflect"
 	"sort"
+	"time"
 	"unsafe"
 )
 
@@ -81,4 +82,31 @@ func newBuffer(size int) *Buffer {
 	return &Buffer{
 		bs: make([]byte, size),
 	}
+}
+
+type DecayInterval struct {
+	initial time.Duration
+	curr    time.Duration
+	final   time.Duration
+	incr    time.Duration
+}
+
+func NewDecayInterval(initial, final time.Duration) DecayInterval {
+	return DecayInterval{
+		initial: initial,
+		curr:    final,
+		final:   final,
+		incr:    final / initial,
+	}
+}
+
+func (d *DecayInterval) Sleep() {
+	time.Sleep(d.curr)
+	if d.curr < d.final {
+		d.curr += d.incr
+	}
+}
+
+func (d *DecayInterval) Reset() {
+	d.curr = d.initial
 }
