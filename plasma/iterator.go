@@ -274,6 +274,9 @@ type pdJoinIterator struct {
 func (pdj *pdJoinIterator) Init() {
 	pdj.itrs[0].Init()
 	pdj.itrs[1].Init()
+	if !pdj.itrs[0].Valid() {
+		pdj.i++
+	}
 }
 
 func (pdj *pdJoinIterator) Valid() bool {
