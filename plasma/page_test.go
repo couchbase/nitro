@@ -43,9 +43,65 @@ func newTestPage() (*page, *storePtr) {
 		getLookupFilter: func() ItemFilter {
 			return &nilFilter
 		},
+		copyItem: memcopy,
+	}
+
+	pg.storeCtx.copyItemRun = func(srcItms, dstItms []unsafe.Pointer, data unsafe.Pointer) {
+		var offset uintptr
+		for i, itm := range srcItms {
+			dstItm := unsafe.Pointer(uintptr(data) + offset)
+			sz := unsafe.Sizeof(new(skiplist.IntKeyItem))
+			memcopy(dstItm, itm, int(sz))
+			dstItms[i] = dstItm
+			offset += sz
+		}
+	}
+
+	pg.storeCtx.itemRunSize = func(itms []unsafe.Pointer) uintptr {
+		return uintptr(len(itms)) * unsafe.Sizeof(new(skiplist.IntKeyItem))
 	}
 
 	return pg, sp
+}
+
+//  Based on MB-23572
+func TestPageMergeCorrectness2(t *testing.T) {
+	pg1, _ := newTestPage()
+	pg1.head.hiItm = pg1.dup(skiplist.NewIntKeyItem(515434))
+	pg1.Compact()
+
+	pg2, _ := newTestPage()
+	pg2.head.hiItm = pg2.dup(skiplist.NewIntKeyItem(515413))
+	pg2.Compact()
+
+	pg3, _ := newTestPage()
+	pg3.head.hiItm = pg3.dup(skiplist.NewIntKeyItem(515434))
+	pg3.Insert(skiplist.NewIntKeyItem(515414))
+	pg3.Compact()
+
+	pg2.Merge(pg3)
+	pg2.Insert(skiplist.NewIntKeyItem(515415))
+
+	pg1.Merge(pg2)
+	pg1.Insert(skiplist.NewIntKeyItem(515334))
+	pg1.Insert(skiplist.NewIntKeyItem(515336))
+
+	itr := pg1.NewIterator()
+	var last unsafe.Pointer
+	count := 0
+	for itr.SeekFirst(); itr.Valid(); itr.Next() {
+		if last != nil && skiplist.IntFromItem(last) >= skiplist.IntFromItem(itr.Get()) {
+			t.Errorf("Expected sort order")
+		}
+		last = itr.Get()
+
+		count++
+	}
+
+	if count != 4 {
+		t.Errorf("got only %d items", count)
+	}
+
 }
 
 func TestPageMergeCorrectness(t *testing.T) {
