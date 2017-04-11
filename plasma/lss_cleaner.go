@@ -121,12 +121,15 @@ func (s *Plasma) GetLSSInfo() (frag int, data int64, used int64) {
 	return
 }
 
+func (s *Plasma) TriggerLSSCleaner(minFrag int, minSize int64) bool {
+	frag, _, used := s.GetLSSInfo()
+	return frag > 0 && used > minSize && frag > minFrag
+}
+
 func (s *Plasma) lssCleanerDaemon() {
 	shouldClean := func() bool {
-		frag, _, _ := s.GetLSSInfo()
-		return frag > 0 && frag > s.Config.LSSCleanerThreshold
+		return s.TriggerLSSCleaner(s.Config.LSSCleanerThreshold, 0)
 	}
-
 loop:
 	for {
 		select {

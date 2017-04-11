@@ -63,9 +63,11 @@ type Plasma struct {
 	rpVersion      uint16
 	recoveryPoints []*RecoveryPoint
 
-	hasMemoryPressure bool
-	clockHandle       *clockHandle
-	clockLock         sync.Mutex
+	hasMemoryResPressure bool
+	hasLSSResPressure    bool
+
+	clockHandle *clockHandle
+	clockLock   sync.Mutex
 
 	smrWg   sync.WaitGroup
 	smrChan chan unsafe.Pointer
@@ -381,7 +383,8 @@ func (s *Plasma) monitorMemUsage() {
 			return
 		default:
 		}
-		s.hasMemoryPressure = s.TriggerSwapper(sctx)
+		s.hasMemoryResPressure = s.TriggerSwapper(sctx)
+		s.hasLSSResPressure = s.TriggerLSSCleaner(s.Config.LSSCleanerMaxThreshold, s.Config.LSSCleanerMinSize)
 		time.Sleep(time.Millisecond * 100)
 	}
 }
@@ -953,10 +956,16 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 	return updated
 }
 
-func (s *Plasma) tryThrottleForMemory(ctx *wCtx) {
-	if s.hasMemoryPressure {
+func (s *Plasma) tryThrottleForResources(ctx *wCtx) {
+	if s.hasMemoryResPressure {
 		for s.TriggerSwapper(ctx.SwapperContext()) {
 			time.Sleep(swapperWaitInterval)
+		}
+	}
+
+	if s.hasLSSResPressure {
+		for s.TriggerLSSCleaner(s.Config.LSSCleanerMaxThreshold, s.Config.LSSCleanerMinSize) {
+			runtime.Gosched()
 		}
 	}
 }
@@ -970,7 +979,7 @@ retry:
 	}
 
 refresh:
-	s.tryThrottleForMemory(ctx)
+	s.tryThrottleForResources(ctx)
 
 	if pg, err = s.ReadPage(pid, ctx.pgRdrFn, false, ctx); err != nil {
 		return nil, nil, err

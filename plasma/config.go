@@ -27,9 +27,11 @@ type Config struct {
 	NumPersistorThreads int
 	NumEvictorThreads   int
 
-	LSSCleanerThreshold int
-	AutoLSSCleaning     bool
-	AutoSwapper         bool
+	LSSCleanerThreshold    int
+	LSSCleanerMaxThreshold int
+	LSSCleanerMinSize      int64
+	AutoLSSCleaning        bool
+	AutoSwapper            bool
 
 	EnableShapshots bool
 
@@ -113,6 +115,10 @@ func applyConfigDefaults(cfg Config) Config {
 		cfg.ItemSizeActual = cfg.ItemSize
 	}
 
+	if cfg.LSSCleanerMaxThreshold == 0 {
+		cfg.LSSCleanerMaxThreshold = cfg.LSSCleanerThreshold + 10
+	}
+
 	return cfg
 }
 
@@ -140,6 +146,7 @@ func DefaultConfig() Config {
 		CopyItemRun:         copyItemRun,
 		FlushBufferSize:     1024 * 1024 * 1,
 		LSSCleanerThreshold: 10,
+		LSSCleanerMinSize:   1024 * 1024 * 1024,
 		AutoLSSCleaning:     true,
 		AutoSwapper:         false,
 		EnableShapshots:     true,

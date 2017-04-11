@@ -25,9 +25,11 @@ var testSnCfg = Config{
 	},
 	File:                "teststore.data",
 	FlushBufferSize:     1024 * 1024,
-	LSSCleanerThreshold: 10,
+	LSSCleanerThreshold: 30,
+	LSSCleanerMinSize:   1024 * 1024 * 400,
 	AutoLSSCleaning:     true,
 	AutoSwapper:         true,
+	LSSLogSegmentSize:   1024 * 1024 * 512,
 	EnableShapshots:     true,
 }
 
