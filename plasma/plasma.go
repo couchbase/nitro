@@ -683,7 +683,6 @@ func (s *Plasma) NewReader() *Reader {
 
 func (r *Reader) NewSnapshotIterator(snap *Snapshot) *MVCCIterator {
 	snap.Open()
-	r.iter.hiItm = nil
 	r.iter.filter.(*snFilter).sn = snap.sn
 	r.iter.token = r.iter.BeginTx()
 	r.iter.snap = snap

@@ -106,6 +106,8 @@ func (itr *Iterator) SetEndKey(k unsafe.Pointer) {
 }
 
 func (itr *Iterator) Close() {
+	itr.closed = false
+	itr.hiItm = nil
 	if itr.currPgItr != nil {
 		itr.currPgItr.Close()
 		itr.currPgItr = nil
@@ -116,7 +118,6 @@ func (itr *Iterator) SeekFirst() error {
 	itr.initPgIterator(itr.store.Skiplist.HeadNode(), nil)
 	itr.tryNextPg()
 	return itr.err
-
 }
 
 func (itr *Iterator) Seek(itm unsafe.Pointer) error {
@@ -144,18 +145,15 @@ func (itr *Iterator) Valid() bool {
 func (itr *Iterator) tryNextPg() {
 	for !itr.currPgItr.Valid() {
 		itr.currPgItr.Close()
-		if itr.closed {
-			itr.currPgItr = nil
-			break
-		}
+		itr.currPgItr = nil
 
 		if itr.sts.NumLSSReads-itr.nr > 0 {
 			itr.sts.CacheMisses++
 		} else {
 			itr.sts.CacheHits++
 		}
-		if itr.nextPid == itr.store.EndPageId() {
-			itr.currPgItr = nil
+
+		if itr.closed || itr.nextPid == itr.store.EndPageId() {
 			break
 		}
 		itr.initPgIterator(itr.nextPid, nil)
