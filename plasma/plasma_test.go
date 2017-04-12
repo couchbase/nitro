@@ -23,10 +23,11 @@ var testCfg = Config{
 		}
 		return unsafe.Sizeof(new(skiplist.IntKeyItem))
 	},
-	File:                "teststore.data",
-	FlushBufferSize:     1024 * 1024,
-	LSSCleanerThreshold: 10,
-	AutoLSSCleaning:     false,
+	File:                   "teststore.data",
+	FlushBufferSize:        1024 * 1024,
+	LSSCleanerMaxThreshold: 100,
+	LSSCleanerThreshold:    10,
+	AutoLSSCleaning:        false,
 }
 
 func newTestIntPlasmaStore(cfg Config) *Plasma {
@@ -768,4 +769,30 @@ func TestConcurrDelOps(t *testing.T) {
 	}
 
 	fmt.Println(s.GetStats())
+}
+
+func TestIteratorSetEnd(t *testing.T) {
+	os.RemoveAll("teststore.data")
+	s := newTestIntPlasmaStore(testCfg)
+	defer s.Close()
+	w := s.NewWriter()
+	for i := 0; i < 100000; i++ {
+		w.Insert(skiplist.NewIntKeyItem(i))
+	}
+
+	i := 0
+	itr := s.NewIterator().(*Iterator)
+	itr.SetEndKey(skiplist.NewIntKeyItem(10000))
+	for itr.SeekFirst(); itr.Valid(); itr.Next() {
+		if v := skiplist.IntFromItem(itr.Get()); v != i {
+			t.Errorf("expected %d, got %d", i, v)
+		}
+
+		i++
+	}
+
+	if i != 10000 {
+		t.Errorf("expected %d, got %d", 10000, i)
+	}
+
 }

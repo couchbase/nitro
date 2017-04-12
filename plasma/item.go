@@ -11,8 +11,8 @@ import (
 // TODO: Cleanup the current ugly-hackup implementation
 
 // Layout for the item is as follows:
-// [    32 bit header                    ][opt 32 bit keylen][opt key][64 bit sn][opt val]
-// [insert bit][val bit][ptr key bit][len]
+// [    32 bit header       ][opt 32 bit keylen][key][64 bit sn][opt val]
+// [insert bit][val bit][len]
 
 const (
 	itmInsertFlag = 0x80000000
@@ -24,16 +24,11 @@ const (
 	itmKlenSize   = 4
 )
 
-const (
-	ptrKeyMarker = uintptr((uint64(1) << 63))
-	itmPtrMask   = ^ptrKeyMarker
-)
-
 // A placeholder type for holding item data
 type item uint32
 
 func (itm *item) Size() int {
-	sz := itm.l() + itmHdrLen + itmSnSize
+	sz := itm.ActualSize()
 	if *itm&itmPtrKeyFlag > 0 {
 		itm = itm.getPtrKeyItem()
 		_, klen := itm.k()
@@ -95,7 +90,7 @@ func (itm *item) k() (uintptr, int) {
 
 func (itm *item) getPtrKeyItem() *item {
 	for *itm&itmPtrKeyFlag > 0 {
-		itm = (*item)(unsafe.Pointer(uintptr(unsafe.Pointer(itm)) + uintptr(itm.ActualSize())))
+		itm = (*item)(unsafe.Pointer(uintptr(unsafe.Pointer(itm)) + uintptr(itm.Size())))
 	}
 
 	return itm
@@ -123,12 +118,13 @@ func (itm *item) Value() (bs []byte) {
 	return
 }
 
-func newItem(k, v []byte, sn uint64, del bool, buf *Buffer) (
+func (s *Plasma) newItem(k, v []byte, sn uint64, del bool, buf *Buffer) (
 	*item, error) {
 	if len(k) > itmLenMask {
 		return nil, ErrKeyTooLarge
 	}
 
+	// kl = 0, means read key from the key memory chunk
 	kl := len(k)
 	vl := len(v)
 
@@ -139,29 +135,16 @@ func newItem(k, v []byte, sn uint64, del bool, buf *Buffer) (
 
 	var ptr unsafe.Pointer
 	if buf == nil {
-		b := make([]byte, sz)
-		ptr = unsafe.Pointer(&b[0])
+		ptr = s.alloc(sz)
 	} else {
 		buf.Grow(0, int(sz))
 		ptr = buf.Ptr(0)
 	}
-	newItem2(k, v, sn, del, false, ptr)
-	return (*item)(ptr), nil
-}
-
-func newItem2(k, v []byte, sn uint64, del bool, ptrKey bool, ptr unsafe.Pointer) {
-
-	kl := len(k)
-	vl := len(v)
 
 	hdr := (*uint32)(ptr)
 	*hdr = 0
 	if !del {
 		*hdr |= itmInsertFlag
-	}
-
-	if ptrKey {
-		*hdr |= itmPtrKeyFlag
 	}
 
 	if vl > 0 {
@@ -171,18 +154,16 @@ func newItem2(k, v []byte, sn uint64, del bool, ptrKey bool, ptr unsafe.Pointer)
 
 		snp := (*uint64)(unsafe.Pointer(uintptr(ptr) + uintptr(itmHdrLen+itmKlenSize+kl)))
 		*snp = sn
-		if kl > 0 {
-			memcopy(unsafe.Pointer(uintptr(ptr)+itmHdrLen+itmKlenSize), unsafe.Pointer(&k[0]), kl)
-		}
+		memcopy(unsafe.Pointer(uintptr(ptr)+itmHdrLen+itmKlenSize), unsafe.Pointer(&k[0]), kl)
 		memcopy(unsafe.Pointer(uintptr(ptr)+itmHdrLen+itmKlenSize+itmSnSize+uintptr(kl)), unsafe.Pointer(&v[0]), vl)
 	} else {
 		snp := (*uint64)(unsafe.Pointer(uintptr(ptr) + uintptr(itmHdrLen+kl)))
 		*snp = sn
 		*hdr |= uint32(kl)
-		if kl > 0 {
-			memcopy(unsafe.Pointer(uintptr(ptr)+itmHdrLen), unsafe.Pointer(&k[0]), kl)
-		}
+		memcopy(unsafe.Pointer(uintptr(ptr)+itmHdrLen), unsafe.Pointer(&k[0]), kl)
 	}
+
+	return (*item)(ptr), nil
 }
 
 func cmpItem(a, b unsafe.Pointer) int {
@@ -216,72 +197,5 @@ func itemStringer(itm unsafe.Pointer) string {
 }
 
 func copyItem(a, b unsafe.Pointer, sz int) {
-	if *(*item)(b)&itmPtrKeyFlag > 0 {
-		copyPtrKeyItem(a, b)
-	} else {
-		memcopy(a, b, sz)
-	}
-}
-
-func encodePtrKeyItem(dstItm, srcItm unsafe.Pointer) {
-	var v []byte
-	itm := (*item)(srcItm)
-	if itm.HasValue() {
-		v = itm.Value()
-	}
-	sn := itm.Sn()
-	del := !itm.IsInsert()
-
-	newItem2(nil, v, sn, del, true, dstItm)
-}
-
-func copyPtrKeyItem(dstItm, srcItm unsafe.Pointer) {
-	var v []byte
-	itm := (*item)(srcItm)
-	k := itm.Key()
-	if itm.HasValue() {
-		v = itm.Value()
-	}
-	sn := itm.Sn()
-	del := !itm.IsInsert()
-
-	newItem2(k, v, sn, del, false, dstItm)
-}
-
-func copyItemRun(srcItms, dstItms []unsafe.Pointer, data unsafe.Pointer) {
-	var offset uintptr
-	for i, itm := range srcItms {
-		dstItm := unsafe.Pointer(uintptr(data) + offset)
-		srcItm := unsafe.Pointer(uintptr(itm) & itmPtrMask)
-		usePtrKey := uintptr(itm)&ptrKeyMarker > 0
-		if usePtrKey {
-			encodePtrKeyItem(dstItm, srcItm)
-			sz := (*item)(dstItm).ActualSize()
-			offset += uintptr(sz)
-		} else {
-			sz := (*item)(srcItm).Size()
-			copyItem(dstItm, srcItm, sz)
-			offset += uintptr(sz)
-		}
-		dstItms[i] = dstItm
-	}
-}
-
-func itemRunSize(itms []unsafe.Pointer) uintptr {
-	var lastKey []byte
-	var sz uintptr
-	for i := len(itms) - 1; i >= 0; i-- {
-		sz += uintptr((*item)(itms[i]).Size())
-		currKey := (*item)(itms[i]).Key()
-		if lastKey != nil {
-			if bytes.Equal(currKey, lastKey) {
-				sz -= uintptr(len(currKey))
-				itms[i] = unsafe.Pointer(uintptr(itms[i]) | ptrKeyMarker)
-			}
-		}
-
-		lastKey = currKey
-	}
-
-	return sz
+	memcopy(a, b, sz)
 }

@@ -595,7 +595,7 @@ func (ctx *wCtx) freePages(pages []pgFreeObj) {
 			hiItm = pg.h.hiItm
 		}
 
-		nr, mr, size := computeMemUsed(pg.h, ctx.itemSizeAct, ctx.cmp, hiItm)
+		nr, mr, size := computeMemUsed(pg.h, ctx.itemSize, ctx.cmp, hiItm)
 		ctx.sts.FreeSz += int64(size)
 
 		ctx.sts.NumRecordFrees += int64(nr)

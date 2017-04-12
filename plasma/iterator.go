@@ -58,8 +58,10 @@ type Iterator struct {
 	nextPid   PageId
 	currPgItr pgOpIterator
 	filter    ItemFilter
+	hiItm     unsafe.Pointer
 
-	err error
+	closed bool
+	err    error
 }
 
 func (s *Plasma) NewIterator() ItemIterator {
@@ -84,7 +86,14 @@ func (itr *Iterator) initPgIterator(pid PageId, seekItm unsafe.Pointer) {
 			itr.nextPid = pg.Next()
 			itr.filter.Reset()
 			var sts pgOpIteratorStats
-			itr.currPgItr = newPgOpIterator(pg.head, pg.cmp, seekItm, pg.head.hiItm, itr.filter, itr.wCtx, &sts)
+
+			hiItm := pg.head.hiItm
+			if itr.hiItm != nil && itr.wCtx.cmp(itr.hiItm, hiItm) < 0 {
+				hiItm = itr.hiItm
+				itr.closed = true
+			}
+
+			itr.currPgItr = newPgOpIterator(pg.head, pg.cmp, seekItm, hiItm, itr.filter, itr.wCtx, &sts)
 			itr.currPgItr.Init()
 		} else {
 			itr.err = err
@@ -92,7 +101,13 @@ func (itr *Iterator) initPgIterator(pid PageId, seekItm unsafe.Pointer) {
 	}
 }
 
+func (itr *Iterator) SetEndKey(k unsafe.Pointer) {
+	itr.hiItm = k
+}
+
 func (itr *Iterator) Close() {
+	itr.closed = false
+	itr.hiItm = nil
 	if itr.currPgItr != nil {
 		itr.currPgItr.Close()
 		itr.currPgItr = nil
@@ -103,7 +118,6 @@ func (itr *Iterator) SeekFirst() error {
 	itr.initPgIterator(itr.store.Skiplist.HeadNode(), nil)
 	itr.tryNextPg()
 	return itr.err
-
 }
 
 func (itr *Iterator) Seek(itm unsafe.Pointer) error {
@@ -131,13 +145,15 @@ func (itr *Iterator) Valid() bool {
 func (itr *Iterator) tryNextPg() {
 	for !itr.currPgItr.Valid() {
 		itr.currPgItr.Close()
+		itr.currPgItr = nil
+
 		if itr.sts.NumLSSReads-itr.nr > 0 {
 			itr.sts.CacheMisses++
 		} else {
 			itr.sts.CacheHits++
 		}
-		if itr.nextPid == itr.store.EndPageId() {
-			itr.currPgItr = nil
+
+		if itr.closed || itr.nextPid == itr.store.EndPageId() {
 			break
 		}
 		itr.initPgIterator(itr.nextPid, nil)
