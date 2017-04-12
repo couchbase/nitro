@@ -14,7 +14,6 @@ const evictMask = uint64(0x8000000000000000)
 type storeCtx struct {
 	useMemMgmt       bool
 	itemSize         ItemSizeFn
-	itemSizeAct      ItemSizeFn
 	copyItem         ItemCopyFn
 	copyIndexKey     ItemCopyFn
 	indexKeySize     ItemSizeFn
@@ -58,7 +57,6 @@ func newStoreContext(indexLayer *skiplist.Skiplist, cfg Config,
 		useMemMgmt:   cfg.UseMemoryMgmt,
 		cmp:          cfg.Compare,
 		itemSize:     cfg.ItemSize,
-		itemSizeAct:  cfg.ItemSizeActual,
 		copyItem:     cfg.CopyItem,
 		indexKeySize: cfg.IndexKeySize,
 		copyItemRun:  cfg.CopyItemRun,
