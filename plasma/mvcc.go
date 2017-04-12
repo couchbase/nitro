@@ -177,7 +177,7 @@ func (itr *MVCCIterator) HasValue() bool {
 
 func (itr *MVCCIterator) SetEndKey(k []byte) {
 	sn := atomic.LoadUint64(&itr.snap.db.currSn)
-	itm, _ := newItem(k, nil, sn, false, nil)
+	itm, _ := itr.snap.db.newItem(k, nil, sn, false, nil)
 	itr.Iterator.SetEndKey(unsafe.Pointer(itm))
 }
 

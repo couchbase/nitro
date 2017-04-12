@@ -110,10 +110,6 @@ func applyConfigDefaults(cfg Config) Config {
 		}
 	}
 
-	if cfg.ItemSizeActual == nil {
-		cfg.ItemSizeActual = cfg.ItemSize
-	}
-
 	if cfg.LSSCleanerMaxThreshold == 0 {
 		cfg.LSSCleanerMaxThreshold = cfg.LSSCleanerThreshold + 10
 	}
