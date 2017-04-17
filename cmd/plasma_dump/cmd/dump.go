@@ -29,7 +29,7 @@ var dumpCmd = &cobra.Command{
 	Long: `Dumps every key-value persisted in the store in JSON
 format.
 For example:
-	./plasma_dump dump <path_to_store> --hex`,
+	./plasma_dump dump <path_to_store> --hex --plaintext`,
 
 	PreRunE: func(cmd *cobra.Command, args []string) error {
 		if len(args) < 1 {
@@ -44,9 +44,12 @@ For example:
 }
 
 var inHex bool
+var plainText bool
 
 func invokeDump(dirs []string) error {
-	fmt.Printf("[")
+	if !plainText {
+		fmt.Printf("[")
+	}
 	for index, dir := range dirs {
 		cfg := plasma.DefaultConfig()
 		cfg.File = dir
@@ -66,9 +69,17 @@ func invokeDump(dirs []string) error {
 			fmt.Printf(",")
 		}
 
-		fmt.Printf("{\"%s\":", dir)
+		if plainText {
+			fmt.Println("Path : ", dir)
+		} else {
+			fmt.Printf("{\"%s\":", dir)
+		}
 
-		fmt.Printf("[\n")
+		if plainText {
+			fmt.Printf("\n")
+		} else {
+			fmt.Printf("[\n")
+		}
 		for iter.SeekFirst(); iter.Valid(); {
 			var v []byte
 			k := iter.Key()
@@ -78,25 +89,46 @@ func invokeDump(dirs []string) error {
 
 			var s string
 			if inHex {
-				s = fmt.Sprintf("{\"k\":\"%s\",\"v\":\"%s\"}",
-					hex.EncodeToString(k), hex.EncodeToString(v))
+				if plainText {
+					s = fmt.Sprintf("Doc ID: %s\n    Value: %s",
+						hex.EncodeToString(k), hex.EncodeToString(v))
+				} else {
+					s = fmt.Sprintf("{\"k\":\"%s\",\"v\":\"%s\"}",
+						hex.EncodeToString(k), hex.EncodeToString(v))
+				}
 			} else {
-				s = fmt.Sprintf("{\"k\":\"%s\",\"v\":\"%s\"}",
-					string(k), string(v))
+				if plainText {
+					s = fmt.Sprintf("Doc ID: %s\n    Value: %s",
+						string(k), string(v))
+				} else {
+					s = fmt.Sprintf("{\"k\":\"%s\",\"v\":\"%s\"}",
+						string(k), string(v))
+				}
 			}
 
 			iter.Next()
 			if iter.Valid() {
-				s += ","
+				if plainText {
+					s += "\n"
+				} else {
+					s += ","
+				}
 			}
 
 			fmt.Println(s)
 		}
-		fmt.Printf("]")
+		if plainText {
+			fmt.Println()
+		} else {
+			fmt.Printf("]")
 
-		fmt.Printf("}")
+			fmt.Printf("}")
+		}
 	}
-	fmt.Printf("]\n")
+
+	if !plainText {
+		fmt.Printf("]\n")
+	}
 
 	return nil
 }
@@ -107,4 +139,8 @@ func init() {
 	// Local flags that are intended to work as a filter over dump
 	dumpCmd.Flags().BoolVar(&inHex, "hex", false,
 		"Emits output in hex")
+
+	// Local flags that are intended to work as a filter over dump
+	dumpCmd.Flags().BoolVar(&plainText, "plaintext", false,
+		"Emits output in plain text instead of json")
 }
