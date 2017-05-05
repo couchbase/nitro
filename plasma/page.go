@@ -267,9 +267,16 @@ func (rpd *rollbackDelta) Filter() interface{} {
 }
 
 type swapoutDelta struct {
-	pageDelta
+	op       pageOp
+	chainLen uint16
+	numItems uint16
+	state    pageState
 
-	offset      LSSOffset
+	offset LSSOffset
+
+	hiItm        unsafe.Pointer
+	rightSibling PageId
+
 	numSegments int32
 }
 
@@ -1226,7 +1233,6 @@ func (pg *page) Evict(offset LSSOffset, numSegments int) {
 	} else {
 		sod.numSegments = int32(numSegments)
 	}
-	sod.next = nil
 	sod.state.SetEvicted(true)
 	pg.head = (*pageDelta)(unsafe.Pointer(sod))
 }
