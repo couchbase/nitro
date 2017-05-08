@@ -481,7 +481,10 @@ func (s *Plasma) doRecovery() error {
 		}
 
 		pg.Reset()
-		s.tryEvictPages(s.gCtx)
+		err := s.tryEvictPages(s.gCtx)
+		if err != nil {
+			return false, err
+		}
 		s.trySMRObjects(s.gCtx, recoverySMRInterval)
 		return true, nil
 	}
