@@ -99,12 +99,12 @@ func (s *Plasma) CleanLSS(proceed func() bool) error {
 	frag, ds, used := s.GetLSSInfo()
 	start := s.lss.HeadOffset()
 	end := s.lss.TailOffset()
-	fmt.Printf("logCleaner: starting... frag %d, data: %d, used: %d log:(%d - %d)\n", frag, ds, used, start, end)
+	s.logInfo(fmt.Sprintf("logCleaner: starting... frag %d, data: %d, used: %d log:(%d - %d)", frag, ds, used, start, end))
 	err := s.lss.RunCleaner(callb, cleanerBuf)
 	frag, ds, used = s.GetLSSInfo()
 	start = s.lss.HeadOffset()
 	end = s.lss.TailOffset()
-	fmt.Printf("logCleaner: completed... frag %d, data: %d, used: %d, relocated: %d, retries: %d, skipped: %d log:(%d - %d)\n", frag, ds, used, relocated, retries, skipped, start, end)
+	s.logInfo(fmt.Sprintf("logCleaner: completed... frag %d, data: %d, used: %d, relocated: %d, retries: %d, skipped: %d log:(%d - %d)", frag, ds, used, relocated, retries, skipped, start, end))
 	return err
 }
 
@@ -139,7 +139,7 @@ loop:
 
 		if shouldClean() {
 			if err := s.CleanLSS(shouldClean); err != nil {
-				fmt.Printf("logCleaner: failed (err=%v)\n", err)
+				s.logInfo(fmt.Sprintf("logCleaner: failed (err=%v)", err))
 			}
 		}
 

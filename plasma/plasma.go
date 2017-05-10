@@ -77,6 +77,12 @@ type Plasma struct {
 	wCtxLock sync.Mutex
 	wCtxList *wCtx
 	gCtx     *wCtx
+
+	logPrefix string
+}
+
+func (s *Plasma) SetLogPrefix(prefix string) {
+	s.logPrefix = prefix
 }
 
 type Stats struct {
@@ -1126,7 +1132,11 @@ loop:
 }
 
 func (s *Plasma) logError(err string) {
-	fmt.Printf("Plasma: (fatal error - %s)\n", err)
+	fmt.Printf("%sPlasma: (fatal error - %s)\n", s.logPrefix, err)
+}
+
+func (s *Plasma) logInfo(msg string) {
+	fmt.Printf("%sPlasma: %s\n", s.logPrefix, msg)
 }
 
 func (w *Writer) CompactAll() {
