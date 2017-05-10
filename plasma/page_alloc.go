@@ -241,7 +241,7 @@ func (pg *page) allocSwapoutDelta(hiItm unsafe.Pointer) *swapoutDelta {
 		if l == 0 {
 			d.hiItm = hiItm
 		} else {
-			d.hiItm = unsafe.Pointer(uintptr(ptr) + mergePageDeltaSize)
+			d.hiItm = unsafe.Pointer(uintptr(ptr) + swapoutDeltaSize)
 			copyItem(d.hiItm, hiItm, int(l))
 		}
 		pg.addDeltaAlloc(ptr)
@@ -254,7 +254,7 @@ func (pg *page) allocSwapoutDelta(hiItm unsafe.Pointer) *swapoutDelta {
 }
 
 func (pg *page) allocSwapinDelta() *swapinDelta {
-	size := swapoutDeltaSize
+	size := swapinDeltaSize
 	pg.memUsed += int(size)
 
 	if pg.useMemMgmt {

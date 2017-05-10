@@ -481,7 +481,10 @@ func (s *Plasma) doRecovery() error {
 		}
 
 		pg.Reset()
-		s.tryEvictPages(s.gCtx)
+		err := s.tryEvictPages(s.gCtx)
+		if err != nil {
+			return false, err
+		}
 		s.trySMRObjects(s.gCtx, recoverySMRInterval)
 		return true, nil
 	}
@@ -784,7 +787,7 @@ retry:
 	}
 
 	pPid := PageId(parent)
-	pPg, err := s.ReadPage(pPid, ctx.pgRdrFn, false, ctx)
+	pPg, err := s.ReadPage(pPid, ctx.pgRdrFn, true, ctx)
 	if err != nil {
 		panic(err)
 	}
@@ -804,7 +807,6 @@ retry:
 
 	var metaBS, pgBS []byte
 
-	s.tryPageSwapin(pg)
 	pPg.Merge(pg)
 
 	var offsets []LSSOffset
@@ -942,7 +944,11 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 			}
 		}
 	} else if pg.NeedMerge(s.Config.MinPageItems) && s.isMergablePage(pid, ctx) {
+		// Closing a page makes it immutable. No writer will further append deltas
+		// If it is a swapped out page, bring the page components back to memory
+		s.tryPageSwapin(pg)
 		pg.Close()
+
 		if updated = s.UpdateMapping(pid, pg, ctx); updated {
 			s.tryPageRemoval(pid, pg, ctx)
 			ctx.sts.Merges++

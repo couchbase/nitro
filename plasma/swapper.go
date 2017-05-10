@@ -1,6 +1,7 @@
 package plasma
 
 import (
+	"fmt"
 	"github.com/couchbase/nitro/skiplist"
 	"sync"
 	"sync/atomic"
@@ -12,6 +13,7 @@ const (
 	swapperWorkChanBufSize = 40
 	swapperWorkBatchSize   = 16
 	swapperWaitInterval    = time.Microsecond * 10
+	swapperEvictionTimeout = time.Minute * 5
 )
 
 type clockHandle struct {
@@ -56,7 +58,8 @@ func (s *Plasma) sweepClock(h *clockHandle) []PageId {
 	return pids
 }
 
-func (s *Plasma) tryEvictPages(ctx *wCtx) {
+func (s *Plasma) tryEvictPages(ctx *wCtx) error {
+	startEvictions := time.Now()
 	sctx := ctx.SwapperContext()
 	for s.TriggerSwapper(sctx) {
 		h := s.acquireClockHandle()
@@ -69,7 +72,12 @@ func (s *Plasma) tryEvictPages(ctx *wCtx) {
 			}
 		}
 		ctx.EndTx(tok)
+		if time.Since(startEvictions) > swapperEvictionTimeout {
+			return fmt.Errorf("Timeout: Unable to evict enough memory %v",
+				s.MemoryInUse())
+		}
 	}
+	return nil
 }
 
 func (s *Plasma) initLRUClock() {
