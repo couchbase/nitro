@@ -720,7 +720,11 @@ func (pg *page) NewIterator() ItemIterator {
 func (pg *page) Marshal(buf *Buffer, maxSegments int) (bs []byte, dataSz, staleFdSz int, numSegments int) {
 	hiItm := pg.MaxItem()
 	offset, staleFdSz, numSegments := pg.marshal(buf, 0, pg.head, hiItm, false, maxSegments)
-	return buf.Get(0, offset), offset, staleFdSz, numSegments
+
+	data := buf.Get(0, offset)
+	data = pg.ctx.compress(data, buf)
+
+	return data, len(data), staleFdSz, numSegments
 }
 
 func (pg *page) unmarshalIndexKey(data []byte, roffset int) (unsafe.Pointer, int) {
@@ -937,6 +941,8 @@ func (pg *page) Unmarshal(data []byte, ctx *wCtx) {
 }
 
 func (pg *page) unmarshalDelta(data []byte, ctx *wCtx) (offset LSSOffset, hasChain bool) {
+	data = pg.ctx.decompress(data, pg.ctx.GetBuffer(bufDecompress))
+
 	roffset := 0
 	state := pageState(binary.BigEndian.Uint16(data[roffset : roffset+2]))
 	state.SetFlushed()

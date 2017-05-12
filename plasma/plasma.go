@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/couchbase/nitro/mm"
 	"github.com/couchbase/nitro/skiplist"
+	"github.com/golang/snappy"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -13,7 +14,7 @@ import (
 
 type PageReader func(offset LSSOffset) (Page, error)
 
-const maxCtxBuffers = 8
+const maxCtxBuffers = 9
 const (
 	bufEncPage int = iota
 	bufEncMeta
@@ -23,6 +24,7 @@ const (
 	bufRecovery
 	bufFetch
 	bufPersist
+	bufDecompress
 )
 
 const recoverySMRInterval = 100
@@ -595,6 +597,31 @@ type wCtx struct {
 	next *wCtx
 
 	safeOffset LSSOffset
+}
+
+func (ctx *wCtx) compress(data []byte, buf *Buffer) []byte {
+	if ctx.Config.UseCompression {
+		l := len(data)
+		encLen := snappy.MaxEncodedLen(l)
+		encBuf := buf.Get(l, encLen)
+		data = snappy.Encode(encBuf, data)
+	}
+
+	return data
+}
+
+func (ctx *wCtx) decompress(data []byte, buf *Buffer) []byte {
+	var err error
+	if ctx.Config.UseCompression {
+		decLen, _ := snappy.DecodedLen(data)
+		bs := buf.Get(0, decLen)
+		data, err = snappy.Decode(bs, data)
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	return data
 }
 
 func (ctx *wCtx) freePages(pages []pgFreeObj) {

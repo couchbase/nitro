@@ -13,6 +13,7 @@ import (
 )
 
 var testSnCfg = Config{
+	UseCompression:   true,
 	MaxDeltaChainLen: 200,
 	MaxPageItems:     400,
 	MinPageItems:     25,
