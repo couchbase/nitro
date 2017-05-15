@@ -350,7 +350,10 @@ func New(cfg Config) (*Plasma, error) {
 		}
 	}
 
-	go s.monitorMemUsage()
+	if s.shouldPersist {
+		go s.monitorMemUsage()
+	}
+
 	go s.runtimeStats()
 	return s, err
 }
