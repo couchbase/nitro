@@ -1,9 +1,19 @@
+// Copyright (c) 2017 Couchbase, Inc.
+// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file
+// except in compliance with the License. You may obtain a copy of the License at
+//   http://www.apache.org/licenses/LICENSE-2.0
+// Unless required by applicable law or agreed to in writing, software distributed under the
+// License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied. See the License for the specific language governing permissions
+// and limitations under the License.
+
 package plasma
 
 import (
 	"fmt"
 	"github.com/couchbase/nitro/mm"
 	"github.com/couchbase/nitro/skiplist"
+	"github.com/golang/snappy"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -13,7 +23,7 @@ import (
 
 type PageReader func(offset LSSOffset) (Page, error)
 
-const maxCtxBuffers = 8
+const maxCtxBuffers = 9
 const (
 	bufEncPage int = iota
 	bufEncMeta
@@ -23,6 +33,7 @@ const (
 	bufRecovery
 	bufFetch
 	bufPersist
+	bufDecompress
 )
 
 const recoverySMRInterval = 100
@@ -77,6 +88,12 @@ type Plasma struct {
 	wCtxLock sync.Mutex
 	wCtxList *wCtx
 	gCtx     *wCtx
+
+	logPrefix string
+}
+
+func (s *Plasma) SetLogPrefix(prefix string) {
+	s.logPrefix = prefix
 }
 
 type Stats struct {
@@ -342,7 +359,10 @@ func New(cfg Config) (*Plasma, error) {
 		}
 	}
 
-	go s.monitorMemUsage()
+	if s.shouldPersist {
+		go s.monitorMemUsage()
+	}
+
 	go s.runtimeStats()
 	return s, err
 }
@@ -589,6 +609,31 @@ type wCtx struct {
 	next *wCtx
 
 	safeOffset LSSOffset
+}
+
+func (ctx *wCtx) compress(data []byte, buf *Buffer) []byte {
+	if ctx.Config.UseCompression {
+		l := len(data)
+		encLen := snappy.MaxEncodedLen(l)
+		encBuf := buf.Get(l, encLen)
+		data = snappy.Encode(encBuf, data)
+	}
+
+	return data
+}
+
+func (ctx *wCtx) decompress(data []byte, buf *Buffer) []byte {
+	var err error
+	if ctx.Config.UseCompression {
+		decLen, _ := snappy.DecodedLen(data)
+		bs := buf.Get(0, decLen)
+		data, err = snappy.Decode(bs, data)
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	return data
 }
 
 func (ctx *wCtx) freePages(pages []pgFreeObj) {
@@ -1126,7 +1171,11 @@ loop:
 }
 
 func (s *Plasma) logError(err string) {
-	fmt.Printf("Plasma: (fatal error - %s)\n", err)
+	fmt.Printf("%sPlasma: (fatal error - %s)\n", s.logPrefix, err)
+}
+
+func (s *Plasma) logInfo(msg string) {
+	fmt.Printf("%sPlasma: %s\n", s.logPrefix, msg)
 }
 
 func (w *Writer) CompactAll() {

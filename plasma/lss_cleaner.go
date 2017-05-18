@@ -1,3 +1,12 @@
+// Copyright (c) 2017 Couchbase, Inc.
+// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file
+// except in compliance with the License. You may obtain a copy of the License at
+//   http://www.apache.org/licenses/LICENSE-2.0
+// Unless required by applicable law or agreed to in writing, software distributed under the
+// License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied. See the License for the specific language governing permissions
+// and limitations under the License.
+
 package plasma
 
 import (
@@ -48,7 +57,9 @@ func (s *Plasma) CleanLSS(proceed func() bool) error {
 		typ := getLSSBlockType(bs)
 		switch typ {
 		case lssPageData, lssPageReloc:
-			state, key := decodePageState(bs[lssBlockTypeSize:])
+			data := bs[lssBlockTypeSize:]
+			data = w.decompress(data, w.GetBuffer(bufDecompress))
+			state, key := decodePageState(data)
 		retry:
 			if pid := s.getPageId(key, w); pid != nil {
 				if pg, err = s.ReadPage(pid, w.pgRdrFn, false, w); err != nil {
@@ -99,12 +110,12 @@ func (s *Plasma) CleanLSS(proceed func() bool) error {
 	frag, ds, used := s.GetLSSInfo()
 	start := s.lss.HeadOffset()
 	end := s.lss.TailOffset()
-	fmt.Printf("logCleaner: starting... frag %d, data: %d, used: %d log:(%d - %d)\n", frag, ds, used, start, end)
+	s.logInfo(fmt.Sprintf("logCleaner: starting... frag %d, data: %d, used: %d log:(%d - %d)", frag, ds, used, start, end))
 	err := s.lss.RunCleaner(callb, cleanerBuf)
 	frag, ds, used = s.GetLSSInfo()
 	start = s.lss.HeadOffset()
 	end = s.lss.TailOffset()
-	fmt.Printf("logCleaner: completed... frag %d, data: %d, used: %d, relocated: %d, retries: %d, skipped: %d log:(%d - %d)\n", frag, ds, used, relocated, retries, skipped, start, end)
+	s.logInfo(fmt.Sprintf("logCleaner: completed... frag %d, data: %d, used: %d, relocated: %d, retries: %d, skipped: %d log:(%d - %d)", frag, ds, used, relocated, retries, skipped, start, end))
 	return err
 }
 
@@ -139,7 +150,7 @@ loop:
 
 		if shouldClean() {
 			if err := s.CleanLSS(shouldClean); err != nil {
-				fmt.Printf("logCleaner: failed (err=%v)\n", err)
+				s.logInfo(fmt.Sprintf("logCleaner: failed (err=%v)", err))
 			}
 		}
 
