@@ -145,6 +145,11 @@ func (l *multiFilelog) initIndex() error {
 		fi.endOffset = endId*l.segmentSize + l.segmentSize
 	}
 
+	if fi.endOffset < l.Tail() {
+		return fmt.Errorf("Corrupt lss log with tailOffset=%v > segmentOffset=%v - %s",
+			l.Tail(), fi.endOffset, l.basePath)
+	}
+
 	for i, f := range files {
 		if lf, err := newLogFile(f, 0, int(l.segmentSize), l.enableMmap); err == nil {
 			fi.index = append(fi.index, lf)
@@ -337,12 +342,14 @@ func (l *multiFilelog) Size() int64 {
 
 func (l *multiFilelog) Close() error {
 	idx := l.getIndex()
-	for _, fd := range idx.index {
-		fd.Close()
+	for _, f := range idx.index {
+		if err := f.Close(); err != nil {
+			return fmt.Errorf("err %v, file:%v", err, f.fd.Name())
+		}
 	}
 
 	idx.index = nil
-	return nil
+	return l.sbFd.Close()
 }
 
 func marshalLogSB(buf []byte, headOffset, tailOffset int64, gen int64) {
