@@ -10,6 +10,7 @@
 package plasma
 
 import (
+	"fmt"
 	"github.com/couchbase/nitro/skiplist"
 	"sort"
 	"unsafe"
@@ -63,7 +64,6 @@ type Iterator struct {
 	store *Plasma
 	*wCtx
 	nr        int64
-	currPid   PageId
 	nextPid   PageId
 	currPgItr pgOpIterator
 	filter    ItemFilter
@@ -82,31 +82,28 @@ func (s *Plasma) NewIterator() ItemIterator {
 }
 
 func (itr *Iterator) initPgIterator(pid PageId, seekItm unsafe.Pointer) {
-	itr.currPid = pid
 	itr.nr = itr.sts.NumLSSReads
 	if pgPtr, err := itr.store.ReadPage(pid, itr.wCtx.pgRdrFn, true, itr.wCtx); err == nil {
 		itr.store.updateCacheMeta(pid)
 		pg := pgPtr.(*page)
-		if err == nil {
-			if pg.IsEmpty() {
-				panic("an empty page found")
-			}
-
-			itr.nextPid = pg.Next()
-			itr.filter.Reset()
-			var sts pgOpIteratorStats
-
-			hiItm := pg.head.hiItm
-			if itr.hiItm != nil && itr.wCtx.cmp(itr.hiItm, hiItm) < 0 {
-				hiItm = itr.hiItm
-				itr.closed = true
-			}
-
-			itr.currPgItr = newPgOpIterator(pg.head, pg.cmp, seekItm, hiItm, itr.filter, itr.wCtx, &sts)
-			itr.currPgItr.Init()
-		} else {
-			itr.err = err
+		if pg.IsEmpty() {
+			panic(fmt.Sprintf("an empty page found for pid %s", itemStringer(pg.MinItem())))
 		}
+
+		itr.nextPid = pg.GetNext()
+		itr.filter.Reset()
+		var sts pgOpIteratorStats
+
+		hiItm := pg.MaxItem()
+		if itr.hiItm != nil && itr.wCtx.cmp(itr.hiItm, hiItm) < 0 {
+			hiItm = itr.hiItm
+			itr.closed = true
+		}
+
+		itr.currPgItr = newPgOpIterator(pg.head, pg.cmp, seekItm, hiItm, itr.filter, itr.wCtx, &sts)
+		itr.currPgItr.Init()
+	} else {
+		itr.err = err
 	}
 }
 
@@ -124,7 +121,7 @@ func (itr *Iterator) Close() {
 }
 
 func (itr *Iterator) SeekFirst() error {
-	itr.initPgIterator(itr.store.Skiplist.HeadNode(), nil)
+	itr.initPgIterator(itr.store.StartPageId(), skiplist.MinItem)
 	itr.tryNextPg()
 	return itr.err
 }

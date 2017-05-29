@@ -90,7 +90,7 @@ type Page interface {
 	MaxItem() unsafe.Pointer
 	MinItem() unsafe.Pointer
 	SetNext(PageId)
-	Next() PageId
+	GetNext() PageId
 
 	Evict(offset LSSOffset, numSegments int)
 	SwapIn(ptr *pageDelta)
@@ -305,7 +305,6 @@ type page struct {
 	*storeCtx
 	*allocCtx
 
-	nextPid     PageId
 	low         unsafe.Pointer
 	state       pageState
 	prevHeadPtr unsafe.Pointer
@@ -314,11 +313,11 @@ type page struct {
 }
 
 func (pg *page) SetNext(pid PageId) {
-	if pg.head == nil {
-		pg.nextPid = pid
-	} else {
-		pg.head.rightSibling = pid
-	}
+	pg.head.rightSibling = pid
+}
+
+func (pg *page) GetNext() PageId {
+	return pg.head.rightSibling
 }
 
 func (pg *page) InCache() bool {
@@ -326,7 +325,6 @@ func (pg *page) InCache() bool {
 }
 
 func (pg *page) Reset() {
-	pg.nextPid = nil
 	pg.low = nil
 	pg.head = nil
 	pg.tail = nil
@@ -419,10 +417,7 @@ func (pg *page) newBasePage(itms []unsafe.Pointer) *pageDelta {
 	bp.state = 0
 	bp.numItems = uint16(n)
 	pg.copyItemRun(itms, bp.items, bp.data)
-
-	if pg.head != nil {
-		bp.rightSibling = pg.head.rightSibling
-	}
+	bp.rightSibling = pg.head.rightSibling
 
 	return (*pageDelta)(unsafe.Pointer(bp))
 }
@@ -1152,14 +1147,6 @@ func (pg *page) MaxItem() unsafe.Pointer {
 
 func (pg *page) MinItem() unsafe.Pointer {
 	return pg.low
-}
-
-func (pg *page) Next() PageId {
-	if pg.head == nil {
-		return pg.nextPid
-	}
-
-	return pg.head.rightSibling
 }
 
 func newPage(ctx *wCtx, low unsafe.Pointer, ptr unsafe.Pointer) Page {

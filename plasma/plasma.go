@@ -410,13 +410,6 @@ func (s *Plasma) monitorMemUsage() {
 }
 
 func (s *Plasma) doInit() {
-	// Init seed page if page-0 does not exist even after recovery
-	pid := s.StartPageId()
-	if pid.(*skiplist.Node).Link == nil {
-		pg := s.newSeedPage(s.gCtx)
-		s.CreateMapping(pid, pg, s.gCtx)
-	}
-
 	if s.EnableShapshots {
 		if s.currSn == 0 {
 			s.currSn = 1
@@ -516,29 +509,38 @@ func (s *Plasma) doRecovery() error {
 
 	s.trySMRObjects(s.gCtx, 0)
 
-	// Initialize rightSiblings for all pages
-	var lastPg Page
-	callb := func(pid PageId, partn RangePartition) error {
-		pg, err := s.ReadPage(pid, s.gCtx.pgRdrFn, false, s.gCtx)
-		if lastPg != nil {
-			if err == nil && s.cmp(lastPg.MaxItem(), pg.MinItem()) != 0 {
-				panic("found missing page")
+	// Init seed page if page-0 does not exist even after recovery
+	if s.Skiplist.GetStats().NodeCount == 0 {
+		pid := s.StartPageId()
+		if pid.(*skiplist.Node).Link == nil {
+			pg := s.newSeedPage(s.gCtx)
+			s.CreateMapping(pid, pg, s.gCtx)
+		}
+	} else {
+		// Initialize rightSiblings for all pages
+		var lastPg Page
+		callb := func(pid PageId, partn RangePartition) error {
+			pg, err := s.ReadPage(pid, s.gCtx.pgRdrFn, false, s.gCtx)
+			if lastPg != nil {
+				if err == nil && s.cmp(lastPg.MaxItem(), pg.MinItem()) != 0 {
+					panic("found missing page")
+				}
+
+				lastPg.SetNext(pid)
 			}
 
-			lastPg.SetNext(pid)
+			lastPg = pg
+			return err
 		}
 
-		lastPg = pg
-		return err
-	}
+		s.PageVisitor(callb, 1)
+		s.gcSn = s.currSn
 
-	s.PageVisitor(callb, 1)
-	s.gcSn = s.currSn
-
-	if lastPg != nil {
-		lastPg.SetNext(s.EndPageId())
-		if lastPg.MaxItem() != skiplist.MaxItem {
-			panic("invalid last page")
+		if lastPg != nil {
+			lastPg.SetNext(s.EndPageId())
+			if lastPg.MaxItem() != skiplist.MaxItem {
+				panic("invalid last page")
+			}
 		}
 	}
 
@@ -842,7 +844,7 @@ retry:
 	}
 
 	// Parent might have got a split
-	if pPg.Next() != pid {
+	if pPg.GetNext() != pid {
 		goto retry
 	}
 
@@ -1037,7 +1039,7 @@ refresh:
 	}
 
 	if !pg.InRange(itm) {
-		pid = pg.Next()
+		pid = pg.GetNext()
 		goto refresh
 	}
 
@@ -1162,11 +1164,7 @@ loop:
 		}
 	}
 
-	if pg.head != nil {
-		pg.SetNumSegments(numSegments)
-		pg.head.rightSibling = pg.getPageId(pg.head.hiItm, ctx)
-	}
-
+	pg.SetNumSegments(numSegments)
 	return pg, nil
 }
 
