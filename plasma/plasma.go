@@ -21,6 +21,8 @@ import (
 	"unsafe"
 )
 
+var ErrInvalidSnapshot = fmt.Errorf("Invalid plasma snapshot")
+
 type PageReader func(offset LSSOffset) (Page, error)
 
 const maxCtxBuffers = 9
@@ -768,12 +770,16 @@ func (s *Plasma) NewReader() *Reader {
 	}
 }
 
-func (r *Reader) NewSnapshotIterator(snap *Snapshot) *MVCCIterator {
+func (r *Reader) NewSnapshotIterator(snap *Snapshot) (*MVCCIterator, error) {
+	if snap.db != r.iter.store {
+		return nil, ErrInvalidSnapshot
+	}
+
 	snap.Open()
 	r.iter.filter.(*snFilter).sn = snap.sn
 	r.iter.token = r.iter.BeginTx()
 	r.iter.snap = snap
-	return r.iter
+	return r.iter, nil
 }
 
 func (s *Plasma) MemoryInUse() int64 {
