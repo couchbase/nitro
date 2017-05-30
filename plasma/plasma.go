@@ -144,10 +144,16 @@ type Stats struct {
 	CacheHits   int64
 	CacheMisses int64
 
-	WriteAmp      float64
-	WriteAmpAvg   float64
-	CacheHitRatio float64
-	ResidentRatio float64
+	ReaderCacheHits    int64
+	ReaderCacheMisses  int64
+	ReaderNumLSSReads  int64
+	ReaderLSSReadBytes int64
+
+	WriteAmp            float64
+	WriteAmpAvg         float64
+	CacheHitRatio       float64
+	ReaderCacheHitRatio float64
+	ResidentRatio       float64
 }
 
 func (s *Stats) Merge(o *Stats) {
@@ -188,48 +194,51 @@ func (s *Stats) Merge(o *Stats) {
 
 func (s Stats) String() string {
 	return fmt.Sprintf("===== Stats =====\n"+
-		"memory_quota      = %d\n"+
-		"count             = %d\n"+
-		"compacts          = %d\n"+
-		"splits            = %d\n"+
-		"merges            = %d\n"+
-		"inserts           = %d\n"+
-		"deletes           = %d\n"+
-		"compact_conflicts = %d\n"+
-		"split_conflicts   = %d\n"+
-		"merge_conflicts   = %d\n"+
-		"insert_conflicts  = %d\n"+
-		"delete_conflicts  = %d\n"+
-		"swapin_conflicts  = %d\n"+
-		"memory_size       = %d\n"+
-		"memory_size_index = %d\n"+
-		"allocated         = %d\n"+
-		"freed             = %d\n"+
-		"reclaimed         = %d\n"+
-		"reclaim_pending   = %d\n"+
-		"allocated_index   = %d\n"+
-		"freed_index       = %d\n"+
-		"reclaimed_index   = %d\n"+
-		"num_pages         = %d\n"+
-		"num_rec_allocs    = %d\n"+
-		"num_rec_frees     = %d\n"+
-		"num_rec_swapout   = %d\n"+
-		"num_rec_swapin    = %d\n"+
-		"bytes_incoming    = %d\n"+
-		"bytes_written     = %d\n"+
-		"write_amp         = %.2f\n"+
-		"write_amp_avg     = %.2f\n"+
-		"lss_fragmentation = %d%%\n"+
-		"lss_data_size     = %d\n"+
-		"lss_used_space    = %d\n"+
-		"lss_num_reads     = %d\n"+
-		"lss_read_bs       = %d\n"+
-		"lss_gc_num_reads  = %d\n"+
-		"lss_gc_reads_bs   = %d\n"+
-		"cache_hits        = %d\n"+
-		"cache_misses      = %d\n"+
-		"cache_hit_ratio   = %.2f\n"+
-		"resident_ratio    = %.2f\n",
+		"memory_quota        = %d\n"+
+		"count               = %d\n"+
+		"compacts            = %d\n"+
+		"splits              = %d\n"+
+		"merges              = %d\n"+
+		"inserts             = %d\n"+
+		"deletes             = %d\n"+
+		"compact_conflicts   = %d\n"+
+		"split_conflicts     = %d\n"+
+		"merge_conflicts     = %d\n"+
+		"insert_conflicts    = %d\n"+
+		"delete_conflicts    = %d\n"+
+		"swapin_conflicts    = %d\n"+
+		"memory_size         = %d\n"+
+		"memory_size_index   = %d\n"+
+		"allocated           = %d\n"+
+		"freed               = %d\n"+
+		"reclaimed           = %d\n"+
+		"reclaim_pending     = %d\n"+
+		"allocated_index     = %d\n"+
+		"freed_index         = %d\n"+
+		"reclaimed_index     = %d\n"+
+		"num_pages           = %d\n"+
+		"num_rec_allocs      = %d\n"+
+		"num_rec_frees       = %d\n"+
+		"num_rec_swapout     = %d\n"+
+		"num_rec_swapin      = %d\n"+
+		"bytes_incoming      = %d\n"+
+		"bytes_written       = %d\n"+
+		"write_amp           = %.2f\n"+
+		"write_amp_avg       = %.2f\n"+
+		"lss_fragmentation   = %d%%\n"+
+		"lss_data_size       = %d\n"+
+		"lss_used_space      = %d\n"+
+		"lss_num_reads       = %d\n"+
+		"lss_read_bs         = %d\n"+
+		"lss_gc_num_reads    = %d\n"+
+		"lss_gc_reads_bs     = %d\n"+
+		"cache_hits          = %d\n"+
+		"cache_misses        = %d\n"+
+		"cache_hit_ratio     = %.2f\n"+
+		"rcache_hits         = %d\n"+
+		"rcache_misses       = %d\n"+
+		"rcache_hit_ratio    = %.2f\n"+
+		"resident_ratio      = %.2f\n",
 		atomic.LoadInt64(&memQuota),
 		s.Inserts-s.Deletes,
 		s.Compacts, s.Splits, s.Merges,
@@ -248,6 +257,7 @@ func (s Stats) String() string {
 		s.NumLSSReads, s.LSSReadBytes,
 		s.NumLSSCleanerReads, s.LSSCleanerReadBytes,
 		s.CacheHits, s.CacheMisses, s.CacheHitRatio,
+		s.ReaderCacheHits, s.ReaderCacheMisses, s.ReaderCacheHitRatio,
 		s.ResidentRatio)
 }
 
@@ -387,8 +397,15 @@ func (s *Plasma) runtimeStats() {
 
 		hits := now.CacheHits - so.CacheHits
 		miss := now.CacheMisses - so.CacheMisses
+
 		if tot := float64(hits + miss); tot > 0 {
 			s.gCtx.sts.CacheHitRatio = float64(hits) / tot
+		}
+
+		rdrHits := now.ReaderCacheHits - so.ReaderCacheHits
+		rdrMiss := now.ReaderCacheMisses - so.ReaderCacheMisses
+		if tot := float64(rdrHits + rdrMiss); tot > 0 {
+			s.gCtx.sts.ReaderCacheHitRatio = float64(rdrHits) / tot
 		}
 		so = now
 	}
@@ -593,6 +610,14 @@ type Reader struct {
 	iter *MVCCIterator
 }
 
+type workerType int
+
+const (
+	genericWorker workerType = iota
+	writerWorker
+	readerWorker
+)
+
 // TODO: Refactor wCtx and Writer
 type wCtx struct {
 	*Plasma
@@ -611,6 +636,16 @@ type wCtx struct {
 	next *wCtx
 
 	safeOffset LSSOffset
+
+	typ workerType
+}
+
+func (ctx *wCtx) SetWorkerType(t workerType) {
+	ctx.typ = t
+}
+
+func (ctx *wCtx) GetWorkerType() workerType {
+	return ctx.typ
 }
 
 func (ctx *wCtx) compress(data []byte, buf *Buffer) []byte {
@@ -707,6 +742,7 @@ func (s *Plasma) NewWriter() *Writer {
 	w := &Writer{
 		wCtx: s.newWCtx(),
 	}
+	w.SetWorkerType(writerWorker)
 
 	s.Lock()
 	defer s.Unlock()
@@ -723,6 +759,7 @@ func (s *Plasma) NewWriter() *Writer {
 func (s *Plasma) NewReader() *Reader {
 	iter := s.NewIterator().(*Iterator)
 	iter.filter = &snFilter{}
+	iter.SetWorkerType(readerWorker)
 
 	return &Reader{
 		iter: &MVCCIterator{
@@ -750,11 +787,14 @@ func (s *Plasma) MemoryInUse() int64 {
 }
 
 func (s *Plasma) GetStats() Stats {
-	var sts Stats
+	var sts, rdrSts Stats
 
 	sts.NumPages = int64(s.Skiplist.GetStats().NodeCount + 1)
 	for w := s.wCtxList; w != nil; w = w.next {
 		sts.Merge(w.sts)
+		if w.GetWorkerType() == readerWorker {
+			rdrSts.Merge(w.sts)
+		}
 	}
 
 	sts.MemSz = sts.AllocSz - sts.FreeSz
@@ -764,7 +804,14 @@ func (s *Plasma) GetStats() Stats {
 		sts.LSSFrag, sts.LSSDataSize, sts.LSSUsedSpace = s.GetLSSInfo()
 		sts.NumLSSCleanerReads = s.lssCleanerWriter.sts.NumLSSReads
 		sts.LSSCleanerReadBytes = s.lssCleanerWriter.sts.LSSReadBytes
+		sts.ReaderLSSReadBytes = rdrSts.LSSReadBytes
+		sts.ReaderNumLSSReads = rdrSts.NumLSSReads
+		sts.ReaderCacheHits = rdrSts.CacheHits
+		sts.ReaderCacheMisses = rdrSts.CacheMisses
+
 		sts.CacheHitRatio = s.gCtx.sts.CacheHitRatio
+		sts.ReaderCacheHitRatio = s.gCtx.sts.ReaderCacheHitRatio
+
 		sts.WriteAmp = s.gCtx.sts.WriteAmp
 		bsOut := float64(sts.BytesWritten)
 		bsIn := float64(sts.BytesIncoming)
