@@ -156,3 +156,42 @@ func TestLogSuperblockCorruption(t *testing.T) {
 		t.Errorf("Expected tail %d, got %d", to, l.Tail())
 	}
 }
+
+func TestLogTrimHolePunch(t *testing.T) {
+	os.RemoveAll(logTestDataPath)
+
+	rbSz := reclaimBlockSize
+	sHP := supportedHolePunch
+	defer func() {
+		reclaimBlockSize = rbSz
+		supportedHolePunch = sHP
+	}()
+
+	reclaimBlockSize = 1024 * 4
+	supportedHolePunch = true
+	l, _ := newLog(logTestDataPath, 1024*1024, syncMode, false)
+	bs := make([]byte, 1024)
+	n := 1024 * 10
+	for i := 0; i < n; i++ {
+		l.Append(bs)
+	}
+	l.Commit()
+
+	sz := l.Size()
+	if sz != int64(n*len(bs)) {
+		t.Errorf("unexpected size %d", sz)
+	}
+
+	for i := 0; i < n; i++ {
+		off := int64(i * 1024)
+		l.Trim(off)
+		l.Commit()
+
+		expected := (off / reclaimBlockSize) * reclaimBlockSize
+		if expected != sz-l.Size() {
+			t.Errorf("Expected reclaimed space = %d, got %d", expected, sz-l.Size())
+		}
+	}
+
+	l.Close()
+}

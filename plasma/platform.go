@@ -19,5 +19,9 @@ import (
 var supportedHolePunch = false
 
 func punchHole(f *os.File, offset, size int64) error {
+	if supportedHolePunch {
+		return nil
+	}
+
 	return errors.New("Unsupported")
 }
