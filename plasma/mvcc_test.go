@@ -723,3 +723,48 @@ func TestEvictionStats(t *testing.T) {
 	}
 
 }
+
+func TestReaderCacheStats(t *testing.T) {
+	os.RemoveAll("teststore.data")
+	s := newTestIntPlasmaStore(testSnCfg)
+	defer s.Close()
+
+	w := s.NewWriter()
+	for i := 0; i < 10000; i++ {
+		w.InsertKV([]byte(fmt.Sprintf("key-%10d", i)), []byte(fmt.Sprintf("val-%10d", i)))
+	}
+
+	s.NewSnapshot().Close()
+	SetMemoryQuota(100)
+	time.Sleep(time.Second)
+	snap := s.NewSnapshot()
+
+	SetMemoryQuota(maxMemoryQuota)
+	r := s.NewReader()
+	itr, _ := r.NewSnapshotIterator(snap)
+	snap.Close()
+	itr.SeekFirst()
+	miss := s.GetStats().ReaderCacheMisses
+	hits := s.GetStats().ReaderCacheHits
+	if miss != 1 || hits != 0 {
+		t.Errorf("Expected 1 miss, got miss=%d, hit=%d", miss, hits)
+	}
+
+	itr.SeekFirst()
+	itr.SeekFirst()
+	miss = s.GetStats().ReaderCacheMisses
+	hits = s.GetStats().ReaderCacheHits
+	if miss != 1 || hits != 2 {
+		t.Errorf("Expected 2 hits, got miss=%d, hit=%d", miss, hits)
+	}
+
+	for ; itr.Valid(); itr.Next() {
+	}
+
+	np := s.GetStats().NumPages
+	miss = s.GetStats().ReaderCacheMisses
+	hits = s.GetStats().ReaderCacheHits
+	if miss != np || hits != 2 {
+		t.Errorf("Expected 2 hits, got miss=%d, hit=%d", miss, hits)
+	}
+}
