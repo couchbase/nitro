@@ -445,3 +445,7 @@ func readLogSB(fd *os.File, buf []byte) (headOff, tailOff, gen int64, err error)
 func GetLogVersion() uint32 {
 	return uint32(logVersion)
 }
+
+func SetLogReclaimBlockSize(sz int64) {
+	reclaimBlockSize = sz
+}
