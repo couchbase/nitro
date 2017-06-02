@@ -12,7 +12,6 @@ package plasma
 import (
 	"os"
 	"sync/atomic"
-	"syscall"
 )
 
 const minHolePunchSize = 512 * 1024 * 1024
@@ -108,10 +107,4 @@ func (l *singleFileLog) tryHolePunch() error {
 	}
 
 	return nil
-}
-
-func punchHole(f *os.File, offset, size int64) error {
-	return syscall.Fallocate(int(f.Fd()),
-		FALLOC_FL_PUNCH_HOLE|FALLOC_FL_PUNCH_HOLEOC_FL_KEEP_SIZE, offset,
-		size)
 }

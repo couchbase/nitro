@@ -30,6 +30,8 @@ var segFileNameFormat = "log.%014d.data"
 var segFilePattern = "log.*.data"
 var segFileIdPattern = "log.%d.data"
 var headerFileName = "header.data"
+var reclaimBlockSize = int64(1024 * 1024 * 64)
+
 var ErrLogSuperBlockCorrupt = fmt.Errorf("Log superblock is corrupt")
 
 type Log interface {
@@ -49,10 +51,8 @@ type logFile struct {
 }
 
 type fileIndex struct {
-	startOffset int64
-	endOffset   int64
-	index       []*logFile
-	w           *os.File
+	index []*logFile
+	w     *os.File
 }
 
 type multiFilelog struct {
@@ -65,6 +65,10 @@ type multiFilelog struct {
 
 	headOffset int64
 	tailOffset int64
+
+	startOffset   int64
+	reclaimOffset int64
+	endOffset     int64
 
 	index *fileIndex
 
@@ -141,13 +145,14 @@ func (l *multiFilelog) initIndex() error {
 		endFile := filepath.Base(files[len(files)-1])
 		fmt.Sscanf(startFile, segFileIdPattern, &startId)
 		fmt.Sscanf(endFile, segFileIdPattern, &endId)
-		fi.startOffset = startId * l.segmentSize
-		fi.endOffset = endId*l.segmentSize + l.segmentSize
+		l.startOffset = startId * l.segmentSize
+		l.reclaimOffset = l.startOffset
+		l.endOffset = endId*l.segmentSize + l.segmentSize
 	}
 
-	if fi.endOffset < l.Tail() {
+	if l.endOffset < l.Tail() {
 		return fmt.Errorf("Corrupt lss log with tailOffset=%v > segmentOffset=%v - %s",
-			l.Tail(), fi.endOffset, l.basePath)
+			l.Tail(), l.endOffset, l.basePath)
 	}
 
 	for i, f := range files {
@@ -172,15 +177,15 @@ func (l *multiFilelog) Read(bs []byte, off int64) error {
 	idx := l.getIndex()
 
 retry:
-	if off >= idx.endOffset {
-		return fmt.Errorf("Log size is smaller than offset (%d < %d)", idx.endOffset, off)
+	if off >= l.endOffset {
+		return fmt.Errorf("Log size is smaller than offset (%d < %d)", l.endOffset, off)
 	}
 
-	if off < idx.startOffset {
-		return fmt.Errorf("Log starts at offset %d, trying to read %d", idx.startOffset, off)
+	if off < l.startOffset {
+		return fmt.Errorf("Log starts at offset %d, trying to read %d", l.startOffset, off)
 	}
 
-	fdIdx := (off - idx.startOffset) / l.segmentSize
+	fdIdx := (off - l.startOffset) / l.segmentSize
 	fdOffset := off % l.segmentSize
 
 	var residue []byte
@@ -222,7 +227,7 @@ func (l *multiFilelog) getIndex() *fileIndex {
 func (l *multiFilelog) growLog() error {
 	var err error
 	idx := l.getIndex()
-	newFileId := (idx.endOffset + 1) / l.segmentSize
+	newFileId := (l.endOffset + 1) / l.segmentSize
 	file := filepath.Join(l.basePath, fmt.Sprintf(segFileNameFormat, newFileId))
 
 	flags := os.O_RDWR | os.O_CREATE
@@ -240,7 +245,7 @@ func (l *multiFilelog) growLog() error {
 	newIdx := *idx
 	newIdx.index = append(newIdx.index, lf)
 	newIdx.w = lf.fd
-	newIdx.endOffset += l.segmentSize
+	l.endOffset += l.segmentSize
 
 	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&l.index)), unsafe.Pointer(&newIdx))
 	return nil
@@ -251,7 +256,7 @@ func (l *multiFilelog) Append(bs []byte) error {
 	tail := l.tailOffset
 retry:
 	idx := l.getIndex()
-	avail := idx.endOffset - tail
+	avail := l.endOffset - tail
 	bsSize := int64(len(bs))
 
 	var residue []byte
@@ -290,7 +295,7 @@ func (l *multiFilelog) Trim(offset int64) {
 
 func (l *multiFilelog) doGCSegments() {
 	idx := l.getIndex()
-	free := (l.headOffset/l.segmentSize)*l.segmentSize - idx.startOffset
+	free := (l.headOffset/l.segmentSize)*l.segmentSize - l.startOffset
 	if free > 0 {
 		n := free / l.segmentSize
 		toRemove := idx.index[:n]
@@ -302,7 +307,8 @@ func (l *multiFilelog) doGCSegments() {
 		toRetain := append([]*logFile(nil), idx.index[n:]...)
 
 		newIdx := *idx
-		newIdx.startOffset += free
+		l.startOffset += free
+		l.reclaimOffset = l.startOffset
 		newIdx.index = toRetain
 
 		// TODO: Make async cleanup
@@ -313,6 +319,15 @@ func (l *multiFilelog) doGCSegments() {
 		}()
 
 		atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&l.index)), unsafe.Pointer(&newIdx))
+	} else if supportedHolePunch {
+		free := l.headOffset - l.reclaimOffset
+		if free >= reclaimBlockSize {
+			lf := idx.index[0]
+			fileOffset := l.reclaimOffset - (l.reclaimOffset/l.segmentSize)*l.segmentSize
+			free = (free / reclaimBlockSize) * reclaimBlockSize
+			punchHole(lf.fd, fileOffset, free)
+			l.reclaimOffset += free
+		}
 	}
 }
 
@@ -337,7 +352,7 @@ func (l *multiFilelog) Commit() error {
 }
 
 func (l *multiFilelog) Size() int64 {
-	return l.Tail() - l.Head()
+	return l.Tail() - l.reclaimOffset
 }
 
 func (l *multiFilelog) Close() error {
