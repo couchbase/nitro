@@ -130,6 +130,7 @@ func applyConfigDefaults(cfg Config) Config {
 
 func DefaultConfig() Config {
 	return Config{
+		UseCompression:   true,
 		MaxDeltaChainLen: 200,
 		MaxPageItems:     400,
 		MinPageItems:     25,
