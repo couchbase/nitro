@@ -137,7 +137,7 @@ func (s *Plasma) TriggerLSSCleaner(minFrag int, minSize int64) bool {
 
 func (s *Plasma) lssCleanerDaemon() {
 	shouldClean := func() bool {
-		return s.TriggerLSSCleaner(s.Config.LSSCleanerThreshold, 0)
+		return s.TriggerLSSCleaner(s.Config.LSSCleanerThreshold, s.Config.LSSCleanerMinSize)
 	}
 loop:
 	for {

@@ -425,7 +425,7 @@ func (s *Plasma) monitorMemUsage() {
 		default:
 		}
 		s.hasMemoryResPressure = s.TriggerSwapper(sctx)
-		s.hasLSSResPressure = s.TriggerLSSCleaner(s.Config.LSSCleanerMaxThreshold, s.Config.LSSCleanerMinSize)
+		s.hasLSSResPressure = s.TriggerLSSCleaner(s.Config.LSSCleanerMaxThreshold, s.Config.LSSCleanerThrottleMinSize)
 		time.Sleep(time.Millisecond * 100)
 	}
 }
@@ -1072,7 +1072,7 @@ func (s *Plasma) tryThrottleForResources(ctx *wCtx) {
 	}
 
 	if s.hasLSSResPressure {
-		for s.TriggerLSSCleaner(s.Config.LSSCleanerMaxThreshold, s.Config.LSSCleanerMinSize) {
+		for s.TriggerLSSCleaner(s.Config.LSSCleanerMaxThreshold, s.Config.LSSCleanerThrottleMinSize) {
 			runtime.Gosched()
 		}
 	}
