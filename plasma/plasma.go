@@ -431,6 +431,15 @@ func (s *Plasma) monitorMemUsage() {
 }
 
 func (s *Plasma) doInit() {
+	// Init seed page if page-0 does not exist even after recovery
+	if s.Skiplist.GetStats().NodeCount == 0 {
+		pid := s.StartPageId()
+		if pid.(*skiplist.Node).Link == nil {
+			pg := s.newSeedPage(s.gCtx)
+			s.CreateMapping(pid, pg, s.gCtx)
+		}
+	}
+
 	if s.EnableShapshots {
 		if s.currSn == 0 {
 			s.currSn = 1
@@ -530,38 +539,29 @@ func (s *Plasma) doRecovery() error {
 
 	s.trySMRObjects(s.gCtx, 0)
 
-	// Init seed page if page-0 does not exist even after recovery
-	if s.Skiplist.GetStats().NodeCount == 0 {
-		pid := s.StartPageId()
-		if pid.(*skiplist.Node).Link == nil {
-			pg := s.newSeedPage(s.gCtx)
-			s.CreateMapping(pid, pg, s.gCtx)
-		}
-	} else {
-		// Initialize rightSiblings for all pages
-		var lastPg Page
-		callb := func(pid PageId, partn RangePartition) error {
-			pg, err := s.ReadPage(pid, s.gCtx.pgRdrFn, false, s.gCtx)
-			if lastPg != nil {
-				if err == nil && s.cmp(lastPg.MaxItem(), pg.MinItem()) != 0 {
-					panic("found missing page")
-				}
-
-				lastPg.SetNext(pid)
-			}
-
-			lastPg = pg
-			return err
-		}
-
-		s.PageVisitor(callb, 1)
-		s.gcSn = s.currSn
-
+	// Initialize rightSiblings for all pages
+	var lastPg Page
+	callb := func(pid PageId, partn RangePartition) error {
+		pg, err := s.ReadPage(pid, s.gCtx.pgRdrFn, false, s.gCtx)
 		if lastPg != nil {
-			lastPg.SetNext(s.EndPageId())
-			if lastPg.MaxItem() != skiplist.MaxItem {
-				panic("invalid last page")
+			if err == nil && s.cmp(lastPg.MaxItem(), pg.MinItem()) != 0 {
+				panic("found missing page")
 			}
+
+			lastPg.SetNext(pid)
+		}
+
+		lastPg = pg
+		return err
+	}
+
+	s.PageVisitor(callb, 1)
+	s.gcSn = s.currSn
+
+	if lastPg != nil {
+		lastPg.SetNext(s.EndPageId())
+		if lastPg.MaxItem() != skiplist.MaxItem {
+			panic("invalid last page")
 		}
 	}
 

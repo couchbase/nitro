@@ -313,6 +313,9 @@ type page struct {
 }
 
 func (pg *page) SetNext(pid PageId) {
+	if pg.head == nil && pg.low == skiplist.MinItem {
+		return
+	}
 	pg.head.rightSibling = pid
 }
 
