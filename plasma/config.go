@@ -127,6 +127,10 @@ func applyConfigDefaults(cfg Config) Config {
 		cfg.LSSCleanerMaxThreshold = cfg.LSSCleanerThreshold + 10
 	}
 
+	if cfg.LSSCleanerThrottleMinSize < cfg.LSSCleanerMinSize {
+		cfg.LSSCleanerThrottleMinSize = cfg.LSSCleanerMinSize
+	}
+
 	return cfg
 }
 
@@ -143,15 +147,15 @@ func DefaultConfig() Config {
 			}
 			return uintptr((*item)(itm).Size())
 		},
-		CopyItem:               copyItem,
-		CopyIndexKey:           copyItem,
-		FlushBufferSize:        1024 * 1024 * 1,
-		LSSCleanerThreshold:    10,
-		LSSCleanerMinSize:      16 * 1024 * 1024,
-		LSSCleanerMaxThreshold: 1024 * 1024 * 1024,
-		AutoLSSCleaning:        true,
-		AutoSwapper:            false,
-		EnableShapshots:        true,
-		SyncInterval:           0,
+		CopyItem:                  copyItem,
+		CopyIndexKey:              copyItem,
+		FlushBufferSize:           1024 * 1024 * 1,
+		LSSCleanerThreshold:       10,
+		LSSCleanerMinSize:         16 * 1024 * 1024,
+		LSSCleanerThrottleMinSize: 1024 * 1024 * 1024,
+		AutoLSSCleaning:           true,
+		AutoSwapper:               false,
+		EnableShapshots:           true,
+		SyncInterval:              0,
 	}
 }
