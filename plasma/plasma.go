@@ -197,6 +197,7 @@ func (s *Stats) Merge(o *Stats) {
 func (s Stats) String() string {
 	return fmt.Sprintf("===== Stats =====\n"+
 		"memory_quota        = %d\n"+
+		"punch_hole_support  = %v\n"+
 		"count               = %d\n"+
 		"compacts            = %d\n"+
 		"splits              = %d\n"+
@@ -242,6 +243,7 @@ func (s Stats) String() string {
 		"rcache_hit_ratio    = %.2f\n"+
 		"resident_ratio      = %.2f\n",
 		atomic.LoadInt64(&memQuota),
+		supportedHolePunch,
 		s.Inserts-s.Deletes,
 		s.Compacts, s.Splits, s.Merges,
 		s.Inserts, s.Deletes, s.CompactConflicts,
