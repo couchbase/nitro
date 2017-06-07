@@ -636,36 +636,47 @@ func (pg *page) inRange(lo, hi unsafe.Pointer, itm unsafe.Pointer) bool {
 	return pg.cmp(itm, hi) < 0 && pg.cmp(itm, lo) >= 0
 }
 
-func prettyPrint(head *pageDelta, stringify func(unsafe.Pointer) string) {
-	pw := newPgDeltaWalker(head, nil)
+func prettyPrint(head *pageDelta, stringify func(unsafe.Pointer) string, ctx *wCtx) string {
+	var s string
+	pw := newPgDeltaWalker(head, ctx)
 	defer pw.Close()
 loop:
 	for ; !pw.End(); pw.Next() {
 		op := pw.Op()
 		switch op {
 		case opInsertDelta, opDeleteDelta:
-			fmt.Printf("Delta op:%d, itm:%s\n", op, stringify(pw.Item()))
+			s += fmt.Sprintf("Delta op:%d, itm:%s\n", op, stringify(pw.Item()))
 		case opBasePage:
 			for _, itm := range pw.BaseItems() {
-				fmt.Printf("Basepage itm:%s\n", stringify(itm))
+				s += fmt.Sprintf("Basepage itm:%s\n", stringify(itm))
 			}
 			break loop
-		case opFlushPageDelta:
-			offset, _, _ := pw.FlushInfo()
-			fmt.Printf("-------flush------ max:%s, offset:%d\n", stringify(pw.HighItem()), offset)
 		case opPageSplitDelta:
-			fmt.Println("-------split------ ", stringify(pw.Item()))
+			s += fmt.Sprintln("-------split------ ", stringify(pw.Item()))
 		case opPageMergeDelta:
-			fmt.Println("-------merge-siblings------- ", stringify(pw.Item()))
-			prettyPrint(pw.MergeSibling(), stringify)
-			fmt.Println("-----------")
+			s += fmt.Sprintln("-------merge-siblings------- ", stringify(pw.Item()))
+			s += prettyPrint(pw.MergeSibling(), stringify, ctx)
+			s += fmt.Sprintln("-----------")
 		case opPageRemoveDelta:
-			fmt.Println("---remove-delta---")
+			s += fmt.Sprintln("---remove-delta---")
 		case opRollbackDelta:
 			start, end := pw.RollbackInfo()
-			fmt.Println("-----rollback----", start, end)
+			s += fmt.Sprintln("-----rollback----", start, end)
+		case opSwapoutDelta:
+			offset, _, _ := pw.FlushInfo()
+			s += fmt.Sprintf("-------swapout------ max:%s, offset:%d\n", stringify(pw.HighItem()), offset)
+		case opFlushPageDelta:
+			offset, _, _ := pw.FlushInfo()
+			s += fmt.Sprintf("-------flush------ max:%s, offset:%d\n", stringify(pw.HighItem()), offset)
+		case opRelocPageDelta:
+			offset, _, _ := pw.FlushInfo()
+			s += fmt.Sprintf("-------reloc------ max:%s, offset:%d\n", stringify(pw.HighItem()), offset)
+		case opSwapinDelta:
+			s += fmt.Sprintln("----swapin-----")
 		}
 	}
+
+	return s
 }
 
 func (pg *page) collectItems(head *pageDelta,

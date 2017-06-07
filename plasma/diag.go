@@ -10,8 +10,11 @@
 package plasma
 
 import (
+	"bufio"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/couchbase/nitro/skiplist"
 	"io/ioutil"
 	"net/http"
 	"strconv"
@@ -30,9 +33,15 @@ type diagRequest struct {
 	Args []string
 }
 
-func (d *diag) Command(cmd string, args ...string) string {
+func (d *diag) Command(cmd string, w *bufio.Writer, args ...string) {
 	d.Lock()
 	defer d.Unlock()
+
+	defer func() {
+		if r := recover(); r != nil {
+			w.WriteString(fmt.Sprintf("Error: panic - %v\n", r))
+		}
+	}()
 
 	getDB := func() *Plasma {
 		arg0, _ := strconv.Atoi(args[0])
@@ -51,6 +60,9 @@ func (d *diag) Command(cmd string, args ...string) string {
 	doPersist := func(evict bool) {
 		db := getDB()
 		wr := getWr(db)
+		tx := wr.BeginTx()
+		defer wr.EndTx(tx)
+
 		callb := func(pid PageId, partn RangePartition) error {
 			db.Persist(pid, evict, wr.wCtx)
 			return nil
@@ -59,30 +71,120 @@ func (d *diag) Command(cmd string, args ...string) string {
 		db.PageVisitor(callb, 1)
 	}
 
-	s := fmt.Sprintf("----------plasma-diagnostics---------\n")
-	switch cmd {
-	case "list":
-		s += fmt.Sprintf("Command: list\n")
-		for i, db := range d.ListInstances() {
-			s += fmt.Sprintf("[%d] %s: %d\n", i, db.logPrefix, uintptr(unsafe.Pointer(db)))
-		}
+	hexCodeKey := func(db *Plasma, itm unsafe.Pointer) string {
+		bs := make([]byte, db.IndexKeySize(itm))
+		db.CopyIndexKey(unsafe.Pointer(&bs[0]), itm, len(bs))
 
+		buf := make([]byte, hex.EncodedLen(len(bs)))
+		hex.Encode(buf, bs)
+		return string(buf)
+	}
+
+	w.WriteString(fmt.Sprintf("----------plasma-diagnostics---------\n"))
+	switch cmd {
+	case "listDBs":
+		for i, db := range d.ListInstances() {
+			s := fmt.Sprintf("[%d] %s: %d\n", i, db.logPrefix, uintptr(unsafe.Pointer(db)))
+			w.WriteString(s)
+		}
 	case "stats":
 		db := getDB()
-		s += db.GetStats().String()
+		w.WriteString(db.GetStats().String())
 	case "compactAll":
 		wr := getWr(getDB())
+		tx := wr.BeginTx()
+		defer wr.EndTx(tx)
 		wr.CompactAll()
 	case "evictAll":
 		doPersist(true)
 	case "persistAll":
 		doPersist(false)
-	default:
-		s += fmt.Sprintf("Invalid command: %s\n", cmd)
-	}
-	s += fmt.Sprintf("-------------------------------------\n")
+	case "listPids":
+		c := -1
+		db := getDB()
+		wr := getWr(db)
+		tx := wr.BeginTx()
+		defer wr.EndTx(tx)
+		callb := func(pid PageId, partn RangePartition) error {
+			c++
+			n := pid.(*skiplist.Node)
+			itm := n.Item()
+			if itm == skiplist.MinItem {
+				w.WriteString(fmt.Sprintf("[%d] \"\" | -inf\n", c))
+				return nil
+			}
 
-	return s
+			key := hexCodeKey(db, itm)
+			w.WriteString(fmt.Sprintf("[%d] %s | %s\n", c, key, itemStringer(itm)))
+			return nil
+		}
+
+		db.PageVisitor(callb, 1)
+	case "dumpPage":
+		db := getDB()
+		wr := getWr(db)
+		tx := wr.BeginTx()
+		defer wr.EndTx(tx)
+
+		var pidItem unsafe.Pointer
+		if len(args[1]) > 0 {
+
+			bs, err := hex.DecodeString(args[1])
+			if err != nil {
+				w.WriteString(fmt.Sprintf("Error: Invalid pageId key %s\n", args[1]))
+				return
+			}
+			pidItem = unsafe.Pointer(&bs[0])
+		}
+
+		pid := db.getPageId(pidItem, wr.wCtx)
+		if pid == nil {
+			w.WriteString(fmt.Sprintf("Error: PageId key %s not found\n", args[1]))
+			return
+		}
+
+		pg, err := db.ReadPage(pid, nil, false, wr.wCtx)
+		if err != nil {
+			w.WriteString(fmt.Sprintf("Error: pageRead err %v", err))
+			return
+		}
+		w.WriteString(prettyPrint(pg.(*page).head, itemStringer, wr.wCtx))
+		w.WriteString(fmt.Sprintln("memory_used:", pg.ComputeMemUsed()))
+	case "memoryUsage":
+		c := -1
+		db := getDB()
+		wr := getWr(db)
+		tx := wr.BeginTx()
+		defer wr.EndTx(tx)
+
+		callb := func(pid PageId, partn RangePartition) error {
+			c++
+			n := pid.(*skiplist.Node)
+			pg, err := db.ReadPage(pid, nil, false, wr.wCtx)
+			if err != nil {
+				w.WriteString(fmt.Sprintf("Error: pageRead err %v", err))
+				return fmt.Errorf("error")
+			}
+
+			deltaLen := pg.(*page).head.chainLen
+			numItems := pg.(*page).head.numItems
+			memUsed := pg.ComputeMemUsed()
+			if n.Item() == skiplist.MinItem {
+				w.WriteString(fmt.Sprintf("[%d] \"\" deltaLen:%d numItems:%d memused:%d\n", c, deltaLen, numItems, memUsed))
+				return nil
+			}
+
+			w.WriteString(fmt.Sprintf("[%d] %s deltaLen:%d numItems:%d memused:%d\n",
+				c, hexCodeKey(db, n.Item()), deltaLen, numItems, memUsed))
+			return nil
+		}
+
+		db.PageVisitor(callb, 1)
+	default:
+		w.WriteString(fmt.Sprintf("Invalid command: %s\n", cmd))
+
+	}
+	w.WriteString(fmt.Sprintf("-------------------------------------\n"))
 }
 
 func (d *diag) ListInstances() []*Plasma {
@@ -105,7 +207,8 @@ func (d *diag) HandleHttp(w http.ResponseWriter, r *http.Request) {
 	bytes, _ := ioutil.ReadAll(r.Body)
 	var req diagRequest
 	json.Unmarshal(bytes, &req)
-	s := d.Command(req.Cmd, req.Args...)
 	w.WriteHeader(200)
-	w.Write([]byte(s))
+	bufw := bufio.NewWriter(w)
+	d.Command(req.Cmd, bufw, req.Args...)
+	bufw.Flush()
 }
