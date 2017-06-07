@@ -91,6 +91,8 @@ type Plasma struct {
 	wCtxList *wCtx
 	gCtx     *wCtx
 
+	diagWr *Writer
+
 	logPrefix string
 }
 
@@ -1237,6 +1239,7 @@ func (w *Writer) CompactAll() {
 			staleFdSz := pg.Compact()
 			if updated := w.UpdateMapping(pid, pg, w.wCtx); updated {
 				w.wCtx.sts.FlushDataSz -= int64(staleFdSz)
+				w.wCtx.sts.Compacts++
 			}
 		}
 		return nil
