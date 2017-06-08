@@ -162,6 +162,9 @@ type Stats struct {
 	ReaderCacheHitRatio float64
 	ResidentRatio       float64
 	HolePunch           bool
+
+	LSSThrottled    bool
+	MemoryThrottled bool
 }
 
 func (s *Stats) Merge(o *Stats) {
@@ -247,7 +250,9 @@ func (s Stats) String() string {
 		"rcache_hits         = %d\n"+
 		"rcache_misses       = %d\n"+
 		"rcache_hit_ratio    = %.2f\n"+
-		"resident_ratio      = %.2f\n",
+		"resident_ratio      = %.2f\n"+
+		"mem_throttled       = %v\n"+
+		"lss_throttled       = %v\n",
 		atomic.LoadInt64(&memQuota),
 		s.HolePunch,
 		s.Inserts-s.Deletes,
@@ -268,7 +273,7 @@ func (s Stats) String() string {
 		s.NumLSSCleanerReads, s.LSSCleanerReadBytes,
 		s.CacheHits, s.CacheMisses, s.CacheHitRatio,
 		s.ReaderCacheHits, s.ReaderCacheMisses, s.ReaderCacheHitRatio,
-		s.ResidentRatio)
+		s.ResidentRatio, s.MemoryThrottled, s.LSSThrottled)
 }
 
 func New(cfg Config) (*Plasma, error) {
@@ -432,8 +437,17 @@ func (s *Plasma) monitorMemUsage() {
 			return
 		default:
 		}
-		s.hasMemoryResPressure = s.TriggerSwapper(sctx)
-		s.hasLSSResPressure = s.TriggerLSSCleaner(s.Config.LSSCleanerMaxThreshold, s.Config.LSSCleanerThrottleMinSize)
+
+		// Avoid unnecessary cache line invalidation ?
+		if v := s.TriggerSwapper(sctx); v != s.hasMemoryResPressure {
+			s.hasMemoryResPressure = v
+		}
+
+		if v := s.TriggerLSSCleaner(s.Config.LSSCleanerMaxThreshold,
+			s.Config.LSSCleanerThrottleMinSize); v != s.hasLSSResPressure {
+			s.hasLSSResPressure = v
+		}
+
 		time.Sleep(time.Millisecond * 100)
 	}
 }
@@ -806,6 +820,8 @@ func (s *Plasma) GetStats() Stats {
 	var sts, rdrSts Stats
 
 	sts.HolePunch = s.holePunch
+	sts.MemoryThrottled = s.hasMemoryResPressure
+	sts.LSSThrottled = s.hasLSSResPressure
 	sts.NumPages = int64(s.Skiplist.GetStats().NodeCount + 1)
 	for w := s.wCtxList; w != nil; w = w.next {
 		sts.Merge(w.sts)
