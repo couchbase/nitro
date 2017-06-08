@@ -17,7 +17,6 @@ import (
 	"github.com/couchbase/nitro/skiplist"
 	"io/ioutil"
 	"net/http"
-	"strconv"
 	"sync"
 	"unsafe"
 )
@@ -30,10 +29,10 @@ type diag struct {
 
 type diagRequest struct {
 	Cmd  string
-	Args []string
+	Args []interface{}
 }
 
-func (d *diag) Command(cmd string, w *bufio.Writer, args ...string) {
+func (d *diag) Command(cmd string, w *bufio.Writer, args ...interface{}) {
 	d.Lock()
 	defer d.Unlock()
 
@@ -44,8 +43,7 @@ func (d *diag) Command(cmd string, w *bufio.Writer, args ...string) {
 	}()
 
 	getDB := func() *Plasma {
-		arg0, _ := strconv.Atoi(args[0])
-		db := (*Plasma)(unsafe.Pointer(uintptr(arg0)))
+		db := (*Plasma)(unsafe.Pointer(uintptr(int(args[0].(float64)))))
 		return db
 	}
 
@@ -127,9 +125,9 @@ func (d *diag) Command(cmd string, w *bufio.Writer, args ...string) {
 		defer wr.EndTx(tx)
 
 		var pidItem unsafe.Pointer
-		if len(args[1]) > 0 {
+		if len(args) > 0 {
 
-			bs, err := hex.DecodeString(args[1])
+			bs, err := hex.DecodeString(args[1].(string))
 			if err != nil {
 				w.WriteString(fmt.Sprintf("Error: Invalid pageId key %s\n", args[1]))
 				return
@@ -180,6 +178,35 @@ func (d *diag) Command(cmd string, w *bufio.Writer, args ...string) {
 		}
 
 		db.PageVisitor(callb, 1)
+	case "rebalance":
+		db := getDB()
+		wr := getWr(db)
+
+		maxItems := db.Config.MaxPageItems
+		minItems := db.Config.MinPageItems
+		maxDeltas := db.Config.MaxDeltaChainLen
+		maxLSSSegments := db.Config.MaxPageLSSSegments
+
+		if len(args) == 1+4 {
+			maxItems = int(args[1].(float64))
+			minItems = int(args[2].(float64))
+			maxDeltas = int(args[3].(float64))
+			maxLSSSegments = int(args[4].(float64))
+		}
+
+		tx := wr.BeginTx()
+		defer wr.EndTx(tx)
+		callb := func(pid PageId, partn RangePartition) error {
+			pg, err := db.ReadPage(pid, nil, false, wr.wCtx)
+			if err != nil {
+				w.WriteString(fmt.Sprintf("Error: pageRead err %v", err))
+				return fmt.Errorf("error")
+			}
+			db.trySMOs2(pid, pg, wr.wCtx, false, maxItems, minItems, maxDeltas, maxLSSSegments)
+			return nil
+		}
+		db.PageVisitor(callb, 1)
+
 	default:
 		w.WriteString(fmt.Sprintf("Invalid command: %s\n", cmd))
 

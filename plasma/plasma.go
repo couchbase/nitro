@@ -974,9 +974,16 @@ func (s *Plasma) EndPageId() PageId {
 }
 
 func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
+	return s.trySMOs2(pid, pg, ctx, doUpdate, s.Config.MaxPageItems,
+		s.Config.MinPageItems, s.Config.MaxDeltaChainLen, s.Config.MaxPageLSSSegments)
+}
+
+func (s *Plasma) trySMOs2(pid PageId, pg Page, ctx *wCtx, doUpdate bool,
+	maxPageItems, minPageItems, maxDeltaChainLen, maxPageLSSSegments int) bool {
+
 	var updated bool
 
-	if pg.NeedCompaction(s.Config.MaxDeltaChainLen) {
+	if pg.NeedCompaction(maxDeltaChainLen) {
 		staleFdSz := pg.Compact()
 		if updated = s.UpdateMapping(pid, pg, ctx); updated {
 			ctx.sts.Compacts++
@@ -984,7 +991,7 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 		} else {
 			ctx.sts.CompactConflicts++
 		}
-	} else if pg.NeedSplit(s.Config.MaxPageItems) {
+	} else if pg.NeedSplit(maxPageItems) {
 		splitPid := s.AllocPageId(ctx)
 
 		var fdSz, splitFdSz, staleFdSz, numSegments, numSegmentsSplit int
@@ -1010,7 +1017,7 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 
 		// Replace one page with two pages
 		if s.shouldPersist {
-			pgBS, fdSz, staleFdSz, numSegments = pg.Marshal(pgBuf, s.Config.MaxPageLSSSegments)
+			pgBS, fdSz, staleFdSz, numSegments = pg.Marshal(pgBuf, maxPageLSSSegments)
 			splitPgBS, splitFdSz, _, numSegmentsSplit = newPg.Marshal(splitPgBuf, 1)
 
 			sizes := []int{
@@ -1047,7 +1054,7 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 				s.lss.FinalizeWrite(res)
 			}
 		}
-	} else if pg.NeedMerge(s.Config.MinPageItems) && s.isMergablePage(pid, ctx) {
+	} else if pg.NeedMerge(minPageItems) && s.isMergablePage(pid, ctx) {
 		// Closing a page makes it immutable. No writer will further append deltas
 		// If it is a swapped out page, bring the page components back to memory
 		s.tryPageSwapin(pg)
