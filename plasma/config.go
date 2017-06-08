@@ -35,11 +35,13 @@ type Config struct {
 	NumPersistorThreads int
 	NumEvictorThreads   int
 
-	LSSCleanerThreshold    int
-	LSSCleanerMaxThreshold int
-	LSSCleanerMinSize      int64
-	AutoLSSCleaning        bool
-	AutoSwapper            bool
+	LSSCleanerThreshold       int
+	LSSCleanerMaxThreshold    int
+	LSSCleanerMinSize         int64
+	LSSCleanerThrottleMinSize int64
+
+	AutoLSSCleaning bool
+	AutoSwapper     bool
 
 	EnableShapshots bool
 
@@ -125,11 +127,16 @@ func applyConfigDefaults(cfg Config) Config {
 		cfg.LSSCleanerMaxThreshold = cfg.LSSCleanerThreshold + 10
 	}
 
+	if cfg.LSSCleanerThrottleMinSize < cfg.LSSCleanerMinSize {
+		cfg.LSSCleanerThrottleMinSize = cfg.LSSCleanerMinSize
+	}
+
 	return cfg
 }
 
 func DefaultConfig() Config {
 	return Config{
+		UseCompression:   true,
 		MaxDeltaChainLen: 200,
 		MaxPageItems:     400,
 		MinPageItems:     25,
@@ -140,14 +147,15 @@ func DefaultConfig() Config {
 			}
 			return uintptr((*item)(itm).Size())
 		},
-		CopyItem:            copyItem,
-		CopyIndexKey:        copyItem,
-		FlushBufferSize:     1024 * 1024 * 1,
-		LSSCleanerThreshold: 10,
-		LSSCleanerMinSize:   1024 * 1024 * 1024,
-		AutoLSSCleaning:     true,
-		AutoSwapper:         false,
-		EnableShapshots:     true,
-		SyncInterval:        0,
+		CopyItem:                  copyItem,
+		CopyIndexKey:              copyItem,
+		FlushBufferSize:           1024 * 1024 * 1,
+		LSSCleanerThreshold:       10,
+		LSSCleanerMinSize:         16 * 1024 * 1024,
+		LSSCleanerThrottleMinSize: 1024 * 1024 * 1024,
+		AutoLSSCleaning:           true,
+		AutoSwapper:               false,
+		EnableShapshots:           true,
+		SyncInterval:              0,
 	}
 }

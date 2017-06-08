@@ -91,6 +91,8 @@ type Plasma struct {
 	wCtxList *wCtx
 	gCtx     *wCtx
 
+	diagWr *Writer
+
 	logPrefix string
 }
 
@@ -425,12 +427,21 @@ func (s *Plasma) monitorMemUsage() {
 		default:
 		}
 		s.hasMemoryResPressure = s.TriggerSwapper(sctx)
-		s.hasLSSResPressure = s.TriggerLSSCleaner(s.Config.LSSCleanerMaxThreshold, s.Config.LSSCleanerMinSize)
+		s.hasLSSResPressure = s.TriggerLSSCleaner(s.Config.LSSCleanerMaxThreshold, s.Config.LSSCleanerThrottleMinSize)
 		time.Sleep(time.Millisecond * 100)
 	}
 }
 
 func (s *Plasma) doInit() {
+	// Init seed page if page-0 does not exist even after recovery
+	if s.Skiplist.GetStats().NodeCount == 0 {
+		pid := s.StartPageId()
+		if pid.(*skiplist.Node).Link == nil {
+			pg := s.newSeedPage(s.gCtx)
+			s.CreateMapping(pid, pg, s.gCtx)
+		}
+	}
+
 	if s.EnableShapshots {
 		if s.currSn == 0 {
 			s.currSn = 1
@@ -530,38 +541,29 @@ func (s *Plasma) doRecovery() error {
 
 	s.trySMRObjects(s.gCtx, 0)
 
-	// Init seed page if page-0 does not exist even after recovery
-	if s.Skiplist.GetStats().NodeCount == 0 {
-		pid := s.StartPageId()
-		if pid.(*skiplist.Node).Link == nil {
-			pg := s.newSeedPage(s.gCtx)
-			s.CreateMapping(pid, pg, s.gCtx)
-		}
-	} else {
-		// Initialize rightSiblings for all pages
-		var lastPg Page
-		callb := func(pid PageId, partn RangePartition) error {
-			pg, err := s.ReadPage(pid, s.gCtx.pgRdrFn, false, s.gCtx)
-			if lastPg != nil {
-				if err == nil && s.cmp(lastPg.MaxItem(), pg.MinItem()) != 0 {
-					panic("found missing page")
-				}
-
-				lastPg.SetNext(pid)
-			}
-
-			lastPg = pg
-			return err
-		}
-
-		s.PageVisitor(callb, 1)
-		s.gcSn = s.currSn
-
+	// Initialize rightSiblings for all pages
+	var lastPg Page
+	callb := func(pid PageId, partn RangePartition) error {
+		pg, err := s.ReadPage(pid, s.gCtx.pgRdrFn, false, s.gCtx)
 		if lastPg != nil {
-			lastPg.SetNext(s.EndPageId())
-			if lastPg.MaxItem() != skiplist.MaxItem {
-				panic("invalid last page")
+			if err == nil && s.cmp(lastPg.MaxItem(), pg.MinItem()) != 0 {
+				panic("found missing page")
 			}
+
+			lastPg.SetNext(pid)
+		}
+
+		lastPg = pg
+		return err
+	}
+
+	s.PageVisitor(callb, 1)
+	s.gcSn = s.currSn
+
+	if lastPg != nil {
+		lastPg.SetNext(s.EndPageId())
+		if lastPg.MaxItem() != skiplist.MaxItem {
+			panic("invalid last page")
 		}
 	}
 
@@ -972,9 +974,16 @@ func (s *Plasma) EndPageId() PageId {
 }
 
 func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
+	return s.trySMOs2(pid, pg, ctx, doUpdate, s.Config.MaxPageItems,
+		s.Config.MinPageItems, s.Config.MaxDeltaChainLen, s.Config.MaxPageLSSSegments)
+}
+
+func (s *Plasma) trySMOs2(pid PageId, pg Page, ctx *wCtx, doUpdate bool,
+	maxPageItems, minPageItems, maxDeltaChainLen, maxPageLSSSegments int) bool {
+
 	var updated bool
 
-	if pg.NeedCompaction(s.Config.MaxDeltaChainLen) {
+	if pg.NeedCompaction(maxDeltaChainLen) {
 		staleFdSz := pg.Compact()
 		if updated = s.UpdateMapping(pid, pg, ctx); updated {
 			ctx.sts.Compacts++
@@ -982,7 +991,7 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 		} else {
 			ctx.sts.CompactConflicts++
 		}
-	} else if pg.NeedSplit(s.Config.MaxPageItems) {
+	} else if pg.NeedSplit(maxPageItems) {
 		splitPid := s.AllocPageId(ctx)
 
 		var fdSz, splitFdSz, staleFdSz, numSegments, numSegmentsSplit int
@@ -1008,7 +1017,7 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 
 		// Replace one page with two pages
 		if s.shouldPersist {
-			pgBS, fdSz, staleFdSz, numSegments = pg.Marshal(pgBuf, s.Config.MaxPageLSSSegments)
+			pgBS, fdSz, staleFdSz, numSegments = pg.Marshal(pgBuf, maxPageLSSSegments)
 			splitPgBS, splitFdSz, _, numSegmentsSplit = newPg.Marshal(splitPgBuf, 1)
 
 			sizes := []int{
@@ -1045,7 +1054,7 @@ func (s *Plasma) trySMOs(pid PageId, pg Page, ctx *wCtx, doUpdate bool) bool {
 				s.lss.FinalizeWrite(res)
 			}
 		}
-	} else if pg.NeedMerge(s.Config.MinPageItems) && s.isMergablePage(pid, ctx) {
+	} else if pg.NeedMerge(minPageItems) && s.isMergablePage(pid, ctx) {
 		// Closing a page makes it immutable. No writer will further append deltas
 		// If it is a swapped out page, bring the page components back to memory
 		s.tryPageSwapin(pg)
@@ -1072,7 +1081,7 @@ func (s *Plasma) tryThrottleForResources(ctx *wCtx) {
 	}
 
 	if s.hasLSSResPressure {
-		for s.TriggerLSSCleaner(s.Config.LSSCleanerMaxThreshold, s.Config.LSSCleanerMinSize) {
+		for s.TriggerLSSCleaner(s.Config.LSSCleanerMaxThreshold, s.Config.LSSCleanerThrottleMinSize) {
 			runtime.Gosched()
 		}
 	}
@@ -1237,6 +1246,7 @@ func (w *Writer) CompactAll() {
 			staleFdSz := pg.Compact()
 			if updated := w.UpdateMapping(pid, pg, w.wCtx); updated {
 				w.wCtx.sts.FlushDataSz -= int64(staleFdSz)
+				w.wCtx.sts.Compacts++
 			}
 		}
 		return nil

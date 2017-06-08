@@ -334,6 +334,32 @@ func TestPlasmaPersistor(t *testing.T) {
 	fmt.Println(s.GetStats())
 }
 
+func TestPlasmaRecoverySimple(t *testing.T) {
+	os.RemoveAll("teststore.data")
+	s := newTestIntPlasmaStore(testCfg)
+
+	w := s.NewWriter()
+	for i := 0; i < 10; i++ {
+		w.Insert(skiplist.NewIntKeyItem(i))
+	}
+	s.PersistAll()
+	s.Close()
+
+	s = newTestIntPlasmaStore(testCfg)
+	defer s.Close()
+
+	itr := s.NewIterator()
+	count := 0
+	for itr.SeekFirst(); itr.Valid(); itr.Next() {
+		v := skiplist.IntFromItem(itr.Get())
+		if count != v {
+			t.Errorf("expected %d, got %d", count, v)
+		}
+
+		count++
+	}
+}
+
 func TestPlasmaRecovery(t *testing.T) {
 	var wg sync.WaitGroup
 	os.RemoveAll("teststore.data")
