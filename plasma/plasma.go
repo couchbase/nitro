@@ -14,6 +14,7 @@ import (
 	"github.com/couchbase/nitro/mm"
 	"github.com/couchbase/nitro/skiplist"
 	"github.com/golang/snappy"
+	"os"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -93,6 +94,8 @@ type Plasma struct {
 
 	diagWr *Writer
 
+	holePunch bool
+
 	logPrefix string
 }
 
@@ -158,6 +161,7 @@ type Stats struct {
 	CacheHitRatio       float64
 	ReaderCacheHitRatio float64
 	ResidentRatio       float64
+	HolePunch           bool
 }
 
 func (s *Stats) Merge(o *Stats) {
@@ -245,7 +249,7 @@ func (s Stats) String() string {
 		"rcache_hit_ratio    = %.2f\n"+
 		"resident_ratio      = %.2f\n",
 		atomic.LoadInt64(&memQuota),
-		supportedHolePunch,
+		s.HolePunch,
 		s.Inserts-s.Deletes,
 		s.Compacts, s.Splits, s.Merges,
 		s.Inserts, s.Deletes, s.CompactConflicts,
@@ -344,8 +348,10 @@ func New(cfg Config) (*Plasma, error) {
 	dbInstances.Insert(unsafe.Pointer(s), ComparePlasma, sbuf, &dbInstances.Stats)
 
 	if s.shouldPersist {
+		os.MkdirAll(cfg.File, 0755)
+		s.holePunch = isHolePunchSupported(cfg.File)
 		commitDur := time.Duration(cfg.SyncInterval) * time.Second
-		s.lss, err = NewLSStore(cfg.File, cfg.LSSLogSegmentSize, cfg.FlushBufferSize, 2, cfg.UseMmap, commitDur)
+		s.lss, err = NewLSStore(cfg.File, cfg.LSSLogSegmentSize, cfg.FlushBufferSize, 2, cfg.UseMmap, s.holePunch, commitDur)
 		if err != nil {
 			return nil, err
 		}
@@ -799,6 +805,7 @@ func (s *Plasma) MemoryInUse() int64 {
 func (s *Plasma) GetStats() Stats {
 	var sts, rdrSts Stats
 
+	sts.HolePunch = s.holePunch
 	sts.NumPages = int64(s.Skiplist.GetStats().NodeCount + 1)
 	for w := s.wCtxList; w != nil; w = w.next {
 		sts.Merge(w.sts)
