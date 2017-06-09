@@ -74,11 +74,12 @@ type multiFilelog struct {
 
 	index *fileIndex
 
-	sync       bool
-	enableMmap bool
+	sync            bool
+	enableMmap      bool
+	enableHolePunch bool
 }
 
-func newLog(path string, segmentSize int64, sync bool, mmap bool) (Log, error) {
+func newLog(path string, segmentSize int64, sync bool, mmap bool, holePunch bool) (Log, error) {
 	var sbBuffer [logSBSize]byte
 	os.MkdirAll(path, 0755)
 	headerFile := filepath.Join(path, headerFileName)
@@ -93,15 +94,16 @@ func newLog(path string, segmentSize int64, sync bool, mmap bool) (Log, error) {
 	}
 
 	log := &multiFilelog{
-		segmentSize: segmentSize,
-		sbBuffer:    sbBuffer,
-		sbGen:       g + 1,
-		sbFd:        fd,
-		basePath:    path,
-		headOffset:  h,
-		tailOffset:  t,
-		enableMmap:  mmap,
-		sync:        sync,
+		segmentSize:     segmentSize,
+		sbBuffer:        sbBuffer,
+		sbGen:           g + 1,
+		sbFd:            fd,
+		basePath:        path,
+		headOffset:      h,
+		tailOffset:      t,
+		enableMmap:      mmap,
+		sync:            sync,
+		enableHolePunch: holePunch,
 	}
 
 	if err := log.initIndex(); err != nil {
@@ -323,7 +325,7 @@ func (l *multiFilelog) doGCSegments() {
 		}()
 
 		atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&l.index)), unsafe.Pointer(&newIdx))
-	} else if supportedHolePunch {
+	} else if l.enableHolePunch {
 		free := l.headOffset - idx.reclaimOffset
 		if free >= reclaimBlockSize {
 			lf := idx.index[0]

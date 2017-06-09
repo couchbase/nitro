@@ -16,12 +16,15 @@ import (
 	"os"
 )
 
-var supportedHolePunch = false
+var isHolePunchSupported func(path string) bool
+var punchHole func(f *os.File, offset, size int64) error
 
-func punchHole(f *os.File, offset, size int64) error {
-	if supportedHolePunch {
-		return nil
+func init() {
+	isHolePunchSupported = func(string) bool {
+		return false
 	}
 
-	return errors.New("Unsupported")
+	punchHole = func(f *os.File, offset, size int64) error {
+		return errors.New("Unsupported")
+	}
 }

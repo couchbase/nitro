@@ -22,7 +22,7 @@ var syncMode = true
 
 func TestLogOperation(t *testing.T) {
 	os.RemoveAll(logTestDataPath)
-	l, _ := newLog(logTestDataPath, 1024*1024, syncMode, false)
+	l, _ := newLog(logTestDataPath, 1024*1024, syncMode, false, false)
 	bs := make([]byte, 973)
 	n := 1024 * 20
 	for i := 0; i < n; i++ {
@@ -47,7 +47,7 @@ func TestLogOperation(t *testing.T) {
 
 	l.Close()
 
-	l, _ = newLog(logTestDataPath, 1024*1024, syncMode, false)
+	l, _ = newLog(logTestDataPath, 1024*1024, syncMode, false, false)
 
 	for i := 0; i < n; i++ {
 		copy(bs, []byte(fmt.Sprintf("hello %05d", i)))
@@ -63,7 +63,7 @@ func TestLogOperation(t *testing.T) {
 
 func TestLogLargeSize(t *testing.T) {
 	os.RemoveAll(logTestDataPath)
-	l, _ := newLog(logTestDataPath, 1024*10, syncMode, false)
+	l, _ := newLog(logTestDataPath, 1024*10, syncMode, false, false)
 	bs := make([]byte, 1024*1024)
 	for i, _ := range bs {
 		bs[i] = 1
@@ -82,7 +82,7 @@ func TestLogLargeSize(t *testing.T) {
 
 func TestLogTrim(t *testing.T) {
 	os.RemoveAll(logTestDataPath)
-	l, _ := newLog(logTestDataPath, 1024*1024, syncMode, false)
+	l, _ := newLog(logTestDataPath, 1024*1024, syncMode, false, false)
 	bs := make([]byte, 973)
 	bs2 := make([]byte, 973)
 	n := 1024 * 20
@@ -96,7 +96,7 @@ func TestLogTrim(t *testing.T) {
 	l.Commit()
 	l.Close()
 
-	l, _ = newLog(logTestDataPath, 1024*1024, syncMode, false)
+	l, _ = newLog(logTestDataPath, 1024*1024, syncMode, false, false)
 	l.Commit()
 
 	for i := 1024 * 10; i < n; i++ {
@@ -113,7 +113,7 @@ func TestLogTrim(t *testing.T) {
 
 func TestLogSuperblockCorruption(t *testing.T) {
 	os.RemoveAll(logTestDataPath)
-	l, _ := newLog(logTestDataPath, 1024*1024, syncMode, false)
+	l, _ := newLog(logTestDataPath, 1024*1024, syncMode, false, false)
 	bs := make([]byte, 973)
 	n := 1024 * 20
 	for i := 0; i < n/2; i++ {
@@ -143,7 +143,7 @@ func TestLogSuperblockCorruption(t *testing.T) {
 		w.Close()
 	}
 
-	l, err := newLog(logTestDataPath, 1024*1024, syncMode, false)
+	l, err := newLog(logTestDataPath, 1024*1024, syncMode, false, false)
 	if err != nil {
 		panic(err)
 	}
@@ -161,15 +161,24 @@ func TestLogTrimHolePunch(t *testing.T) {
 	os.RemoveAll(logTestDataPath)
 
 	rbSz := reclaimBlockSize
-	sHP := supportedHolePunch
+	sHP := isHolePunchSupported
+	hpFn := punchHole
 	defer func() {
 		reclaimBlockSize = rbSz
-		supportedHolePunch = sHP
+		isHolePunchSupported = sHP
+		punchHole = hpFn
 	}()
 
 	reclaimBlockSize = 1024 * 4
-	supportedHolePunch = true
-	l, _ := newLog(logTestDataPath, 1024*1024, syncMode, false)
+	isHolePunchSupported = func(string) bool {
+		return true
+	}
+
+	punchHole = func(f *os.File, offset, size int64) error {
+		return nil
+	}
+
+	l, _ := newLog(logTestDataPath, 1024*1024, syncMode, false, true)
 	bs := make([]byte, 1024)
 	n := 1024 * 10
 	for i := 0; i < n; i++ {

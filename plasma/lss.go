@@ -96,7 +96,8 @@ func (s *lsStore) BytesWritten() int64 {
 	return s.bytesWritten
 }
 
-func NewLSStore(path string, segSize int64, bufSize int, nbufs int, mmap bool, commitDur time.Duration) (LSS, error) {
+func NewLSStore(path string, segSize int64, bufSize int, nbufs int, mmap bool,
+	holePunch bool, commitDur time.Duration) (LSS, error) {
 	var err error
 
 	s := &lsStore{
@@ -109,7 +110,7 @@ func NewLSStore(path string, segSize int64, bufSize int, nbufs int, mmap bool, c
 		safeOffset:     func() LSSOffset { return expiredLSSOffset },
 	}
 
-	if s.log, err = newLog(path, segSize, commitDur == 0, mmap); err != nil {
+	if s.log, err = newLog(path, segSize, commitDur == 0, mmap, holePunch); err != nil {
 		return nil, err
 	}
 

@@ -58,8 +58,6 @@ func (d *diag) Command(cmd string, w *bufio.Writer, args ...interface{}) {
 	doPersist := func(evict bool) {
 		db := getDB()
 		wr := getWr(db)
-		tx := wr.BeginTx()
-		defer wr.EndTx(tx)
 
 		callb := func(pid PageId, partn RangePartition) error {
 			db.Persist(pid, evict, wr.wCtx)
@@ -90,8 +88,6 @@ func (d *diag) Command(cmd string, w *bufio.Writer, args ...interface{}) {
 		w.WriteString(db.GetStats().String())
 	case "compactAll":
 		wr := getWr(getDB())
-		tx := wr.BeginTx()
-		defer wr.EndTx(tx)
 		wr.CompactAll()
 	case "evictAll":
 		doPersist(true)
@@ -100,9 +96,6 @@ func (d *diag) Command(cmd string, w *bufio.Writer, args ...interface{}) {
 	case "listPids":
 		c := -1
 		db := getDB()
-		wr := getWr(db)
-		tx := wr.BeginTx()
-		defer wr.EndTx(tx)
 		callb := func(pid PageId, partn RangePartition) error {
 			c++
 			n := pid.(*skiplist.Node)
@@ -125,7 +118,7 @@ func (d *diag) Command(cmd string, w *bufio.Writer, args ...interface{}) {
 		defer wr.EndTx(tx)
 
 		var pidItem unsafe.Pointer
-		if len(args) > 0 {
+		if len(args[1].(string)) > 0 {
 
 			bs, err := hex.DecodeString(args[1].(string))
 			if err != nil {
@@ -152,8 +145,6 @@ func (d *diag) Command(cmd string, w *bufio.Writer, args ...interface{}) {
 		c := -1
 		db := getDB()
 		wr := getWr(db)
-		tx := wr.BeginTx()
-		defer wr.EndTx(tx)
 
 		callb := func(pid PageId, partn RangePartition) error {
 			c++
@@ -194,8 +185,6 @@ func (d *diag) Command(cmd string, w *bufio.Writer, args ...interface{}) {
 			maxLSSSegments = int(args[4].(float64))
 		}
 
-		tx := wr.BeginTx()
-		defer wr.EndTx(tx)
 		callb := func(pid PageId, partn RangePartition) error {
 			pg, err := db.ReadPage(pid, nil, false, wr.wCtx)
 			if err != nil {

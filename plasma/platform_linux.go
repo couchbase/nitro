@@ -15,23 +15,30 @@ import (
 	"syscall"
 )
 
-var supportedHolePunch bool
+var isHolePunchSupported func(path string) bool
+var punchHole func(f *os.File, offset, size int64) error
 
 func init() {
-	if f, err := ioutil.TempFile("", "test_holepunch"); err == nil {
-		if _, err := f.Write(make([]byte, 4096, 4096)); err == nil {
-			if punchHole(f, 0, 4096) == nil {
-				supportedHolePunch = true
+	isHolePunchSupported = func(path string) bool {
+		if f, err := ioutil.TempFile(path, "test_holepunch"); err == nil {
+			defer func() {
+				f.Close()
+				os.Remove(f.Name())
+			}()
+
+			if _, err := f.Write(make([]byte, 4096, 4096)); err == nil {
+				if punchHole(f, 0, 4096) == nil {
+					return true
+				}
 			}
 		}
 
-		f.Close()
-		os.Remove(f.Name())
+		return false
 	}
-}
 
-func punchHole(f *os.File, offset, size int64) error {
-	return syscall.Fallocate(int(f.Fd()),
-		FALLOC_FL_PUNCH_HOLE|FALLOC_FL_PUNCH_HOLEOC_FL_KEEP_SIZE, offset,
-		size)
+	punchHole = func(f *os.File, offset, size int64) error {
+		return syscall.Fallocate(int(f.Fd()),
+			FALLOC_FL_PUNCH_HOLE|FALLOC_FL_PUNCH_HOLEOC_FL_KEEP_SIZE, offset,
+			size)
+	}
 }
