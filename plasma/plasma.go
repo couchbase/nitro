@@ -204,55 +204,55 @@ func (s *Stats) Merge(o *Stats) {
 }
 
 func (s Stats) String() string {
-	return fmt.Sprintf("===== Stats =====\n"+
-		"memory_quota        = %d\n"+
-		"punch_hole_support  = %v\n"+
-		"count               = %d\n"+
-		"compacts            = %d\n"+
-		"splits              = %d\n"+
-		"merges              = %d\n"+
-		"inserts             = %d\n"+
-		"deletes             = %d\n"+
-		"compact_conflicts   = %d\n"+
-		"split_conflicts     = %d\n"+
-		"merge_conflicts     = %d\n"+
-		"insert_conflicts    = %d\n"+
-		"delete_conflicts    = %d\n"+
-		"swapin_conflicts    = %d\n"+
-		"memory_size         = %d\n"+
-		"memory_size_index   = %d\n"+
-		"allocated           = %d\n"+
-		"freed               = %d\n"+
-		"reclaimed           = %d\n"+
-		"reclaim_pending     = %d\n"+
-		"allocated_index     = %d\n"+
-		"freed_index         = %d\n"+
-		"reclaimed_index     = %d\n"+
-		"num_pages           = %d\n"+
-		"num_rec_allocs      = %d\n"+
-		"num_rec_frees       = %d\n"+
-		"num_rec_swapout     = %d\n"+
-		"num_rec_swapin      = %d\n"+
-		"bytes_incoming      = %d\n"+
-		"bytes_written       = %d\n"+
-		"write_amp           = %.2f\n"+
-		"write_amp_avg       = %.2f\n"+
-		"lss_fragmentation   = %d%%\n"+
-		"lss_data_size       = %d\n"+
-		"lss_used_space      = %d\n"+
-		"lss_num_reads       = %d\n"+
-		"lss_read_bs         = %d\n"+
-		"lss_gc_num_reads    = %d\n"+
-		"lss_gc_reads_bs     = %d\n"+
-		"cache_hits          = %d\n"+
-		"cache_misses        = %d\n"+
-		"cache_hit_ratio     = %.2f\n"+
-		"rcache_hits         = %d\n"+
-		"rcache_misses       = %d\n"+
-		"rcache_hit_ratio    = %.2f\n"+
-		"resident_ratio      = %.2f\n"+
-		"mem_throttled       = %v\n"+
-		"lss_throttled       = %v\n",
+	return fmt.Sprintf("{\n"+
+		"\"memory_quota\":         %d,\n"+
+		"\"punch_hole_support\":   %v,\n"+
+		"\"count\":                %d,\n"+
+		"\"compacts\":             %d,\n"+
+		"\"splits\":               %d,\n"+
+		"\"merges\":               %d,\n"+
+		"\"inserts\":              %d,\n"+
+		"\"deletes\":              %d,\n"+
+		"\"compact_conflicts\":    %d,\n"+
+		"\"split_conflicts\":      %d,\n"+
+		"\"merge_conflicts\":      %d,\n"+
+		"\"insert_conflicts\":     %d,\n"+
+		"\"delete_conflicts\":     %d,\n"+
+		"\"swapin_conflicts\":     %d,\n"+
+		"\"memory_size\":          %d,\n"+
+		"\"memory_size_index\":    %d,\n"+
+		"\"allocated\":            %d,\n"+
+		"\"freed\":                %d,\n"+
+		"\"reclaimed\":            %d,\n"+
+		"\"reclaim_pending\":      %d,\n"+
+		"\"allocated_index\":      %d,\n"+
+		"\"freed_index\":          %d,\n"+
+		"\"reclaimed_index\":      %d,\n"+
+		"\"num_pages\":            %d,\n"+
+		"\"num_rec_allocs\":       %d,\n"+
+		"\"num_rec_frees\":        %d,\n"+
+		"\"num_rec_swapout\":      %d,\n"+
+		"\"num_rec_swapin\":       %d,\n"+
+		"\"bytes_incoming\":       %d,\n"+
+		"\"bytes_written\":        %d,\n"+
+		"\"write_amp\":            %.2f,\n"+
+		"\"write_amp_avg\":        %.2f,\n"+
+		"\"lss_fragmentation\":    %d,\n"+
+		"\"lss_data_size\":        %d,\n"+
+		"\"lss_used_space\":       %d,\n"+
+		"\"lss_num_reads\":        %d,\n"+
+		"\"lss_read_bs\":          %d,\n"+
+		"\"lss_gc_num_reads\":     %d,\n"+
+		"\"lss_gc_reads_bs\":      %d,\n"+
+		"\"cache_hits\":           %d,\n"+
+		"\"cache_misses\":         %d,\n"+
+		"\"cache_hit_ratio\":      %.2f,\n"+
+		"\"rcache_hits\":          %d,\n"+
+		"\"rcache_misses\":        %d,\n"+
+		"\"rcache_hit_ratio\":     %.2f,\n"+
+		"\"resident_ratio\":       %.2f,\n"+
+		"\"mem_throttled\":        %v,\n"+
+		"\"lss_throttled\":        %v\n}",
 		atomic.LoadInt64(&memQuota),
 		s.HolePunch,
 		s.Inserts-s.Deletes,
