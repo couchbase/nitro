@@ -246,11 +246,11 @@ func (s Stats) String() string {
 		"\"lss_gc_reads_bs\":      %d,\n"+
 		"\"cache_hits\":           %d,\n"+
 		"\"cache_misses\":         %d,\n"+
-		"\"cache_hit_ratio\":      %.2f,\n"+
+		"\"cache_hit_ratio\":      %.5f,\n"+
 		"\"rcache_hits\":          %d,\n"+
 		"\"rcache_misses\":        %d,\n"+
-		"\"rcache_hit_ratio\":     %.2f,\n"+
-		"\"resident_ratio\":       %.2f,\n"+
+		"\"rcache_hit_ratio\":     %.5f,\n"+
+		"\"resident_ratio\":       %.5f,\n"+
 		"\"mem_throttled\":        %v,\n"+
 		"\"lss_throttled\":        %v\n}",
 		atomic.LoadInt64(&memQuota),
@@ -425,6 +425,10 @@ func (s *Plasma) runtimeStats() {
 			s.gCtx.sts.ReaderCacheHitRatio = float64(rdrHits) / tot
 		}
 		so = now
+
+		if now.NumRecordAllocs-now.NumRecordFrees <= 0 {
+			s.logInfo(fmt.Sprintf("Warning: not enough memory to hold records in memory. Stats:%s\n", now.String()))
+		}
 	}
 }
 
