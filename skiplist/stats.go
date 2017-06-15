@@ -43,10 +43,12 @@ func (report *StatsReport) Apply(s *Stats) {
 
 	report.SoftDeletes += s.softDeletes
 	report.NodeCount = totalNodes
-	report.NextPointersPerNode = float64(totalNextPtrs) / float64(totalNodes)
 	report.NodeAllocs += s.nodeAllocs
 	report.NodeFrees += s.nodeFrees
 	report.Memory += s.usedBytes
+	if totalNodes != 0 {
+		report.NextPointersPerNode = float64(totalNextPtrs) / float64(totalNodes)
+	}
 }
 
 // Stats keeps stats for a skiplist instance
@@ -107,26 +109,28 @@ func (s *Stats) Merge(sts *Stats) {
 	}
 }
 
-func (report StatsReport) String() string {
-	str := fmt.Sprintf(
-		"node_count             = %d\n"+
-			"soft_deletes           = %d\n"+
-			"read_conflicts         = %d\n"+
-			"insert_conflicts       = %d\n"+
-			"next_pointers_per_node = %.4f\n"+
-			"memory_used            = %d\n"+
-			"node_allocs            = %d\n"+
-			"node_frees             = %d\n\n",
-		report.NodeCount, report.SoftDeletes, report.ReadConflicts,
-		report.InsertConflicts, report.NextPointersPerNode, report.Memory,
-		report.NodeAllocs, report.NodeFrees)
+func (s StatsReport) String() string {
+	str := fmt.Sprintf("{\n"+
+		`"node_count":             %d,`+"\n"+
+		`"soft_deletes":           %d,`+"\n"+
+		`"read_conflicts":         %d,`+"\n"+
+		`"insert_conflicts":       %d,`+"\n"+
+		`"next_pointers_per_node": %.4f,`+"\n"+
+		`"memory_used":            %d,`+"\n"+
+		`"node_allocs":            %d,`+"\n"+
+		`"node_frees":             %d,`+"\n",
+		s.NodeCount, s.SoftDeletes, s.ReadConflicts, s.InsertConflicts,
+		s.NextPointersPerNode, s.Memory, s.NodeAllocs, s.NodeFrees)
 
-	str += "level_node_distribution:\n"
+	str += `"level_node_distribution":` + "{\n"
 
-	for i, c := range report.NodeDistribution {
-		str += fmt.Sprintf("level%d => %d\n", i, c)
+	for i, c := range s.NodeDistribution {
+		if i > 0 {
+			str += fmt.Sprintf(",\n")
+		}
+		str += fmt.Sprintf(`"level%d": %d`, i, c)
 	}
-
+	str += "\n}\n}"
 	return str
 }
 

@@ -94,10 +94,11 @@ func New(hfn HashFn, kfn EqualKeyFn) *NodeTable {
 
 // Stats returns nodetable statistics
 func (nt *NodeTable) Stats() string {
-	return fmt.Sprintf("\nFastHTCount = %d\n"+
-		"SlowHTCount = %d\n"+
-		"Conflicts   = %d\n"+
-		"MemoryInUse = %d\n",
+	return fmt.Sprintf("{\n"+
+		`"FastHTCount":  %d,`+"\n"+
+		`"SlowHTCount":  %d,`+"\n"+
+		`"Conflicts":   %d,`+"\n"+
+		`"MemoryInUse": %d`+"\n}",
 		nt.fastHTCount, nt.slowHTCount, nt.conflicts, nt.MemoryInUse())
 }
 
