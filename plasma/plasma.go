@@ -426,7 +426,8 @@ func (s *Plasma) runtimeStats() {
 		}
 		so = now
 
-		if now.NumRecordAllocs-now.NumRecordFrees <= 0 {
+		if now.NumRecordAllocs > 0 && s.hasMemoryResPressure &&
+			now.NumRecordAllocs-now.NumRecordFrees <= 0 {
 			s.logInfo(fmt.Sprintf("Warning: not enough memory to hold records in memory. Stats:%s\n", now.String()))
 		}
 	}
