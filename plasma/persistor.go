@@ -44,6 +44,9 @@ func getLSSBlockType(bs []byte) lssBlockType {
 }
 
 func (s *Plasma) Persist(pid PageId, evict bool, ctx *wCtx) Page {
+	ctx.HoldLSS()
+	defer ctx.UnHoldLSS()
+
 	buf := ctx.GetBuffer(bufPersist)
 retry:
 
