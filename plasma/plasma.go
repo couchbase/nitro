@@ -937,6 +937,7 @@ retry:
 
 	var metaBS, pgBS []byte
 
+	s.tryPageSwapin(pPg)
 	pPg.Merge(pg)
 
 	var offsets []LSSOffset

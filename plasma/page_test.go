@@ -70,6 +70,8 @@ func newTestPage() (*page, *storePtr) {
 		return uintptr(len(itms)) * unsafe.Sizeof(new(skiplist.IntKeyItem))
 	}
 
+	pg.ctx.Plasma = &Plasma{storeCtx: pg.storeCtx}
+
 	return pg, sp
 }
 
@@ -435,5 +437,54 @@ func BenchmarkPageIterator(b *testing.B) {
 		for itr.Init(); itr.Valid(); itr.Next() {
 		}
 		itr.Close()
+	}
+}
+
+func TestPageMergeCorrectness3(t *testing.T) {
+	pg, sp := newTestPage()
+	for i := 0; i < 1000; i++ {
+		bk := skiplist.NewIntKeyItem(i)
+		pg.Insert(bk)
+	}
+
+	pg.Compact()
+
+	readPg, _ := newTestPage()
+	var invalidRead = false
+	pg.ctx.pageReader = func(offset LSSOffset, ctx *wCtx,
+		aCtx *allocCtx, sCtx *storeCtx) (*page, error) {
+		if offset == 1000 || offset == 2000 {
+			invalidRead = true
+		}
+		return readPg, nil
+	}
+
+	split := pg.Split(sp)
+	pgPtr := pg.head
+	splitPgPtr := split.(*page).head
+
+	pg.Evict(1000, 1)
+	split.Evict(2000, 1)
+
+	// Swapin both parent and child page before the merge
+	split.SwapIn(splitPgPtr)
+	pg.SwapIn(pgPtr)
+	pg.Merge(split)
+
+	readPg.head = pg.head
+	pg.Evict(3000, 1)
+
+	i := 0
+	itr := pg.NewIterator()
+	for itr.SeekFirst(); itr.Valid(); itr.Next() {
+		v := skiplist.IntFromItem(itr.Get())
+		if v != i {
+			t.Errorf("expected %d, got %d", i, v)
+		}
+		i++
+	}
+
+	if invalidRead {
+		t.Errorf("Expected no invalid swapped out page reads")
 	}
 }
