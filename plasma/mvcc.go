@@ -387,7 +387,7 @@ func (s *Plasma) Rollback(rollRP *RecoveryPoint) (*Snapshot, error) {
 		w := s.persistWriters[partn.Shard]
 		pgBuf := w.GetBuffer(bufPersist)
 	retry:
-		if pg, err := s.ReadPage(pid, w.pgRdrFn, false, w); err == nil {
+		if pg, err := s.ReadPage(pid, false, w); err == nil {
 			pg.Rollback(start, end)
 			// NoFullMarshal ensures that no LSS read will be performed
 			// Marshal can be performed without considering lss safe-file-deletion

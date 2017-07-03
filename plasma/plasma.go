@@ -24,7 +24,7 @@ import (
 
 var ErrInvalidSnapshot = fmt.Errorf("Invalid plasma snapshot")
 
-type PageReader func(offset LSSOffset) (Page, error)
+type PageReader func(LSSOffset, *wCtx, *allocCtx, *storeCtx) (*page, error)
 
 const maxCtxBuffers = 9
 const (
@@ -502,7 +502,7 @@ func (s *Plasma) doRecovery() error {
 			rmPglow := getRmPageLow(bs)
 			pid := s.getPageId(rmPglow, s.gCtx)
 			if pid != nil {
-				currPg, err := s.ReadPage(pid, s.gCtx.pgRdrFn, false, s.gCtx)
+				currPg, err := s.ReadPage(pid, false, s.gCtx)
 				if err != nil {
 					return false, err
 				}
@@ -530,7 +530,7 @@ func (s *Plasma) doRecovery() error {
 			} else {
 				s.gCtx.sts.FlushDataSz += int64(flushDataSz)
 
-				currPg, err := s.ReadPage(pid, s.gCtx.pgRdrFn, false, s.gCtx)
+				currPg, err := s.ReadPage(pid, false, s.gCtx)
 				if err != nil {
 					return false, err
 				}
@@ -569,7 +569,7 @@ func (s *Plasma) doRecovery() error {
 	// Initialize rightSiblings for all pages
 	var lastPg Page
 	callb := func(pid PageId, partn RangePartition) error {
-		pg, err := s.ReadPage(pid, s.gCtx.pgRdrFn, false, s.gCtx)
+		pg, err := s.ReadPage(pid, false, s.gCtx)
 		if lastPg != nil {
 			if err == nil && s.cmp(lastPg.MaxItem(), pg.MinItem()) != 0 {
 				panic("found missing page")
@@ -658,7 +658,7 @@ type wCtx struct {
 	sts       *Stats
 	dbIter    *skiplist.Iterator
 
-	pgRdrFn PageReader
+	pageReader PageReader
 
 	pgAllocCtx *allocCtx
 
@@ -753,9 +753,7 @@ func (s *Plasma) newWCtx2() *wCtx {
 	}
 
 	ctx.dbIter = dbInstances.NewIterator(ComparePlasma, ctx.buf)
-	ctx.pgRdrFn = func(offset LSSOffset) (Page, error) {
-		return s.fetchPageFromLSS(offset, ctx)
-	}
+	ctx.pageReader = s.fetchPageFromLSS
 
 	return ctx
 }
@@ -919,7 +917,7 @@ retry:
 	}
 
 	pPid := PageId(parent)
-	pPg, err := s.ReadPage(pPid, ctx.pgRdrFn, true, ctx)
+	pPg, err := s.ReadPage(pPid, true, ctx)
 	if err != nil {
 		panic(err)
 	}
@@ -1126,7 +1124,7 @@ retry:
 refresh:
 	s.tryThrottleForResources(ctx)
 
-	if pg, err = s.ReadPage(pid, ctx.pgRdrFn, false, ctx); err != nil {
+	if pg, err = s.ReadPage(pid, false, ctx); err != nil {
 		return nil, nil, err
 	}
 
@@ -1216,11 +1214,7 @@ func (w *Writer) Lookup(itm unsafe.Pointer) (unsafe.Pointer, error) {
 	return ret, nil
 }
 
-func (s *Plasma) fetchPageFromLSS(baseOffset LSSOffset, ctx *wCtx) (*page, error) {
-	return s.fetchPageFromLSS2(baseOffset, ctx, ctx.pgAllocCtx, ctx.storeCtx)
-}
-
-func (s *Plasma) fetchPageFromLSS2(baseOffset LSSOffset, ctx *wCtx,
+func (s *Plasma) fetchPageFromLSS(baseOffset LSSOffset, ctx *wCtx,
 	aCtx *allocCtx, sCtx *storeCtx) (*page, error) {
 	pg := newPage2(nil, nil, ctx, sCtx, aCtx).(*page)
 	offset := baseOffset
@@ -1270,7 +1264,7 @@ func (s *Plasma) logInfo(msg string) {
 
 func (w *Writer) CompactAll() {
 	callb := func(pid PageId, partn RangePartition) error {
-		if pg, err := w.ReadPage(pid, nil, false, w.wCtx); err == nil {
+		if pg, err := w.ReadPage(pid, false, w.wCtx); err == nil {
 			staleFdSz := pg.Compact()
 			if updated := w.UpdateMapping(pid, pg, w.wCtx); updated {
 				w.wCtx.sts.FlushDataSz -= int64(staleFdSz)

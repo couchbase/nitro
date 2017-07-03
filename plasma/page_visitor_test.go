@@ -44,13 +44,13 @@ func TestPlasmaPageVisitor(t *testing.T) {
 			pidKeys = append(pidKeys, 0)
 		} else {
 
-			pg, _ := s.ReadPage(pid, nil, false, w[0].wCtx)
+			pg, _ := s.ReadPage(pid, false, w[0].wCtx)
 			pidKeys = append(pidKeys, skiplist.IntFromItem(pg.MinItem()))
 		}
 	}
 
 	callb := func(pid PageId, partn RangePartition) error {
-		pg, _ := s.ReadPage(pid, nil, false, w[partn.Shard].wCtx)
+		pg, _ := s.ReadPage(pid, false, w[partn.Shard].wCtx)
 		mu.Lock()
 		defer mu.Unlock()
 

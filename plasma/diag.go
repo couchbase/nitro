@@ -134,7 +134,7 @@ func (d *diag) Command(cmd string, w *bufio.Writer, args ...interface{}) {
 			return
 		}
 
-		pg, err := db.ReadPage(pid, nil, false, wr.wCtx)
+		pg, err := db.ReadPage(pid, false, wr.wCtx)
 		if err != nil {
 			w.WriteString(fmt.Sprintf("Error: pageRead err %v", err))
 			return
@@ -149,7 +149,7 @@ func (d *diag) Command(cmd string, w *bufio.Writer, args ...interface{}) {
 		callb := func(pid PageId, partn RangePartition) error {
 			c++
 			n := pid.(*skiplist.Node)
-			pg, err := db.ReadPage(pid, nil, false, wr.wCtx)
+			pg, err := db.ReadPage(pid, false, wr.wCtx)
 			if err != nil {
 				w.WriteString(fmt.Sprintf("Error: pageRead err %v", err))
 				return fmt.Errorf("error")
@@ -186,7 +186,7 @@ func (d *diag) Command(cmd string, w *bufio.Writer, args ...interface{}) {
 		}
 
 		callb := func(pid PageId, partn RangePartition) error {
-			pg, err := db.ReadPage(pid, nil, false, wr.wCtx)
+			pg, err := db.ReadPage(pid, false, wr.wCtx)
 			if err != nil {
 				w.WriteString(fmt.Sprintf("Error: pageRead err %v", err))
 				return fmt.Errorf("error")

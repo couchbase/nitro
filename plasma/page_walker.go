@@ -99,7 +99,7 @@ func (w *pageWalker) Next() {
 			var err error
 			sod := (*swapoutDelta)(unsafe.Pointer(w.currPd))
 			w.aCtx = new(allocCtx)
-			fetchPg, err := w.fetchPageFromLSS2(sod.offset, w.wCtx,
+			fetchPg, err := w.pageReader(sod.offset, w.wCtx,
 				w.aCtx, w.wCtx.storeCtx)
 			if err != nil {
 				panic(fmt.Sprintf("fatal: %v", err))
