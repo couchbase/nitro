@@ -1100,20 +1100,6 @@ func (s *Plasma) trySMOs2(pid PageId, pg Page, ctx *wCtx, doUpdate bool,
 	return updated
 }
 
-func (s *Plasma) tryThrottleForResources(ctx *wCtx) {
-	if s.hasMemoryResPressure {
-		for s.TriggerSwapper(ctx.SwapperContext()) {
-			time.Sleep(swapperWaitInterval)
-		}
-	}
-
-	if s.hasLSSResPressure {
-		for s.TriggerLSSCleaner(s.Config.LSSCleanerMaxThreshold, s.Config.LSSCleanerThrottleMinSize) {
-			runtime.Gosched()
-		}
-	}
-}
-
 func (s *Plasma) fetchPage(itm unsafe.Pointer, ctx *wCtx) (pid PageId, pg Page, err error) {
 retry:
 	if prev, curr, found := s.Skiplist.Lookup(itm, s.cmp, ctx.buf, ctx.slSts); found {
@@ -1123,8 +1109,6 @@ retry:
 	}
 
 refresh:
-	s.tryThrottleForResources(ctx)
-
 	if pg, err = s.ReadPage(pid, false, ctx); err != nil {
 		return nil, nil, err
 	}
@@ -1145,6 +1129,7 @@ refresh:
 }
 
 func (w *Writer) Insert(itm unsafe.Pointer) error {
+	w.tryThrottleForLSS()
 retry:
 	pid, pg, err := w.fetchPage(itm, w.wCtx)
 	if err != nil {
@@ -1172,6 +1157,7 @@ retry:
 }
 
 func (w *Writer) Delete(itm unsafe.Pointer) error {
+	w.tryThrottleForLSS()
 retry:
 	pid, pg, err := w.fetchPage(itm, w.wCtx)
 	if err != nil {
@@ -1321,4 +1307,20 @@ func (s *Plasma) tryPageSwapin(pg Page) bool {
 
 func (s *Plasma) ItemsCount() int64 {
 	return s.itemsCount
+}
+
+func (ctx *wCtx) tryThrottleForMemory() {
+	if ctx.hasMemoryResPressure {
+		for ctx.TriggerSwapper(ctx.SwapperContext()) {
+			time.Sleep(swapperWaitInterval)
+		}
+	}
+}
+
+func (s *wCtx) tryThrottleForLSS() {
+	if s.hasLSSResPressure {
+		for s.TriggerLSSCleaner(s.Config.LSSCleanerMaxThreshold, s.Config.LSSCleanerThrottleMinSize) {
+			runtime.Gosched()
+		}
+	}
 }

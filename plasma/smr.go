@@ -24,7 +24,7 @@ const (
 
 var (
 	smrChanBufSize         = runtime.NumCPU()
-	writerSMRBufferSize    = 500
+	writerSMRBufferSize    = 50
 	swapperSMRInterval     = 20
 	lssCleanerSMRInterval  = 20
 	pageVisitorSMRInterval = 100
@@ -49,6 +49,7 @@ func (s *wCtx) UnHoldLSS() {
 }
 
 func (s *wCtx) BeginTx() TxToken {
+	s.tryThrottleForMemory()
 	s.HoldLSS()
 	return TxToken(s.Skiplist.GetAccesBarrier().Acquire())
 }
