@@ -72,7 +72,7 @@ func (s *Plasma) tryEvictPages(ctx *wCtx) error {
 	sctx := ctx.SwapperContext()
 	for s.TriggerSwapper(sctx) {
 		h := s.acquireClockHandle()
-		tok := ctx.BeginTx()
+		tok := ctx.BeginTxNonThrottle()
 		pids := s.sweepClock(h)
 		s.releaseClockHandle(h)
 		for _, pid := range pids {

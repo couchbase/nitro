@@ -50,6 +50,9 @@ func (s *wCtx) UnHoldLSS() {
 
 func (s *wCtx) BeginTx() TxToken {
 	s.tryThrottleForMemory()
+	return s.BeginTxNonThrottle()
+}
+func (s *wCtx) BeginTxNonThrottle() TxToken {
 	s.HoldLSS()
 	return TxToken(s.Skiplist.GetAccesBarrier().Acquire())
 }
