@@ -241,12 +241,11 @@ func (s *Plasma) newSnapshot() (snap *Snapshot) {
 
 	var smrList [][]reclaimObject
 	for _, w := range s.wlist {
-		if s.useMemMgmt {
+		if s.useMemMgmt && s.EnableSnapshotSMR {
 			if len(w.wCtx.reclaimList) > 0 {
 				smrList = append(smrList, w.wCtx.reclaimList)
 				w.wCtx.reclaimList = nil
 			}
-
 		}
 
 		s.itemsCount += w.count
