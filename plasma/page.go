@@ -1201,9 +1201,17 @@ func (pg *page) IsEvictable() bool {
 		return false
 	}
 
-	switch pg.head.op {
+	pd := pg.head
+
+	switch pd.op {
 	case opFlushPageDelta, opRelocPageDelta:
 		return true
+	case opSwapinDelta:
+		pd = pd.next
+		switch pd.op {
+		case opSwapoutDelta, opFlushPageDelta, opRelocPageDelta:
+			return true
+		}
 	}
 
 	return false
@@ -1214,21 +1222,36 @@ func (pg *page) NeedsFlush() bool {
 		return false
 	}
 
-	switch pg.head.op {
+	pd := pg.head
+
+	switch pd.op {
 	case opFlushPageDelta, opRelocPageDelta, opPageRemoveDelta, opSwapoutDelta:
 		return false
+	case opSwapinDelta:
+		pd = pd.next
+		switch pd.op {
+		case opSwapoutDelta, opFlushPageDelta, opRelocPageDelta:
+			return false
+		}
 	}
 
 	return true
 }
 
 func (pg *page) GetFlushInfo() (LSSOffset, int, int) {
-	if pg.head.op == opFlushPageDelta || pg.head.op == opRelocPageDelta {
-		fpd := (*flushPageDelta)(unsafe.Pointer(pg.head))
+	pd := pg.head
+
+flushDelta:
+	switch pd.op {
+	case opFlushPageDelta, opRelocPageDelta:
+		fpd := (*flushPageDelta)(unsafe.Pointer(pd))
 		return fpd.offset, int(fpd.numSegments), int(fpd.flushDataSz)
-	} else if pg.head.op == opSwapoutDelta {
-		sod := (*swapoutDelta)(unsafe.Pointer(pg.head))
+	case opSwapoutDelta:
+		sod := (*swapoutDelta)(unsafe.Pointer(pd))
 		return sod.offset, int(sod.numSegments), 0
+	case opSwapinDelta:
+		pd = pd.next
+		goto flushDelta
 	}
 
 	panic(fmt.Sprintf("invalid delta op:%d", pg.head.op))
