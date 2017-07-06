@@ -312,7 +312,7 @@ func TestMVCCRecoveryPoint(t *testing.T) {
 
 	fmt.Printf("(1) Recovery points gcSn:%d, minRPSn:%v\n", s.gcSn, (*[]uint64)(s.rpSns))
 	for _, rpt := range s.GetRecoveryPoints() {
-		fmt.Printf("recovery_point sn:%d meta:%s\n", rpt.sn, string(rpt.meta))
+		fmt.Printf("recovery_point sn:%d meta:%s count:%d\n", rpt.sn, string(rpt.meta), rpt.count)
 	}
 
 	s.PersistAll()
@@ -323,13 +323,13 @@ func TestMVCCRecoveryPoint(t *testing.T) {
 
 	fmt.Printf("(2) Recovery points gcSn:%d, minRPSn:%v\n", s.gcSn, (*[]uint64)(s.rpSns))
 	for _, rpt := range s.GetRecoveryPoints() {
-		fmt.Printf("recovery_point sn:%d meta:%s\n", rpt.sn, string(rpt.meta))
+		fmt.Printf("recovery_point sn:%d meta:%s count:%d\n", rpt.sn, string(rpt.meta), rpt.count)
 	}
 
 	rpts = s.GetRecoveryPoints()
 	rb := rpts[2]
 	snap, _ := s.Rollback(rb)
-	fmt.Println("Rollbacked to", string(rb.meta))
+	fmt.Printf("Rollbacked to %s count:%d\n", string(rb.meta), rb.count)
 
 	itr := snap.NewIterator()
 	count := 0
@@ -339,7 +339,7 @@ func TestMVCCRecoveryPoint(t *testing.T) {
 
 	var expected1 int
 	fmt.Sscan(string(rb.meta), &expected1)
-	if count != expected1 {
+	if count != expected1 || int(rb.count) != expected1 {
 		t.Errorf("Expected %d, got %d", expected1, count)
 	}
 
@@ -364,13 +364,13 @@ func TestMVCCRecoveryPoint(t *testing.T) {
 	w = s.NewWriter()
 	fmt.Printf("(3) Recovery points gcSn:%d, minRPSn:%v\n", s.gcSn, (*[]uint64)(s.rpSns))
 	for _, rpt := range s.GetRecoveryPoints() {
-		fmt.Printf("recovery_point sn:%d meta:%s\n", rpt.sn, string(rpt.meta))
+		fmt.Printf("recovery_point sn:%d meta:%s count:%d\n", rpt.sn, string(rpt.meta), rpt.count)
 	}
 
 	rpts = s.GetRecoveryPoints()
 	rb = rpts[8]
 	snap, _ = s.Rollback(rb)
-	fmt.Println("Rollbacked to", string(rb.meta))
+	fmt.Printf("Rollbacked to %s count:%d\n", string(rb.meta), rb.count)
 
 	itr = snap.NewIterator()
 	count = 0
@@ -381,7 +381,7 @@ func TestMVCCRecoveryPoint(t *testing.T) {
 	var expected2 int
 	fmt.Sscan(string(rb.meta), &expected2)
 	expected2 = expected2 - 100000 + expected1
-	if count != expected2 {
+	if count != expected2 || int(rb.count) != expected2 {
 		t.Errorf("Expected %d, got %d", expected2, count)
 	}
 
