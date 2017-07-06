@@ -318,6 +318,10 @@ func (rp *RecoveryPoint) Meta() []byte {
 	return rp.meta
 }
 
+func (rp *RecoveryPoint) ItemsCount() int64 {
+	return rp.count
+}
+
 func (s *Plasma) updateRecoveryPoints(rps []*RecoveryPoint) {
 	if s.shouldPersist {
 		version := s.rpVersion + 1
