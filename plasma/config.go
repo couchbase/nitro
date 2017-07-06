@@ -54,7 +54,8 @@ type Config struct {
 	UseMemoryMgmt bool
 	UseMmap       bool
 
-	UseCompression bool
+	UseCompression     bool
+	DisableReadCaching bool
 }
 
 func applyConfigDefaults(cfg Config) Config {
