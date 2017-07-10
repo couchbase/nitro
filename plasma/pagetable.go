@@ -165,7 +165,7 @@ func (s *Plasma) discardDeltas(allocs []*pageDelta) {
 	}
 }
 
-func (s *Plasma) ReadPage(pid PageId, pgRdr PageReader, swapin bool, ctx *wCtx) (Page, error) {
+func (s *Plasma) ReadPage(pid PageId, swapin bool, ctx *wCtx) (Page, error) {
 	var pg Page
 	n := pid.(*skiplist.Node)
 

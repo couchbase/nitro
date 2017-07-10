@@ -387,21 +387,25 @@ func (s *Plasma) Rollback(rollRP *RecoveryPoint) (*Snapshot, error) {
 		w := s.persistWriters[partn.Shard]
 		pgBuf := w.GetBuffer(bufPersist)
 	retry:
-		if pg, err := s.ReadPage(pid, w.pgRdrFn, false, w); err == nil {
+		if pg, err := s.ReadPage(pid, false, w); err == nil {
 			pg.Rollback(start, end)
-			pgBuf, fdSz, staleFdSz, numSegments := pg.Marshal(pgBuf, s.Config.MaxPageLSSSegments)
+			// NoFullMarshal ensures that no LSS read will be performed
+			// Marshal can be performed without considering lss safe-file-deletion
+			pgBuf, fdSz, staleFdSz, numSegments := pg.Marshal(pgBuf, NoFullMarshal)
 			offset, wbuf, res := s.lss.ReserveSpace(len(pgBuf) + lssBlockTypeSize)
 			typ := pgFlushLSSType(pg, numSegments)
 			writeLSSBlock(wbuf, typ, pgBuf)
 			pg.AddFlushRecord(offset, fdSz, numSegments)
-			s.lss.FinalizeWrite(res)
-			w.sts.FlushDataSz += int64(fdSz) - int64(staleFdSz)
 
-			// May conflict with cleaner
-			if !s.UpdateMapping(pid, pg, w) {
+			// May conflict with the lss cleaner
+			if s.UpdateMapping(pid, pg, w) {
+				s.lss.FinalizeWrite(res)
+				w.sts.FlushDataSz += int64(fdSz) - int64(staleFdSz)
+			} else {
+				discardLSSBlock(wbuf)
+				s.lss.FinalizeWrite(res)
 				goto retry
 			}
-
 		} else {
 			return err
 		}

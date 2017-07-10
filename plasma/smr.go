@@ -38,16 +38,23 @@ type reclaimObject struct {
 
 type TxToken *skiplist.BarrierSession
 
-func (s *wCtx) BeginTx() TxToken {
+func (s *wCtx) HoldLSS() {
 	if s.lss != nil {
 		s.safeOffset = s.lss.HeadOffset()
 	}
+}
 
+func (s *wCtx) UnHoldLSS() {
+	s.safeOffset = expiredLSSOffset
+}
+
+func (s *wCtx) BeginTx() TxToken {
+	s.HoldLSS()
 	return TxToken(s.Skiplist.GetAccesBarrier().Acquire())
 }
 
 func (s *wCtx) EndTx(t TxToken) {
-	s.safeOffset = expiredLSSOffset
+	s.UnHoldLSS()
 	s.Skiplist.GetAccesBarrier().Release(t)
 }
 

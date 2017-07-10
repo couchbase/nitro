@@ -44,11 +44,13 @@ func getLSSBlockType(bs []byte) lssBlockType {
 }
 
 func (s *Plasma) Persist(pid PageId, evict bool, ctx *wCtx) Page {
+	ctx.HoldLSS()
+	defer ctx.UnHoldLSS()
+
 	buf := ctx.GetBuffer(bufPersist)
 retry:
 
-	// Never read from lss
-	pg, _ := s.ReadPage(pid, nil, false, ctx)
+	pg, _ := s.ReadPage(pid, false, ctx)
 	if pg.NeedsFlush() {
 		bs, dataSz, staleFdSz, numSegments := pg.Marshal(buf, s.Config.MaxPageLSSSegments)
 		offset, wbuf, res := s.lss.ReserveSpace(lssBlockTypeSize + len(bs))

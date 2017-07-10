@@ -62,7 +62,7 @@ func (s *Plasma) CleanLSS(proceed func() bool) error {
 			state, key := decodePageState(data)
 		retry:
 			if pid := s.getPageId(key, w); pid != nil {
-				if pg, err = s.ReadPage(pid, w.pgRdrFn, false, w); err != nil {
+				if pg, err = s.ReadPage(pid, false, w); err != nil {
 					return false, 0, err
 				}
 
