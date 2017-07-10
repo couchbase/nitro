@@ -98,6 +98,8 @@ type Plasma struct {
 
 	logPrefix string
 	logger    Logger
+
+	rbVersion int
 }
 
 func (s *Plasma) SetLogPrefix(prefix string) {
@@ -805,6 +807,10 @@ func (s *Plasma) NewReader() *Reader {
 
 func (r *Reader) NewSnapshotIterator(snap *Snapshot) (*MVCCIterator, error) {
 	if snap.db != r.iter.store {
+		return nil, ErrInvalidSnapshot
+	}
+
+	if snap.rbVersion != r.iter.store.rbVersion {
 		return nil, ErrInvalidSnapshot
 	}
 

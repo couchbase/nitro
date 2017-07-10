@@ -27,6 +27,7 @@ type Snapshot struct {
 	db       *Plasma
 
 	count     int64
+	rbVersion int
 	persisted bool
 	meta      []byte
 }
@@ -253,6 +254,7 @@ func (s *Plasma) newSnapshot() (snap *Snapshot) {
 	}
 
 	snap.count = s.itemsCount
+	snap.rbVersion = s.rbVersion
 	s.FreeObjects(smrList)
 
 	return
@@ -383,6 +385,7 @@ func (s *Plasma) Rollback(rollRP *RecoveryPoint) (*Snapshot, error) {
 	s.mvcc.Lock()
 	defer s.mvcc.Unlock()
 
+	s.rbVersion++
 	start := rollRP.sn + 1
 	end := s.currSn
 

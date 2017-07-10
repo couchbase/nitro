@@ -768,3 +768,47 @@ func TestReaderCacheStats(t *testing.T) {
 		t.Errorf("Expected 2 hits, got miss=%d, hit=%d", miss, hits)
 	}
 }
+
+func TestInvalidSnapshot(t *testing.T) {
+	os.RemoveAll("teststore.data")
+	s := newTestIntPlasmaStore(testSnCfg)
+
+	w := s.NewWriter()
+	for i := 1; i < 100000; i++ {
+		w.InsertKV([]byte(fmt.Sprintf("key-%10d", i)), []byte(fmt.Sprintf("val-%10d", i)))
+		if i%1000 == 0 {
+			snap := s.NewSnapshot()
+			if i%10000 == 0 {
+				snap.Open()
+				s.CreateRecoveryPoint(snap, []byte(fmt.Sprint(i)))
+			}
+			snap.Close()
+		}
+	}
+
+	snap0 := s.NewSnapshot()
+
+	rdr := s.NewReader()
+
+	rpt := s.GetRecoveryPoints()[0]
+	snapRb, _ := s.Rollback(rpt)
+	itr, err := rdr.NewSnapshotIterator(snap0)
+	if err != ErrInvalidSnapshot {
+		t.Errorf("Expected invalid snapshot after rollback")
+		itr.Close()
+	}
+	itr2, err := rdr.NewSnapshotIterator(snapRb)
+	if err != nil {
+		t.Errorf("Expected successfull iterator open")
+	} else {
+		itr2.Close()
+	}
+
+	snap2 := s.NewSnapshot()
+	itr2, err = rdr.NewSnapshotIterator(snap2)
+	if err != nil {
+		t.Errorf("Expected successfull iterator open")
+	} else {
+		itr2.Close()
+	}
+}
