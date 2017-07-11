@@ -352,6 +352,7 @@ func (pg *page) newFlushPageDelta(offset LSSOffset, dataSz int, numSegments int)
 	pd.offset = offset
 	pd.state.SetFlushed()
 	pd.flushDataSz = int32(dataSz)
+	pd.chainLen++
 	return pd
 }
 
