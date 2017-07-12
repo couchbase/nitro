@@ -17,6 +17,14 @@ import (
 
 func (s *Plasma) tryPageRelocation(pid PageId, pg Page, buf *Buffer, ctx *wCtx) (bool, LSSOffset) {
 	var ok bool
+	var staleCompactFdSz int
+
+	// Do not compete with compactions ran by main writer threads
+	// Log cleaner should compact only when deltalen exceeds threshold+2
+	if pg.NeedCompaction(s.Config.MaxDeltaChainLen + 2) {
+		staleCompactFdSz = pg.Compact()
+	}
+
 	bs, dataSz, staleSz, numSegments := pg.Marshal(buf, FullMarshal)
 	offset, wbuf, res := s.lss.ReserveSpace(lssBlockTypeSize + len(bs))
 	writeLSSBlock(wbuf, lssPageReloc, bs)
@@ -30,7 +38,7 @@ func (s *Plasma) tryPageRelocation(pid PageId, pg Page, buf *Buffer, ctx *wCtx) 
 	}
 
 	s.lss.FinalizeWrite(res)
-	s.lssCleanerWriter.sts.FlushDataSz += int64(dataSz) - int64(staleSz)
+	s.lssCleanerWriter.sts.FlushDataSz += int64(dataSz) - int64(staleSz) - int64(staleCompactFdSz)
 	relocEnd := lssBlockEndOffset(offset, wbuf)
 	s.trySMRObjects(ctx, lssCleanerSMRInterval)
 
@@ -48,7 +56,7 @@ func (s *Plasma) CleanLSS(proceed func() bool) error {
 	skipped := 0
 
 	callb := func(startOff, endOff LSSOffset, bs []byte) (cont bool, headOff LSSOffset, err error) {
-		tok := w.BeginTx()
+		tok := w.BeginTxNonThrottle()
 		defer w.EndTx(tok)
 
 		w.sts.LSSReadBytes += int64(len(bs))

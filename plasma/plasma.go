@@ -97,10 +97,17 @@ type Plasma struct {
 	holePunch bool
 
 	logPrefix string
+	logger    Logger
+
+	rbVersion int
 }
 
 func (s *Plasma) SetLogPrefix(prefix string) {
 	s.logPrefix = prefix
+}
+
+func (s *Plasma) SetLogger(l Logger) {
+	s.logger = l
 }
 
 type Stats struct {
@@ -286,6 +293,7 @@ func New(cfg Config) (*Plasma, error) {
 		stopmon:     make(chan struct{}),
 		stoplssgc:   make(chan struct{}),
 		stopswapper: make(chan struct{}),
+		logger:      &defaultLogger{},
 	}
 
 	slCfg := skiplist.DefaultConfig()
@@ -802,6 +810,10 @@ func (r *Reader) NewSnapshotIterator(snap *Snapshot) (*MVCCIterator, error) {
 		return nil, ErrInvalidSnapshot
 	}
 
+	if snap.rbVersion != r.iter.store.rbVersion {
+		return nil, ErrInvalidSnapshot
+	}
+
 	snap.Open()
 	r.iter.filter.(*snFilter).sn = snap.sn
 	r.iter.token = r.iter.BeginTx()
@@ -1100,20 +1112,6 @@ func (s *Plasma) trySMOs2(pid PageId, pg Page, ctx *wCtx, doUpdate bool,
 	return updated
 }
 
-func (s *Plasma) tryThrottleForResources(ctx *wCtx) {
-	if s.hasMemoryResPressure {
-		for s.TriggerSwapper(ctx.SwapperContext()) {
-			time.Sleep(swapperWaitInterval)
-		}
-	}
-
-	if s.hasLSSResPressure {
-		for s.TriggerLSSCleaner(s.Config.LSSCleanerMaxThreshold, s.Config.LSSCleanerThrottleMinSize) {
-			runtime.Gosched()
-		}
-	}
-}
-
 func (s *Plasma) fetchPage(itm unsafe.Pointer, ctx *wCtx) (pid PageId, pg Page, err error) {
 retry:
 	if prev, curr, found := s.Skiplist.Lookup(itm, s.cmp, ctx.buf, ctx.slSts); found {
@@ -1123,8 +1121,6 @@ retry:
 	}
 
 refresh:
-	s.tryThrottleForResources(ctx)
-
 	if pg, err = s.ReadPage(pid, false, ctx); err != nil {
 		return nil, nil, err
 	}
@@ -1145,6 +1141,7 @@ refresh:
 }
 
 func (w *Writer) Insert(itm unsafe.Pointer) error {
+	w.tryThrottleForLSS()
 retry:
 	pid, pg, err := w.fetchPage(itm, w.wCtx)
 	if err != nil {
@@ -1172,6 +1169,7 @@ retry:
 }
 
 func (w *Writer) Delete(itm unsafe.Pointer) error {
+	w.tryThrottleForLSS()
 retry:
 	pid, pg, err := w.fetchPage(itm, w.wCtx)
 	if err != nil {
@@ -1256,11 +1254,15 @@ loop:
 }
 
 func (s *Plasma) logError(err string) {
-	fmt.Printf("%sPlasma: (fatal error - %s)\n", s.logPrefix, err)
+	if s.logger != nil {
+		s.logger.Errorf("%sPlasma: (fatal error - %s)\n", s.logPrefix, err)
+	}
 }
 
 func (s *Plasma) logInfo(msg string) {
-	fmt.Printf("%sPlasma: %s\n", s.logPrefix, msg)
+	if s.logger != nil {
+		s.logger.Infof("%sPlasma: %s\n", s.logPrefix, msg)
+	}
 }
 
 func (w *Writer) CompactAll() {
@@ -1321,4 +1323,20 @@ func (s *Plasma) tryPageSwapin(pg Page) bool {
 
 func (s *Plasma) ItemsCount() int64 {
 	return s.itemsCount
+}
+
+func (ctx *wCtx) tryThrottleForMemory() {
+	if ctx.hasMemoryResPressure {
+		for ctx.TriggerSwapper(ctx.SwapperContext()) {
+			time.Sleep(swapperWaitInterval)
+		}
+	}
+}
+
+func (s *wCtx) tryThrottleForLSS() {
+	if s.hasLSSResPressure {
+		for s.TriggerLSSCleaner(s.Config.LSSCleanerMaxThreshold, s.Config.LSSCleanerThrottleMinSize) {
+			runtime.Gosched()
+		}
+	}
 }

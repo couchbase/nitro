@@ -27,6 +27,7 @@ type Snapshot struct {
 	db       *Plasma
 
 	count     int64
+	rbVersion int
 	persisted bool
 	meta      []byte
 }
@@ -241,12 +242,11 @@ func (s *Plasma) newSnapshot() (snap *Snapshot) {
 
 	var smrList [][]reclaimObject
 	for _, w := range s.wlist {
-		if s.useMemMgmt {
+		if s.useMemMgmt && s.EnableSnapshotSMR {
 			if len(w.wCtx.reclaimList) > 0 {
 				smrList = append(smrList, w.wCtx.reclaimList)
 				w.wCtx.reclaimList = nil
 			}
-
 		}
 
 		s.itemsCount += w.count
@@ -254,6 +254,7 @@ func (s *Plasma) newSnapshot() (snap *Snapshot) {
 	}
 
 	snap.count = s.itemsCount
+	snap.rbVersion = s.rbVersion
 	s.FreeObjects(smrList)
 
 	return
@@ -318,6 +319,10 @@ func (rp *RecoveryPoint) Meta() []byte {
 	return rp.meta
 }
 
+func (rp *RecoveryPoint) ItemsCount() int64 {
+	return rp.count
+}
+
 func (s *Plasma) updateRecoveryPoints(rps []*RecoveryPoint) {
 	if s.shouldPersist {
 		version := s.rpVersion + 1
@@ -380,6 +385,7 @@ func (s *Plasma) Rollback(rollRP *RecoveryPoint) (*Snapshot, error) {
 	s.mvcc.Lock()
 	defer s.mvcc.Unlock()
 
+	s.rbVersion++
 	start := rollRP.sn + 1
 	end := s.currSn
 

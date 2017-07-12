@@ -54,7 +54,9 @@ type Config struct {
 	UseMemoryMgmt bool
 	UseMmap       bool
 
-	UseCompression bool
+	UseCompression     bool
+	DisableReadCaching bool
+	EnableSnapshotSMR  bool
 }
 
 func applyConfigDefaults(cfg Config) Config {
@@ -157,5 +159,6 @@ func DefaultConfig() Config {
 		AutoSwapper:               false,
 		EnableShapshots:           true,
 		SyncInterval:              0,
+		EnableSnapshotSMR:         true,
 	}
 }

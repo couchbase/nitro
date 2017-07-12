@@ -65,6 +65,7 @@ func (d *diag) Command(cmd string, w *bufio.Writer, args ...interface{}) {
 		}
 
 		db.PageVisitor(callb, 1)
+		db.trySMRObjects(wr.wCtx, 0)
 	}
 
 	hexCodeKey := func(db *Plasma, itm unsafe.Pointer) string {
@@ -87,8 +88,10 @@ func (d *diag) Command(cmd string, w *bufio.Writer, args ...interface{}) {
 		db := getDB()
 		w.WriteString(db.GetStats().String())
 	case "compactAll":
-		wr := getWr(getDB())
+		db := getDB()
+		wr := getWr(db)
 		wr.CompactAll()
+		db.trySMRObjects(wr.wCtx, 0)
 	case "evictAll":
 		doPersist(true)
 	case "persistAll":
@@ -195,6 +198,7 @@ func (d *diag) Command(cmd string, w *bufio.Writer, args ...interface{}) {
 			return nil
 		}
 		db.PageVisitor(callb, 1)
+		db.trySMRObjects(wr.wCtx, 0)
 
 	default:
 		w.WriteString(fmt.Sprintf("Invalid command: %s\n", cmd))
