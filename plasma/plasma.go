@@ -642,7 +642,18 @@ func ComparePlasma(a, b unsafe.Pointer) int {
 
 type Writer struct {
 	*wCtx
-	count int64
+	count   int64
+	txToken TxToken
+}
+
+func (w *Writer) Begin() {
+	w.tryThrottleForMemory()
+	w.tryThrottleForLSS()
+	w.txToken = w.BeginTx()
+}
+
+func (w *Writer) End() {
+	w.EndTx(w.txToken)
 }
 
 type Reader struct {
@@ -814,6 +825,7 @@ func (r *Reader) NewSnapshotIterator(snap *Snapshot) (*MVCCIterator, error) {
 		return nil, ErrInvalidSnapshot
 	}
 
+	r.iter.tryThrottleForMemory()
 	snap.Open()
 	r.iter.filter.(*snFilter).sn = snap.sn
 	r.iter.token = r.iter.BeginTx()
@@ -1141,7 +1153,6 @@ refresh:
 }
 
 func (w *Writer) Insert(itm unsafe.Pointer) error {
-	w.tryThrottleForLSS()
 retry:
 	pid, pg, err := w.fetchPage(itm, w.wCtx)
 	if err != nil {
@@ -1169,7 +1180,6 @@ retry:
 }
 
 func (w *Writer) Delete(itm unsafe.Pointer) error {
-	w.tryThrottleForLSS()
 retry:
 	pid, pg, err := w.fetchPage(itm, w.wCtx)
 	if err != nil {

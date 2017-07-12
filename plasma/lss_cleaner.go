@@ -56,7 +56,7 @@ func (s *Plasma) CleanLSS(proceed func() bool) error {
 	skipped := 0
 
 	callb := func(startOff, endOff LSSOffset, bs []byte) (cont bool, headOff LSSOffset, err error) {
-		tok := w.BeginTxNonThrottle()
+		tok := w.BeginTx()
 		defer w.EndTx(tok)
 
 		w.sts.LSSReadBytes += int64(len(bs))
