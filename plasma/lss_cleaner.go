@@ -20,8 +20,8 @@ func (s *Plasma) tryPageRelocation(pid PageId, pg Page, buf *Buffer, ctx *wCtx) 
 	var staleCompactFdSz int
 
 	// Do not compete with compactions ran by main writer threads
-	// Log cleaner should compact only when deltalen exceeds 2x threshold
-	if pg.NeedCompaction(s.Config.MaxDeltaChainLen * 2) {
+	// Log cleaner should compact only when deltalen exceeds threshold+2
+	if pg.NeedCompaction(s.Config.MaxDeltaChainLen + 2) {
 		staleCompactFdSz = pg.Compact()
 	}
 

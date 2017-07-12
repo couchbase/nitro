@@ -417,9 +417,9 @@ func (pg *page) newBasePage(itms []unsafe.Pointer) *pageDelta {
 
 	bp := pg.allocBasePage(n, sz, hiItm)
 	bp.op = opBasePage
+	bp.chainLen = 0
 	bp.numItems = uint16(n)
 	bp.state = 0
-	bp.numItems = uint16(n)
 	pg.copyItemRun(itms, bp.items, bp.data)
 	bp.rightSibling = pg.head.rightSibling
 
