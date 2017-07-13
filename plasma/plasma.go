@@ -44,6 +44,7 @@ const recoverySMRInterval = 100
 
 var (
 	memQuota       int64
+	activeMemQuota int64
 	maxMemoryQuota = int64(1024 * 1024 * 1024 * 1024)
 	dbInstances    *skiplist.Skiplist
 )
@@ -1291,6 +1292,7 @@ func (w *Writer) CompactAll() {
 }
 
 func SetMemoryQuota(m int64) {
+	atomic.StoreInt64(&activeMemQuota, m)
 	atomic.StoreInt64(&memQuota, m)
 }
 
