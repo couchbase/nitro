@@ -22,6 +22,7 @@ import (
 	"unsafe"
 )
 
+var logger Logger
 var ErrInvalidSnapshot = fmt.Errorf("Invalid plasma snapshot")
 
 type PageReader func(LSSOffset, *wCtx, *allocCtx, *storeCtx) (*page, error)
@@ -50,6 +51,7 @@ var (
 func init() {
 	dbInstances = skiplist.New()
 	SetMemoryQuota(maxMemoryQuota)
+	SetLogger(&defaultLogger{})
 }
 
 type Plasma struct {
@@ -97,7 +99,6 @@ type Plasma struct {
 	holePunch bool
 
 	logPrefix string
-	logger    Logger
 
 	rbVersion int
 }
@@ -106,8 +107,8 @@ func (s *Plasma) SetLogPrefix(prefix string) {
 	s.logPrefix = prefix
 }
 
-func (s *Plasma) SetLogger(l Logger) {
-	s.logger = l
+func SetLogger(l Logger) {
+	logger = l
 }
 
 type Stats struct {
@@ -293,7 +294,6 @@ func New(cfg Config) (*Plasma, error) {
 		stopmon:     make(chan struct{}),
 		stoplssgc:   make(chan struct{}),
 		stopswapper: make(chan struct{}),
-		logger:      &defaultLogger{},
 	}
 
 	slCfg := skiplist.DefaultConfig()
@@ -1264,14 +1264,14 @@ loop:
 }
 
 func (s *Plasma) logError(err string) {
-	if s.logger != nil {
-		s.logger.Errorf("%sPlasma: (fatal error - %s)\n", s.logPrefix, err)
+	if logger != nil {
+		logger.Errorf("%sPlasma: (fatal error - %s)\n", s.logPrefix, err)
 	}
 }
 
 func (s *Plasma) logInfo(msg string) {
-	if s.logger != nil {
-		s.logger.Infof("%sPlasma: %s\n", s.logPrefix, msg)
+	if logger != nil {
+		logger.Infof("%sPlasma: %s\n", s.logPrefix, msg)
 	}
 }
 
