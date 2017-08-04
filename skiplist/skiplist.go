@@ -112,6 +112,7 @@ func NewWithConfig(cfg Config) *Skiplist {
 
 	for i := 0; i <= MaxLevel; i++ {
 		head.setNext(i, tail, false)
+		tail.setNext(i, nil, false)
 	}
 
 	s.head = head
