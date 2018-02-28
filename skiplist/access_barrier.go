@@ -10,7 +10,6 @@
 package skiplist
 
 import (
-	"fmt"
 	"math"
 	"sync"
 	"sync/atomic"
