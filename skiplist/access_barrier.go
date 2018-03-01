@@ -171,6 +171,8 @@ func (ab *AccessBarrier) Release(bs *BarrierSession) {
 					atomic.CompareAndSwapInt32(&ab.isDestructorRunning, 1, 0)
 				}
 			}
+		} else if liveCount < 0 || liveCount == barrierFlushOffset-1 {
+			panic("Unsafe memory reclamation detected")
 		}
 	}
 }
