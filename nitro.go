@@ -36,6 +36,8 @@ var (
 	ErrMaxSnapshotsLimitReached = fmt.Errorf("Maximum snapshots limit reached")
 	// ErrShutdown means an operation on a shutdown Nitro instance
 	ErrShutdown = fmt.Errorf("Nitro instance has been shutdown")
+	// ErrCorruptSnapshot means checksum on the persisted snapshot failed.
+	ErrCorruptSnapshot = fmt.Errorf("Nitro snapshot checksum failed")
 )
 
 // KeyCompare implements item data key comparator
@@ -899,6 +901,7 @@ func (m *Nitro) StoreToDisk(dir string, snap *Snapshot, concurr int, itmCallback
 
 	writers := make([]FileWriter, shards)
 	files := make([]string, shards)
+	checksums := make([]uint32, shards)
 	defer func() {
 		for _, w := range writers {
 			if w != nil {
@@ -923,6 +926,7 @@ func (m *Nitro) StoreToDisk(dir string, snap *Snapshot, concurr int, itmCallback
 	if m.useDeltaFiles {
 		deltaWriters := make([]FileWriter, m.numWriters())
 		deltaFiles := make([]string, m.numWriters())
+		deltaChecksums := make([]uint32, m.numWriters())
 		defer func() {
 			for _, w := range deltaWriters {
 				if w != nil {
@@ -962,6 +966,13 @@ func (m *Nitro) StoreToDisk(dir string, snap *Snapshot, concurr int, itmCallback
 			if err = m.changeDeltaWrState(dwStateTerminate, nil, nil); err == nil {
 				bs, _ := json.Marshal(deltaFiles)
 				err = ioutil.WriteFile(filepath.Join(deltadir, "files.json"), bs, 0660)
+				if err == nil {
+					for id, dwr := range deltaWriters {
+						deltaChecksums[id] = dwr.Checksum()
+					}
+					bs, _ = json.Marshal(deltaChecksums)
+					err = ioutil.WriteFile(filepath.Join(deltadir, "checksums.json"), bs, 0660)
+				}
 			}
 		}()
 	}
@@ -988,6 +999,13 @@ func (m *Nitro) StoreToDisk(dir string, snap *Snapshot, concurr int, itmCallback
 		if err = m.Visitor(snap, visitorCallback, shards, concurr); err == nil {
 			bs, _ := json.Marshal(files)
 			err = ioutil.WriteFile(filepath.Join(datadir, "files.json"), bs, 0660)
+			if err == nil {
+				for id, wr := range writers {
+					checksums[id] = wr.Checksum()
+				}
+				bs, _ = json.Marshal(checksums)
+				err = ioutil.WriteFile(filepath.Join(datadir, "checksums.json"), bs, 0660)
+			}
 		}
 	}
 
@@ -1000,6 +1018,8 @@ func (m *Nitro) LoadFromDisk(dir string, concurr int, callb ItemCallback) (*Snap
 	var files []string
 	var bs []byte
 	var err error
+	var checksums []uint32
+
 	manifestdir := dir
 	var version int
 
@@ -1019,6 +1039,12 @@ func (m *Nitro) LoadFromDisk(dir string, concurr int, callb ItemCallback) (*Snap
 		return nil, err
 	}
 	json.Unmarshal(bs, &files)
+
+	if bs, err := ioutil.ReadFile(filepath.Join(datadir, "checksums.json")); err == nil {
+		json.Unmarshal(bs, &checksums)
+	} else {
+		checksums = make([]uint32, len(files))
+	}
 
 	var nodeCallb skiplist.NodeCallback
 	wchan := make(chan int)
@@ -1083,6 +1109,11 @@ func (m *Nitro) LoadFromDisk(dir string, concurr int, callb ItemCallback) (*Snap
 	}
 	close(wchan)
 	wg.Wait()
+	for i, rdr := range readers {
+		if checksums[i] != 0 && checksums[i] != rdr.Checksum() {
+			return nil, ErrCorruptSnapshot
+		}
+	}
 
 	for _, err := range errors {
 		if err != nil {
@@ -1107,6 +1138,10 @@ func (m *Nitro) LoadFromDisk(dir string, concurr int, callb ItemCallback) (*Snap
 		readers := make([]FileReader, len(files))
 		errors := make([]error, len(files))
 		writers := make([]*Writer, concurr)
+		deltaChecksums := make([]uint32, len(files))
+		if bs, err := ioutil.ReadFile(filepath.Join(deltadir, "checksums.json")); err == nil {
+			json.Unmarshal(bs, &deltaChecksums)
+		}
 
 		defer func() {
 			for _, r := range readers {
@@ -1174,6 +1209,12 @@ func (m *Nitro) LoadFromDisk(dir string, concurr int, callb ItemCallback) (*Snap
 		}
 		close(wchan)
 		wg.Wait()
+
+		for i, rdr := range readers {
+			if deltaChecksums[i] != 0 && deltaChecksums[i] != rdr.Checksum() {
+				return nil, ErrCorruptSnapshot
+			}
+		}
 
 		for _, err := range errors {
 			if err != nil {

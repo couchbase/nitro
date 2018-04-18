@@ -12,6 +12,7 @@ package nitro
 import (
 	"bytes"
 	"encoding/binary"
+	"hash/crc32"
 	"io"
 	"reflect"
 	"unsafe"
@@ -58,49 +59,59 @@ func (m *Nitro) allocItem(l int, useMM bool) (itm *Item) {
 }
 
 // EncodeItem encodes in [4 byte len][item_bytes] format.
-func (m *Nitro) EncodeItem(itm *Item, buf []byte, w io.Writer) error {
+func (m *Nitro) EncodeItem(itm *Item, buf []byte, w io.Writer) (
+	checksum uint32, err error) {
 	l := 4
 	if len(buf) < l {
-		return errNotEnoughSpace
+		return checksum, errNotEnoughSpace
 	}
 
 	binary.BigEndian.PutUint32(buf[0:4], uint32(itm.dataLen))
-	if _, err := w.Write(buf[0:4]); err != nil {
-		return err
+	if _, err = w.Write(buf[0:4]); err != nil {
+		return
 	}
-	if _, err := w.Write(itm.Bytes()); err != nil {
-		return err
+	checksum = crc32.ChecksumIEEE(buf[0:4])
+	itmBytes := itm.Bytes()
+	if _, err = w.Write(itmBytes); err != nil {
+		return
 	}
+	checksum = checksum ^ crc32.ChecksumIEEE(itmBytes)
 
-	return nil
+	return
 }
 
 // DecodeItem decodes encoded item
 // v0: [2 byte len][item_bytes] format.
 // v1: [4 byte len][item_bytes] format.
-func (m *Nitro) DecodeItem(ver int, buf []byte, r io.Reader) (*Item, error) {
+func (m *Nitro) DecodeItem(ver int, buf []byte, r io.Reader) (*Item, uint32, error) {
 	var l int
+	var checksum uint32
 
 	if ver == 0 {
 		if _, err := io.ReadFull(r, buf[0:2]); err != nil {
-			return nil, err
+			return nil, checksum, err
 		}
 		l = int(binary.BigEndian.Uint16(buf[0:2]))
+		checksum = crc32.ChecksumIEEE(buf[0:2])
 	} else {
 		if _, err := io.ReadFull(r, buf[0:4]); err != nil {
-			return nil, err
+			return nil, checksum, err
 		}
 		l = int(binary.BigEndian.Uint32(buf[0:4]))
+		checksum = crc32.ChecksumIEEE(buf[0:4])
 	}
 
 	if l > 0 {
 		itm := m.allocItem(l, m.useMemoryMgmt)
 		data := itm.Bytes()
 		_, err := io.ReadFull(r, data)
-		return itm, err
+		if err == nil {
+			checksum = checksum ^ crc32.ChecksumIEEE(data)
+		}
+		return itm, checksum, err
 	}
 
-	return nil, nil
+	return nil, checksum, nil
 }
 
 // Bytes return item data bytes

@@ -15,6 +15,7 @@ import "os"
 import "testing"
 import "time"
 import "math/rand"
+import "path/filepath"
 import "sync"
 import "runtime"
 import "encoding/binary"
@@ -734,4 +735,51 @@ func TestCloseWithActiveIterators(t *testing.T) {
 	db.Close()
 	wg.Wait()
 
+}
+
+func TestDiskCorruption(t *testing.T) {
+	os.RemoveAll("db.dump")
+	var wg sync.WaitGroup
+	db := NewWithConfig(testConf)
+	defer db.Close()
+	n := 100000
+	t0 := time.Now()
+	for i := 0; i < runtime.GOMAXPROCS(0); i++ {
+		wg.Add(1)
+		go doInsert(db, &wg, n/runtime.GOMAXPROCS(0), true, true)
+	}
+	wg.Wait()
+	fmt.Printf("Inserting %v items took %v\n", n, time.Since(t0))
+	snap0, _ := db.NewSnapshot()
+	defer snap0.Close()
+	snap, _ := db.NewSnapshot()
+	fmt.Println(db.DumpStats())
+
+	t0 = time.Now()
+	err := db.StoreToDisk("db.dump", snap, 8, nil)
+	if err != nil {
+		t.Errorf("Expected no error. got=%v", err)
+	}
+
+	fmt.Printf("Storing to disk took %v\n", time.Since(t0))
+	snap.Close()
+
+	// Now open a shard file and corrupt it
+	shard0 := filepath.Join("db.dump", "data")
+	shard0 = filepath.Join(shard0, "shard-0")
+	if cwr, err := os.OpenFile(shard0, os.O_WRONLY, 0755); err != nil {
+		panic(err)
+	} else {
+		cwr.WriteAt([]byte("corrupt"), 100)
+		cwr.Close()
+	}
+
+	db = NewWithConfig(testConf)
+	defer db.Close()
+	t0 = time.Now()
+	snap, err = db.LoadFromDisk("db.dump", 8, nil)
+	if err != ErrCorruptSnapshot {
+		t.Errorf("Expected corrupted snapshot! got=%v", err)
+	}
+	fmt.Printf("Loading from disk took %v\n", time.Since(t0))
 }

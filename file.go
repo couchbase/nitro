@@ -33,6 +33,7 @@ const (
 type FileWriter interface {
 	Open(path string) error
 	WriteItem(*Item) error
+	Checksum() uint32
 	Close() error
 }
 
@@ -40,6 +41,7 @@ type FileWriter interface {
 type FileReader interface {
 	Open(path string) error
 	ReadItem() (*Item, error)
+	Checksum() uint32
 	Close() error
 }
 
@@ -60,11 +62,12 @@ func (m *Nitro) newFileReader(t FileType, ver int) FileReader {
 }
 
 type rawFileWriter struct {
-	db   *Nitro
-	fd   *os.File
-	w    *bufio.Writer
-	buf  []byte
-	path string
+	db       *Nitro
+	fd       *os.File
+	w        *bufio.Writer
+	buf      []byte
+	path     string
+	checksum uint32
 }
 
 func (f *rawFileWriter) Open(path string) error {
@@ -78,7 +81,13 @@ func (f *rawFileWriter) Open(path string) error {
 }
 
 func (f *rawFileWriter) WriteItem(itm *Item) error {
-	return f.db.EncodeItem(itm, f.buf, f.w)
+	checksum, err := f.db.EncodeItem(itm, f.buf, f.w)
+	f.checksum = f.checksum ^ checksum
+	return err
+}
+
+func (f *rawFileWriter) Checksum() uint32 {
+	return f.checksum
 }
 
 func (f *rawFileWriter) Close() error {
@@ -93,12 +102,13 @@ func (f *rawFileWriter) Close() error {
 }
 
 type rawFileReader struct {
-	version int
-	db      *Nitro
-	fd      *os.File
-	r       *bufio.Reader
-	buf     []byte
-	path    string
+	version  int
+	db       *Nitro
+	fd       *os.File
+	r        *bufio.Reader
+	buf      []byte
+	path     string
+	checksum uint32
 }
 
 func (f *rawFileReader) Open(path string) error {
@@ -112,7 +122,15 @@ func (f *rawFileReader) Open(path string) error {
 }
 
 func (f *rawFileReader) ReadItem() (*Item, error) {
-	return f.db.DecodeItem(f.version, f.buf, f.r)
+	itm, checksum, err := f.db.DecodeItem(f.version, f.buf, f.r)
+	if itm != nil { // Checksum excludes terminal nil item
+		f.checksum = f.checksum ^ checksum
+	}
+	return itm, err
+}
+
+func (f *rawFileReader) Checksum() uint32 {
+	return f.checksum
 }
 
 func (f *rawFileReader) Close() error {
