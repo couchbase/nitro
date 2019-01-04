@@ -60,7 +60,7 @@ func Stats() string {
 	defer mu.Unlock()
 
 	buf := C.mm_stats()
-	s := "==== Stats ====\n"
+	s := "---- Stats ----\n"
 	if Debug {
 		s += fmt.Sprintf("Mallocs = %d\n"+
 			"Frees   = %d\n", stats.allocs, stats.frees)
