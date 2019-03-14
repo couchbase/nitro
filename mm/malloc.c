@@ -13,7 +13,7 @@
 #ifdef JEMALLOC
 #include <jemalloc/jemalloc.h>
 
-const char *je_malloc_conf = "narenas:2,lg_dirty_mult:5";
+const char* je_malloc_conf = "narenas:2";
 
 void writecb(void *ref, const char *s) {
 	stats_buf *buf = (stats_buf *)(ref);
