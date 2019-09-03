@@ -209,6 +209,10 @@ func (nt *NodeTable) Remove(key []byte) (success bool, nptr unsafe.Pointer) {
 	return
 }
 
+func (nt *NodeTable) ItemsCount() int64 {
+	return int64(nt.fastHTCount + nt.slowHTCount)
+}
+
 func decodePointer(v uint64) unsafe.Pointer {
 	var x uintptr
 	if unsafe.Sizeof(x) == 8 {
