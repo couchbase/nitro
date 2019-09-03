@@ -202,7 +202,7 @@ func TestDeleteSlowHT1(t *testing.T) {
 	ro2 := (*object)(table.Get(o2.key))
 	ro3 := (*object)(table.Get(o3.key))
 
-	if ro2 == nil {
+	if ro2 != nil {
 		t.Errorf("Expected not found")
 	}
 
@@ -370,4 +370,36 @@ func TestPerf(t *testing.T) {
 	dur = time.Since(t0)
 	fmt.Printf("Update took %v for %v items, %v/s\n", dur, n, float32(n)/float32(dur.Seconds()))
 	fmt.Println("Table stats:", table.Stats())
+}
+
+func TestItemsCount(t *testing.T) {
+	testItemsCount := func(hashFn HashFn) {
+		table := New(hashFn, equalObject)
+		o1 := mkObject("key1", 1000)
+		o2 := mkObject("key2", 2000)
+		o3 := mkObject("key3", 3000)
+		table.Update(o1.key, unsafe.Pointer(o1))
+		table.Update(o2.key, unsafe.Pointer(o2))
+		table.Update(o3.key, unsafe.Pointer(o3))
+
+		itemsCount := table.ItemsCount()
+		if itemsCount != 3 {
+			t.Errorf("Expected 3 items but got %d", itemsCount)
+		}
+
+		if success, _ := table.Remove(o2.key); success != true {
+			t.Errorf("Expected successful remove")
+		}
+
+		itemsCount = table.ItemsCount()
+		if itemsCount != 2 {
+			t.Errorf("Expected 2 items but got %d", itemsCount)
+		}
+	}
+
+	// Test with collisions
+	testItemsCount(mkHashFun(100))
+
+	// Test without collisions
+	testItemsCount(crc32.ChecksumIEEE)
 }
