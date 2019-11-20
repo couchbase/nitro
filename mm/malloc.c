@@ -42,9 +42,9 @@ char *doStats()  {
 
 void *mm_malloc(size_t sz) {
 #ifdef JEMALLOC
-    return je_malloc(sz);
+    return je_calloc(1, sz);
 #else
-    return malloc(sz);
+    return calloc(1, sz);
 #endif
 }
 
