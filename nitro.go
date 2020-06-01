@@ -208,7 +208,7 @@ func (w *Writer) Put(bs []byte) {
 func (w *Writer) Put2(bs []byte) (n *skiplist.Node) {
 	var success bool
 	x := w.newItem(bs, w.useMemoryMgmt)
-	x.bornSn = w.getCurrSn()
+	x.bornSn = w.GetCurrSn()
 	n, success = w.store.Insert2(unsafe.Pointer(x), w.insCmp, w.existCmp, w.buf,
 		w.rand.Float32, &w.slSts1)
 	if success {
@@ -246,7 +246,7 @@ func (w *Writer) DeleteNode(x *skiplist.Node) (success bool) {
 	}()
 
 	x.SetLink(nil)
-	sn := w.getCurrSn()
+	sn := w.GetCurrSn()
 	gotItem := (*Item)(x.Item())
 	if gotItem.bornSn == sn {
 		success = w.store.DeleteNode(x, w.insCmp, w.buf, &w.slSts1)
@@ -276,7 +276,7 @@ func (w *Writer) GetNode(bs []byte) *skiplist.Node {
 	defer iter.Close()
 
 	x := w.newItem(bs, false)
-	x.bornSn = w.getCurrSn()
+	x.bornSn = w.GetCurrSn()
 
 	if found := iter.SeekWithCmp(unsafe.Pointer(x), w.insCmp, w.existCmp); found {
 		return iter.GetNode()
@@ -476,8 +476,12 @@ func (m *Nitro) Close() {
 	}
 }
 
-func (m *Nitro) getCurrSn() uint32 {
+func (m *Nitro) GetCurrSn() uint32 {
 	return atomic.LoadUint32(&m.currSn)
+}
+
+func (m *Nitro) GetLastGCSn() uint32 {
+	return atomic.LoadUint32(&m.lastGCSn)
 }
 
 func (m *Nitro) newWriter() *Writer {
@@ -626,7 +630,7 @@ func (m *Nitro) NewSnapshot() (*Snapshot, error) {
 		w.count = 0
 	}
 
-	snap := &Snapshot{db: m, sn: m.getCurrSn(), refCount: 1, count: m.ItemsCount()}
+	snap := &Snapshot{db: m, sn: m.GetCurrSn(), refCount: 1, count: m.ItemsCount()}
 	m.snapshots.Insert(unsafe.Pointer(snap), CompareSnapshot, buf, &m.snapshots.Stats)
 	snap.gclist = head
 	newSn := atomic.AddUint32(&m.currSn, 1)
@@ -700,11 +704,11 @@ func (m *Nitro) collectDead() {
 	for iter.SeekFirst(); iter.Valid(); iter.Next() {
 		node := iter.GetNode()
 		sn := (*Snapshot)(node.Item())
-		if sn.sn != m.lastGCSn+1 {
+		if sn.sn != m.GetLastGCSn()+1 {
 			return
 		}
 
-		m.lastGCSn = sn.sn
+		atomic.StoreUint32(&m.lastGCSn, sn.sn)
 		m.gcchan <- sn.gclist
 		m.gcsnapshots.DeleteNode(node, CompareSnapshot, buf2, &m.gcsnapshots.Stats)
 	}
