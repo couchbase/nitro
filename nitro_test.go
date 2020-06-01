@@ -111,7 +111,7 @@ func TestInsertPerf(t *testing.T) {
 	dur := time.Since(t0)
 	VerifyCount(snap, n*runtime.GOMAXPROCS(0), t)
 	fmt.Printf("%d items took %v -> %v items/s snapshots_created %v live_snapshots %v\n",
-		total, dur, float64(total)/float64(dur.Seconds()), db.getCurrSn(), len(db.GetSnapshots()))
+		total, dur, float64(total)/float64(dur.Seconds()), db.GetCurrSn(), len(db.GetSnapshots()))
 }
 
 func doGet(t *testing.T, db *Nitro, snap *Snapshot, wg *sync.WaitGroup, n int) {
@@ -782,4 +782,52 @@ func TestDiskCorruption(t *testing.T) {
 		t.Errorf("Expected corrupted snapshot! got=%v", err)
 	}
 	fmt.Printf("Loading from disk took %v\n", time.Since(t0))
+}
+
+func TestSnapshotStats(t *testing.T) {
+	db := NewWithConfig(testConf)
+	defer db.Close()
+
+	var snaps []*Snapshot
+	n := 2000
+	snapFreq := 25
+
+	w := db.NewWriter()
+	for i := 0; i < n; i++ {
+		w.Put([]byte(fmt.Sprintf("%010d", i)))
+
+		if i % snapFreq == 0 {
+			snap, _ := w.NewSnapshot()
+			snaps = append(snaps, snap)
+		}
+	}
+
+	var currSn, lastGCSn uint32
+
+	if currSn = db.GetCurrSn(); currSn != uint32(1+n/snapFreq) {
+		t.Errorf("Wrong currSn. Expected [%d], got [%d]", 1+n/snapFreq, currSn)
+	}
+
+	if lastGCSn = db.GetLastGCSn(); lastGCSn != 0 {
+		t.Errorf("Wrong lastGCSn. Expected [%d], got [%d]", 0, lastGCSn)
+	}
+
+	// Close half of the snapshots
+	numSnapsToClose := uint32(n/snapFreq/2)
+	for _, snap := range snaps[:numSnapsToClose] {
+		snap.Close()
+	}
+
+	if lastGCSn = db.GetLastGCSn(); lastGCSn != numSnapsToClose {
+		t.Errorf("Wrong lastGCSn. Expected [%d], got [%d]", numSnapsToClose, lastGCSn)
+	}
+
+	// close remaining snapshots
+	for _, snap := range snaps[numSnapsToClose:] {
+		snap.Close()
+	}
+
+	if lastGCSn = db.GetLastGCSn(); lastGCSn != uint32(n/snapFreq) {
+		t.Errorf("Wrong lastGCSn. Expected [%d], got [%d]", n/snapFreq, lastGCSn)
+	}
 }
