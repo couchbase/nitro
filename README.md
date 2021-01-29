@@ -25,57 +25,58 @@ multicore CPUs.
 
 ### Example usage
 
-    // Create a nitro instance with default config
-   	db := nitro.New()
-	defer db.Close()
+```go
+// Create a nitro instance with default config
+db := nitro.New()
+defer db.Close()
 
-    // Create a writer
-    // A writer should be created for every concurrent thread
-	w := db.NewWriter()
-	for i := 0; i < 100; i++ {
+// Create a writer
+// A writer should be created for every concurrent thread
+w := db.NewWriter()
+for i := 0; i < 100; i++ {
+	itm := []byte(fmt.Sprintf("item-%02d", i))
+	w.Put(itm)
+}
+
+// Create an immutable snapshot
+snap1, _ := db.NewSnapshot()
+
+for i := 0; i < 100; i++ {
+	if i%2 == 0 {
 		itm := []byte(fmt.Sprintf("item-%02d", i))
-		w.Put(itm)
+		w.Delete(itm)
 	}
+}
 
-    // Create an immutable snapshot
-	snap1, _ := db.NewSnapshot()
+// Create an immutable snapshot
+snap2, _ := db.NewSnapshot()
 
-	for i := 0; i < 100; i++ {
-		if i%2 == 0 {
-			itm := []byte(fmt.Sprintf("item-%02d", i))
-			w.Delete(itm)
-		}
-	}
+// Create an iterator for a snapshot
+it1 := snap1.NewIterator()
+count1 := 0
+for it1.SeekFirst(); it1.Valid(); it1.Next() {
+	fmt.Println("snap-1", string(it1.Get()))
+	count1++
+}
 
-    // Create an immutable snapshot
-	snap2, _ := db.NewSnapshot()
+// Close snapshot and iterator once you have finished using them
+it1.Close()
+snap1.Close()
 
-    // Create an iterator for a snapshot
-	it1 := snap1.NewIterator()
-	count1 := 0
-	for it1.SeekFirst(); it1.Valid(); it1.Next() {
-		fmt.Println("snap-1", string(it1.Get()))
-		count1++
-	}
+// Create an iterator for a snapshot
+it2 := snap2.NewIterator()
+count2 := 0
+for it2.SeekFirst(); it2.Valid(); it2.Next() {
+	fmt.Println("snap-2", string(it2.Get()))
+	count2++
+}
 
-    // Close snapshot and iterator once you have finished using them
-	it1.Close()
-	snap1.Close()
+// Close snapshot and iterator once you have finished using them
+it2.Close()
+snap2.Close()
 
-    // Create an iterator for a snapshot
-	it2 := snap2.NewIterator()
-	count2 := 0
-	for it2.SeekFirst(); it2.Valid(); it2.Next() {
-		fmt.Println("snap-2", string(it2.Get()))
-		count2++
-	}
-
-    // Close snapshot and iterator once you have finished using them
-	it2.Close()
-	snap2.Close()
-
-	fmt.Println(count2 == count1/2)
-    
+fmt.Println(count2 == count1/2)
+```
 
 ### License
 
