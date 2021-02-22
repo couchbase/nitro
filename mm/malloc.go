@@ -79,6 +79,10 @@ func Size() uint64 {
 	return uint64(C.mm_size())
 }
 
+func AllocSize() uint64 {
+	return uint64(C.mm_alloc_size())
+}
+
 func GetAllocStats() (uint64, uint64) {
 	return stats.allocs, stats.frees
 }
