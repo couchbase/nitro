@@ -28,6 +28,8 @@ size_t mm_sizeat(void *);
 
 size_t mm_size();
 
+size_t mm_alloc_size();
+
 int mm_free2os();
 
 #endif
