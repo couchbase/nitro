@@ -99,20 +99,31 @@ type AccessBarrier struct {
 	freeSeqno           uint64
 	isDestructorRunning int32
 
+	numAllocated int64
+	numFreed     int64
+
 	active bool
 	sync.Mutex
 }
 
 func newAccessBarrier(active bool, callb BarrierSessionDestructor) *AccessBarrier {
 	ab := &AccessBarrier{
-		active:  active,
-		session: unsafe.Pointer(newBarrierSession()),
-		callb:   callb,
+		active:       active,
+		session:      unsafe.Pointer(newBarrierSession()),
+		callb:        callb,
+		numAllocated: 1,
 	}
 	if active {
 		ab.freeq = New()
 	}
 	return ab
+}
+
+func (ab *AccessBarrier) GetStats() (int64, int64, int64) {
+	if ab.freeq != nil {
+		return ab.numAllocated, ab.numFreed, int64(ab.freeq.GetStats().NodeCount)
+	}
+	return ab.numAllocated, ab.numFreed, 0
 }
 
 func (ab *AccessBarrier) doCleanup() {
@@ -134,6 +145,7 @@ func (ab *AccessBarrier) doCleanup() {
 		ab.freeSeqno++
 		ab.callb(bs.objectRef)
 		ab.freeq.DeleteNode(node, CompareBS, buf2, &ab.freeq.Stats)
+		ab.numFreed++
 	}
 }
 
@@ -191,6 +203,7 @@ func (ab *AccessBarrier) FlushSession(ref unsafe.Pointer) {
 		bs.objectRef = ref
 		ab.activeSeqno++
 		bs.seqno = ab.activeSeqno
+		ab.numAllocated++
 
 		atomic.AddInt32(bs.liveCount, barrierFlushOffset+1)
 		ab.Release(bs)
