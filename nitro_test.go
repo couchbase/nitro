@@ -235,7 +235,7 @@ func TestLoadStoreDisk(t *testing.T) {
 	t0 := time.Now()
 	for i := 0; i < runtime.GOMAXPROCS(0); i++ {
 		wg.Add(1)
-		go doInsert(db, &wg, n / runtime.GOMAXPROCS(0), true, true)
+		go doInsert(db, &wg, n / runtime.GOMAXPROCS(0), true, false)
 	}
 	wg.Wait()
 	fmt.Printf("Inserting %v items took %v\n", n, time.Since(t0))
@@ -283,7 +283,7 @@ func TestStoreDiskShutdown(t *testing.T) {
 	t0 := time.Now()
 	for i := 0; i < runtime.GOMAXPROCS(0); i++ {
 		wg.Add(1)
-		go doInsert(db, &wg, n / runtime.GOMAXPROCS(0), true, true)
+		go doInsert(db, &wg, n / runtime.GOMAXPROCS(0), true, false)
 	}
 	wg.Wait()
 	fmt.Printf("Inserting %v items took %v\n", n, time.Since(t0))
@@ -433,15 +433,18 @@ func TestFullScan(t *testing.T) {
 	t0 := time.Now()
 	for i := 0; i < runtime.GOMAXPROCS(0); i++ {
 		wg.Add(1)
-		go doInsert(db, &wg, n / runtime.GOMAXPROCS(0), true, true)
+		go doInsert(db, &wg, n / runtime.GOMAXPROCS(0), true, false)
 	}
 	wg.Wait()
 	fmt.Printf("Inserting %v items took %v\n", n, time.Since(t0))
 	snap, _ := db.NewSnapshot()
 	defer snap.Close()
 	VerifyCount(snap, n, t)
+	nc := db.store.GetStats().NodeCount
+	if n != nc {
+		t.Errorf("skiplist statsReport NodeCount mismatch, got :%d, expected :%d", n, nc)
+	}
 	fmt.Println(db.DumpStats())
-
 	t0 = time.Now()
 	c := CountItems(snap)
 	fmt.Printf("Full iteration of %d items took %v\n", c, time.Since(t0))
