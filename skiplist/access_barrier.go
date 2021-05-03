@@ -119,11 +119,11 @@ func newAccessBarrier(active bool, callb BarrierSessionDestructor) *AccessBarrie
 	return ab
 }
 
-func (ab *AccessBarrier) GetStats() (int64, int64, int64) {
+func (ab *AccessBarrier) GetStats() (int64, int64, int64, uint64) {
 	if ab.freeq != nil {
-		return ab.numAllocated, ab.numFreed, int64(ab.freeq.GetStats().NodeCount)
+		return ab.numAllocated, ab.numFreed, int64(ab.freeq.GetStats().NodeCount), ab.freeSeqno
 	}
-	return ab.numAllocated, ab.numFreed, 0
+	return ab.numAllocated, ab.numFreed, 0, ab.freeSeqno
 }
 
 func (ab *AccessBarrier) doCleanup() {
