@@ -292,6 +292,7 @@ func MemoryInUse() (sz int64) {
 	buf := dbInstances.MakeBuf()
 	defer dbInstances.FreeBuf(buf)
 	iter := dbInstances.NewIterator(CompareNodeTable, buf)
+	defer iter.Close()
 	for iter.SeekFirst(); iter.Valid(); iter.Next() {
 		db := (*NodeTable)(iter.Get())
 		sz += db.MemoryInUse()
