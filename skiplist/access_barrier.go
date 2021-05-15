@@ -177,7 +177,9 @@ func (ab *AccessBarrier) Release(bs *BarrierSession) {
 			// Accessors which entered a closed barrier session steps down automatically
 			// But, they may try to close an already closed session.
 			if atomic.AddInt32(&bs.closed, 1) == 1 {
-				ab.freeq.Insert(unsafe.Pointer(bs), CompareBS, buf, &ab.freeq.Stats)
+				if !ab.freeq.Insert(unsafe.Pointer(bs), CompareBS, buf, &ab.freeq.Stats) {
+					panic("unable to insert barrier session into free list")
+				}
 				if atomic.CompareAndSwapInt32(&ab.isDestructorRunning, 0, 1) {
 					ab.doCleanup()
 					atomic.CompareAndSwapInt32(&ab.isDestructorRunning, 1, 0)
