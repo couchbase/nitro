@@ -311,7 +311,7 @@ func (cfg *Config) SetKeyComparator(cmp KeyCompare) {
 
 // UseMemoryMgmt provides custom memory allocator for Nitro items storage
 func (cfg *Config) UseMemoryMgmt(malloc skiplist.MallocFn, free skiplist.FreeFn) {
-	if runtime.GOARCH == "amd64" {
+	if runtime.GOARCH == "amd64" || runtime.GOARCH == "arm64" {
 		cfg.useMemoryMgmt = true
 		cfg.mallocFun = malloc
 		cfg.freeFun = free

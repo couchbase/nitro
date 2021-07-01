@@ -83,7 +83,7 @@ func New() *Skiplist {
 
 // NewWithConfig creates a config from given config
 func NewWithConfig(cfg Config) *Skiplist {
-	if runtime.GOARCH != "amd64" {
+	if runtime.GOARCH != "amd64" && runtime.GOARCH != "arm64" {
 		cfg.UseMemoryMgmt = false
 	}
 
