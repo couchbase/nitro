@@ -833,3 +833,110 @@ func TestSnapshotStats(t *testing.T) {
 		t.Errorf("Wrong lastGCSn. Expected [%d], got [%d]", n/snapFreq, lastGCSn)
 	}
 }
+
+func TestInsertDeleteConcurrent(t *testing.T) {
+	var wgInsert, wgDelete sync.WaitGroup
+	// in case of leaks from any prev test case
+	oldAllocs, oldFrees := mm.GetAllocStats()
+
+	db := NewWithConfig(testConf)
+	//debug.SetGCPercent(-1)
+
+	rand.Seed(time.Now().UnixNano())
+	tmin := 50
+	tmax := 300
+
+	n := (10000000 / runtime.GOMAXPROCS(0)) * runtime.GOMAXPROCS(0)
+	chunk := n / runtime.GOMAXPROCS(0)
+
+	var iwriters, dwriters []*Writer
+
+	for i := 0; i < runtime.GOMAXPROCS(0); i++ {
+		iwriters = append(iwriters, db.NewWriter())
+	}
+
+	for i := 0; i < runtime.GOMAXPROCS(0); i++ {
+		dwriters = append(dwriters, db.NewWriter())
+	}
+
+	for i := 0; i < runtime.GOMAXPROCS(0); i++ {
+		wgInsert.Add(1)
+		go func(db *Nitro, w *Writer, wg *sync.WaitGroup, min_key, max_key int) {
+			defer wg.Done()
+			for val := min_key; val < max_key; val++ {
+				buf := make([]byte, 8)
+				binary.BigEndian.PutUint64(buf, uint64(val))
+				w.Put(buf)
+			}
+			x := rand.Intn(tmax-tmin+1) + tmin
+			time.Sleep(time.Duration(x) * time.Microsecond)
+			//runtime.GC()
+		}(db, iwriters[i], &wgInsert, i*chunk, (i+1)*chunk)
+	}
+
+	var del_count int64 = 0
+
+	for i := 0; i < runtime.GOMAXPROCS(0); i++ {
+		wgDelete.Add(1)
+		go func(db *Nitro, w *Writer, wg *sync.WaitGroup, min_key, max_key int) {
+			defer wg.Done()
+			for val := min_key; val < max_key; val++ {
+				buf := make([]byte, 8)
+				binary.BigEndian.PutUint64(buf, uint64(val))
+				if w.Delete(buf) {
+					atomic.AddInt64(&del_count, 1)
+				}
+			}
+			x := rand.Intn(tmax-tmin+1) + tmin + 10
+			time.Sleep(time.Duration(x) * time.Microsecond)
+			//runtime.GC()
+		}(db, dwriters[i], &wgDelete, i*chunk/2, (i+1)*chunk/2)
+	}
+
+	wgInsert.Wait()
+	wgDelete.Wait()
+
+	// Verify Snapshot Scan after deletes
+
+	snap, _ := db.NewSnapshot()
+	// scans items
+	got1 := CountItems(snap)
+	// from snapshot info
+	got2 := (int)(snap.Count())
+	fmt.Println("total items in snapshot:", got1, " items deleted:", del_count)
+	if got1 != got2 {
+		t.Errorf("snapshot count inconsistent, got1: %d got2: %d",
+			got1, got2)
+	}
+
+	// Verify Skiplist Stats
+
+	// snapshot item count should match node count
+	nc := db.store.GetStats().NodeCount
+	if got1 != nc {
+		t.Errorf("snapshot count mismatch with node count, got1: %d nc: %d",
+			got1, nc)
+	}
+
+	na := db.store.GetStats().NodeAllocs
+	// node count should match node allocs - deleted items
+	if na - del_count != int64(nc) {
+		t.Errorf("node count :%d does not match nodeAllocs - deleted items %d-%d",
+			nc, na, del_count)
+	}
+	snap.Close()
+	db.Close()
+
+	fmt.Println(db.DumpStats())
+
+	// Verify Memory Leaks
+
+	a, b := mm.GetAllocStats()
+	a = a - oldAllocs
+	b = b - oldFrees
+	if a-b != 0 {
+		t.Errorf("Found memory leak: allocs  %d, freed %d, delta %d", a, b, a-b)
+	} else {
+		fmt.Printf("allocs: %d frees: %d\n", a, b)
+	}
+}
