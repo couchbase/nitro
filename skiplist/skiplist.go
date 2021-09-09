@@ -92,11 +92,12 @@ func NewWithConfig(cfg Config) *Skiplist {
 		barrier: newAccessBarrier(cfg.UseMemoryMgmt, cfg.BarrierDestructor),
 	}
 
-	s.newNode = func(itm unsafe.Pointer, level int) *Node {
-		return allocNode(itm, level, cfg.Malloc)
-	}
 
 	if cfg.UseMemoryMgmt {
+		s.newNode = func(itm unsafe.Pointer, level int) *Node {
+			return allocNode(itm, level, cfg.Malloc)
+		}
+
 		s.freeNode = func(n *Node) {
 			if Debug {
 				debugMarkFree(n)
@@ -104,6 +105,10 @@ func NewWithConfig(cfg Config) *Skiplist {
 			cfg.Free(unsafe.Pointer(n))
 		}
 	} else {
+		s.newNode = func(itm unsafe.Pointer, level int) *Node {
+			return allocNode(itm, level, nil)
+		}
+
 		s.freeNode = func(*Node) {}
 	}
 

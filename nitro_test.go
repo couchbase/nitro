@@ -675,6 +675,12 @@ func TestExecuteConcurrGCWorkers(t *testing.T) {
 
 	w := db.NewWriter()
 
+	// the test is valid only for UseMemoryMgmt since
+	// nodefree is invoked only for memory mgmt case
+	if !w.store.UseMemoryMgmt {
+		return
+	}
+
 	for x := 0; x < 40; x++ {
 		db.NewWriter()
 	}
