@@ -273,12 +273,6 @@ func TestNodeDCAS(t *testing.T) {
 		return
 	}
 
-	// soft delete
-	if !p1.dcasNext(level, p3, p3, true, true) {
-		t.Errorf("dcas failed!")
-		return
-	}
-
 	// user memory
 
 	qval1 := mm.Malloc(8)
@@ -288,7 +282,7 @@ func TestNodeDCAS(t *testing.T) {
 	q2 := allocNode(unsafe.Pointer(qval2), level, mm.Malloc)
 
 	qval3 := mm.Malloc(8)
-	q3 := allocNode(unsafe.Pointer(qval3), level, nil)
+	q3 := allocNode(unsafe.Pointer(qval3), level, mm.Malloc)
 
 	// initialize
 	if !q1.dcasNext(level, nil, q2, false, false) {
@@ -320,12 +314,6 @@ func TestNodeDCAS(t *testing.T) {
 
 	// soft delete
 	if !q1.dcasNext(level, q3, q3, false, true) {
-		t.Errorf("dcas failed!")
-		return
-	}
-
-	// soft delete
-	if !q1.dcasNext(level, q3, q3, true, true) {
 		t.Errorf("dcas failed!")
 		return
 	}
