@@ -97,21 +97,20 @@ func TestInsertPerf(t *testing.T) {
 	var wg sync.WaitGroup
 	db := NewWithConfig(testConf)
 	defer db.Close()
-	n := 20000000 / runtime.GOMAXPROCS(0)
+	n := (20000000 / runtime.GOMAXPROCS(0)) * runtime.GOMAXPROCS(0)
 	t0 := time.Now()
-	total := n * runtime.GOMAXPROCS(0)
 	for i := 0; i < runtime.GOMAXPROCS(0); i++ {
 		wg.Add(1)
-		go doInsert(db, &wg, n, true, true)
+		go doInsert(db, &wg, n / runtime.GOMAXPROCS(0), true, true)
 	}
 	wg.Wait()
 
 	snap, _ := db.NewSnapshot()
 	defer snap.Close()
 	dur := time.Since(t0)
-	VerifyCount(snap, n*runtime.GOMAXPROCS(0), t)
+	VerifyCount(snap, n, t)
 	fmt.Printf("%d items took %v -> %v items/s snapshots_created %v live_snapshots %v\n",
-		total, dur, float64(total)/float64(dur.Seconds()), db.GetCurrSn(), len(db.GetSnapshots()))
+		n, dur, float64(n)/float64(dur.Seconds()), db.GetCurrSn(), len(db.GetSnapshots()))
 }
 
 func doGet(t *testing.T, db *Nitro, snap *Snapshot, wg *sync.WaitGroup, n int) {
@@ -232,11 +231,11 @@ func TestLoadStoreDisk(t *testing.T) {
 	var wg sync.WaitGroup
 	db := NewWithConfig(testConf)
 	defer db.Close()
-	n := 1000000
+	n := (1000000 / runtime.GOMAXPROCS(0)) * runtime.GOMAXPROCS(0)
 	t0 := time.Now()
 	for i := 0; i < runtime.GOMAXPROCS(0); i++ {
 		wg.Add(1)
-		go doInsert(db, &wg, n/runtime.GOMAXPROCS(0), true, true)
+		go doInsert(db, &wg, n / runtime.GOMAXPROCS(0), true, false)
 	}
 	wg.Wait()
 	fmt.Printf("Inserting %v items took %v\n", n, time.Since(t0))
@@ -280,11 +279,11 @@ func TestStoreDiskShutdown(t *testing.T) {
 	os.RemoveAll("db.dump")
 	var wg sync.WaitGroup
 	db := NewWithConfig(testConf)
-	n := 1000000
+	n := (1000000 / runtime.GOMAXPROCS(0)) * runtime.GOMAXPROCS(0)
 	t0 := time.Now()
 	for i := 0; i < runtime.GOMAXPROCS(0); i++ {
 		wg.Add(1)
-		go doInsert(db, &wg, n/runtime.GOMAXPROCS(0), true, true)
+		go doInsert(db, &wg, n / runtime.GOMAXPROCS(0), true, false)
 	}
 	wg.Wait()
 	fmt.Printf("Inserting %v items took %v\n", n, time.Since(t0))
@@ -430,19 +429,22 @@ func TestFullScan(t *testing.T) {
 	var wg sync.WaitGroup
 	db := NewWithConfig(testConf)
 	defer db.Close()
-	n := 1000000
+	n := (1000000 / runtime.GOMAXPROCS(0)) * runtime.GOMAXPROCS(0)
 	t0 := time.Now()
 	for i := 0; i < runtime.GOMAXPROCS(0); i++ {
 		wg.Add(1)
-		go doInsert(db, &wg, n/runtime.GOMAXPROCS(0), true, true)
+		go doInsert(db, &wg, n / runtime.GOMAXPROCS(0), true, false)
 	}
 	wg.Wait()
 	fmt.Printf("Inserting %v items took %v\n", n, time.Since(t0))
 	snap, _ := db.NewSnapshot()
 	defer snap.Close()
 	VerifyCount(snap, n, t)
+	nc := db.store.GetStats().NodeCount
+	if n != nc {
+		t.Errorf("skiplist statsReport NodeCount mismatch, got :%d, expected :%d", n, nc)
+	}
 	fmt.Println(db.DumpStats())
-
 	t0 = time.Now()
 	c := CountItems(snap)
 	fmt.Printf("Full iteration of %d items took %v\n", c, time.Since(t0))
@@ -559,8 +561,8 @@ func TestLoadDeltaStoreDisk(t *testing.T) {
 		writers = append(writers, db.NewWriter())
 	}
 
-	n := 1000000
-	chunk := n / runtime.GOMAXPROCS(0)
+	chunk := 1000000 / runtime.GOMAXPROCS(0)
+	total := chunk * runtime.GOMAXPROCS(0)
 	version := 0
 
 	doMutate := func() *Snapshot {
@@ -639,13 +641,13 @@ func TestLoadDeltaStoreDisk(t *testing.T) {
 	fmt.Printf("Loading from disk took %v\n", time.Since(t0))
 
 	count := CountItems(snap)
-	if count != n {
-		t.Errorf("Expected %v, got %v", n, count)
+	if count != total {
+		t.Errorf("Expected %v, got %v", total, count)
 	}
 
 	count = int(snap.Count())
-	if count != n {
-		t.Errorf("Count mismatch on snapshot. Expected %d, got %d", n, count)
+	if count != total {
+		t.Errorf("Count mismatch on snapshot. Expected %d, got %d", total, count)
 	}
 
 	itr := snap.NewIterator()
@@ -672,6 +674,12 @@ func TestExecuteConcurrGCWorkers(t *testing.T) {
 	defer db.Close()
 
 	w := db.NewWriter()
+
+	// the test is valid only for UseMemoryMgmt since
+	// nodefree is invoked only for memory mgmt case
+	if !w.store.UseMemoryMgmt {
+		return
+	}
 
 	for x := 0; x < 40; x++ {
 		db.NewWriter()
@@ -742,11 +750,11 @@ func TestDiskCorruption(t *testing.T) {
 	var wg sync.WaitGroup
 	db := NewWithConfig(testConf)
 	defer db.Close()
-	n := 100000
+	n := (100000 / runtime.GOMAXPROCS(0)) * runtime.GOMAXPROCS(0)
 	t0 := time.Now()
 	for i := 0; i < runtime.GOMAXPROCS(0); i++ {
 		wg.Add(1)
-		go doInsert(db, &wg, n/runtime.GOMAXPROCS(0), true, true)
+		go doInsert(db, &wg, n / runtime.GOMAXPROCS(0), true, true)
 	}
 	wg.Wait()
 	fmt.Printf("Inserting %v items took %v\n", n, time.Since(t0))
@@ -829,5 +837,112 @@ func TestSnapshotStats(t *testing.T) {
 
 	if lastGCSn = db.GetLastGCSn(); lastGCSn != uint32(n/snapFreq) {
 		t.Errorf("Wrong lastGCSn. Expected [%d], got [%d]", n/snapFreq, lastGCSn)
+	}
+}
+
+func TestInsertDeleteConcurrent(t *testing.T) {
+	var wgInsert, wgDelete sync.WaitGroup
+	// in case of leaks from any prev test case
+	oldAllocs, oldFrees := mm.GetAllocStats()
+
+	db := NewWithConfig(testConf)
+	//debug.SetGCPercent(-1)
+
+	rand.Seed(time.Now().UnixNano())
+	tmin := 50
+	tmax := 300
+
+	n := (10000000 / runtime.GOMAXPROCS(0)) * runtime.GOMAXPROCS(0)
+	chunk := n / runtime.GOMAXPROCS(0)
+
+	var iwriters, dwriters []*Writer
+
+	for i := 0; i < runtime.GOMAXPROCS(0); i++ {
+		iwriters = append(iwriters, db.NewWriter())
+	}
+
+	for i := 0; i < runtime.GOMAXPROCS(0); i++ {
+		dwriters = append(dwriters, db.NewWriter())
+	}
+
+	for i := 0; i < runtime.GOMAXPROCS(0); i++ {
+		wgInsert.Add(1)
+		go func(db *Nitro, w *Writer, wg *sync.WaitGroup, min_key, max_key int) {
+			defer wg.Done()
+			for val := min_key; val < max_key; val++ {
+				buf := make([]byte, 8)
+				binary.BigEndian.PutUint64(buf, uint64(val))
+				w.Put(buf)
+			}
+			x := rand.Intn(tmax-tmin+1) + tmin
+			time.Sleep(time.Duration(x) * time.Microsecond)
+			//runtime.GC()
+		}(db, iwriters[i], &wgInsert, i*chunk, (i+1)*chunk)
+	}
+
+	var del_count int64 = 0
+
+	for i := 0; i < runtime.GOMAXPROCS(0); i++ {
+		wgDelete.Add(1)
+		go func(db *Nitro, w *Writer, wg *sync.WaitGroup, min_key, max_key int) {
+			defer wg.Done()
+			for val := min_key; val < max_key; val++ {
+				buf := make([]byte, 8)
+				binary.BigEndian.PutUint64(buf, uint64(val))
+				if w.Delete(buf) {
+					atomic.AddInt64(&del_count, 1)
+				}
+			}
+			x := rand.Intn(tmax-tmin+1) + tmin + 10
+			time.Sleep(time.Duration(x) * time.Microsecond)
+			//runtime.GC()
+		}(db, dwriters[i], &wgDelete, i*chunk/2, (i+1)*chunk/2)
+	}
+
+	wgInsert.Wait()
+	wgDelete.Wait()
+
+	// Verify Snapshot Scan after deletes
+
+	snap, _ := db.NewSnapshot()
+	// scans items
+	got1 := CountItems(snap)
+	// from snapshot info
+	got2 := (int)(snap.Count())
+	fmt.Println("total items in snapshot:", got1, " items deleted:", del_count)
+	if got1 != got2 {
+		t.Errorf("snapshot count inconsistent, got1: %d got2: %d",
+			got1, got2)
+	}
+
+	// Verify Skiplist Stats
+
+	// snapshot item count should match node count
+	nc := db.store.GetStats().NodeCount
+	if got1 != nc {
+		t.Errorf("snapshot count mismatch with node count, got1: %d nc: %d",
+			got1, nc)
+	}
+
+	na := db.store.GetStats().NodeAllocs
+	// node count should match node allocs - deleted items
+	if na - del_count != int64(nc) {
+		t.Errorf("node count :%d does not match nodeAllocs - deleted items %d-%d",
+			nc, na, del_count)
+	}
+	snap.Close()
+	db.Close()
+
+	fmt.Println(db.DumpStats())
+
+	// Verify Memory Leaks
+
+	a, b := mm.GetAllocStats()
+	a = a - oldAllocs
+	b = b - oldFrees
+	if a-b != 0 {
+		t.Errorf("Found memory leak: allocs  %d, freed %d, delta %d", a, b, a-b)
+	} else {
+		fmt.Printf("allocs: %d frees: %d\n", a, b)
 	}
 }

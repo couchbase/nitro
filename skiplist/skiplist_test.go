@@ -15,6 +15,7 @@ import "runtime"
 import "sync"
 import "time"
 import "unsafe"
+import "github.com/couchbase/nitro/mm"
 
 func TestInsert(t *testing.T) {
 	s := New()
@@ -222,4 +223,102 @@ func TestBuilder(t *testing.T) {
 		t.Errorf("Expected %d, got %d", n, count)
 	}
 
+}
+
+func TestNodeDCAS(t *testing.T) {
+	level := 0
+
+	// golang memory
+
+	pval1 := new(int)
+	p1 := allocNode(unsafe.Pointer(pval1), level, nil)
+
+	pval2 := new(int)
+	p2 := allocNode(unsafe.Pointer(pval2), level, nil)
+
+	pval3 := new(int)
+	p3 := allocNode(unsafe.Pointer(pval3), level, nil)
+
+	// initialize
+	if !p1.dcasNext(level, nil, p2, false, false) {
+		t.Errorf("dcas failed!")
+		return
+	}
+
+	if !p1.dcasNext(level, p2, p2, false, false) {
+		t.Errorf("dcas failed!")
+		return
+	}
+
+	// not valid case but mark as deleted
+	if !p2.dcasNext(level, nil, p3, false, true) {
+		t.Errorf("dcas failed!")
+		return
+	}
+
+	// already deleted
+	if p2.dcasNext(level, p3, p3, false, false) {
+		t.Errorf("dcas should fail!")
+		return
+	}
+
+	if !p1.dcasNext(level, p2, p3, false, false) {
+		t.Errorf("dcas failed!")
+		return
+	}
+
+	// soft delete
+	if !p1.dcasNext(level, p3, p3, false, true) {
+		t.Errorf("dcas failed!")
+		return
+	}
+
+	// user memory
+
+	qval1 := mm.Malloc(8)
+	q1 := allocNode(unsafe.Pointer(qval1), level, mm.Malloc)
+
+	qval2 := mm.Malloc(8)
+	q2 := allocNode(unsafe.Pointer(qval2), level, mm.Malloc)
+
+	qval3 := mm.Malloc(8)
+	q3 := allocNode(unsafe.Pointer(qval3), level, mm.Malloc)
+
+	// initialize
+	if !q1.dcasNext(level, nil, q2, false, false) {
+		t.Errorf("dcas failed!")
+		return
+	}
+
+	if !q1.dcasNext(level, q2, q2, false, false) {
+		t.Errorf("dcas failed!")
+		return
+	}
+
+	// not valid case but mark as deleted
+	if !q2.dcasNext(level, nil, q3, false, true) {
+		t.Errorf("dcas failed!")
+		return
+	}
+
+	// already deleted
+	if q2.dcasNext(level, q3, q3, false, false) {
+		t.Errorf("dcas should fail!")
+		return
+	}
+
+	if !q1.dcasNext(level, q2, q3, false, false) {
+		t.Errorf("dcas failed!")
+		return
+	}
+
+	// soft delete
+	if !q1.dcasNext(level, q3, q3, false, true) {
+		t.Errorf("dcas failed!")
+		return
+	}
+
+	mm.Free(qval1)
+	mm.Free(qval2)
+	mm.Free(qval3)
 }
