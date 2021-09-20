@@ -9,17 +9,20 @@
 
 package nitro
 
-import "fmt"
-import "sync/atomic"
-import "os"
-import "testing"
-import "time"
-import "math/rand"
-import "path/filepath"
-import "sync"
-import "runtime"
-import "encoding/binary"
-import "github.com/couchbase/nitro/mm"
+import (
+	"encoding/binary"
+	"fmt"
+	"math/rand"
+	"os"
+	"path/filepath"
+	"runtime"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/couchbase/nitro/mm"
+)
 
 var testConf Config
 
@@ -72,9 +75,8 @@ func TestInsert(t *testing.T) {
 	}
 }
 
-func doInsert(db *Nitro, wg *sync.WaitGroup, n int, isRand bool, shouldSnap bool) {
+func doInsert(db *Nitro, w *Writer, wg *sync.WaitGroup, n int, isRand bool, shouldSnap bool) {
 	defer wg.Done()
-	w := db.NewWriter()
 	rnd := rand.New(rand.NewSource(int64(rand.Int())))
 	for i := 0; i < n; i++ {
 		var val int
@@ -101,7 +103,8 @@ func TestInsertPerf(t *testing.T) {
 	t0 := time.Now()
 	for i := 0; i < runtime.GOMAXPROCS(0); i++ {
 		wg.Add(1)
-		go doInsert(db, &wg, n / runtime.GOMAXPROCS(0), true, true)
+		w := db.NewWriter()
+		go doInsert(db, w, &wg, n/runtime.GOMAXPROCS(0), true, false)
 	}
 	wg.Wait()
 
@@ -192,7 +195,8 @@ func TestGetPerf(t *testing.T) {
 	defer db.Close()
 	n := 1000000
 	wg.Add(1)
-	go doInsert(db, &wg, n, false, true)
+	w := db.NewWriter()
+	go doInsert(db, w, &wg, n, false, true)
 	wg.Wait()
 	snap, _ := db.NewSnapshot()
 	defer snap.Close()
@@ -235,7 +239,8 @@ func TestLoadStoreDisk(t *testing.T) {
 	t0 := time.Now()
 	for i := 0; i < runtime.GOMAXPROCS(0); i++ {
 		wg.Add(1)
-		go doInsert(db, &wg, n / runtime.GOMAXPROCS(0), true, false)
+		w := db.NewWriter()
+		go doInsert(db, w, &wg, n/runtime.GOMAXPROCS(0), true, false)
 	}
 	wg.Wait()
 	fmt.Printf("Inserting %v items took %v\n", n, time.Since(t0))
@@ -283,7 +288,8 @@ func TestStoreDiskShutdown(t *testing.T) {
 	t0 := time.Now()
 	for i := 0; i < runtime.GOMAXPROCS(0); i++ {
 		wg.Add(1)
-		go doInsert(db, &wg, n / runtime.GOMAXPROCS(0), true, false)
+		w := db.NewWriter()
+		go doInsert(db, w, &wg, n/runtime.GOMAXPROCS(0), true, false)
 	}
 	wg.Wait()
 	fmt.Printf("Inserting %v items took %v\n", n, time.Since(t0))
@@ -433,7 +439,8 @@ func TestFullScan(t *testing.T) {
 	t0 := time.Now()
 	for i := 0; i < runtime.GOMAXPROCS(0); i++ {
 		wg.Add(1)
-		go doInsert(db, &wg, n / runtime.GOMAXPROCS(0), true, false)
+		w := db.NewWriter()
+		go doInsert(db, w, &wg, n/runtime.GOMAXPROCS(0), true, false)
 	}
 	wg.Wait()
 	fmt.Printf("Inserting %v items took %v\n", n, time.Since(t0))
@@ -461,7 +468,8 @@ func TestVisitor(t *testing.T) {
 	expectedSum := int64((n - 1) * (n / 2))
 
 	wg.Add(1)
-	doInsert(db, &wg, n, false, false)
+	w := db.NewWriter()
+	doInsert(db, w, &wg, n, false, false)
 	snap, _ := db.NewSnapshot()
 	defer snap.Close()
 	fmt.Println(db.DumpStats())
@@ -514,7 +522,8 @@ func TestVisitorError(t *testing.T) {
 	defer db.Close()
 
 	wg.Add(1)
-	doInsert(db, &wg, n, false, false)
+	w := db.NewWriter()
+	doInsert(db, w, &wg, n, false, false)
 	snap, _ := db.NewSnapshot()
 	defer snap.Close()
 
@@ -754,7 +763,8 @@ func TestDiskCorruption(t *testing.T) {
 	t0 := time.Now()
 	for i := 0; i < runtime.GOMAXPROCS(0); i++ {
 		wg.Add(1)
-		go doInsert(db, &wg, n / runtime.GOMAXPROCS(0), true, true)
+		w := db.NewWriter()
+		go doInsert(db, w, &wg, n/runtime.GOMAXPROCS(0), true, false)
 	}
 	wg.Wait()
 	fmt.Printf("Inserting %v items took %v\n", n, time.Since(t0))
