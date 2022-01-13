@@ -151,3 +151,14 @@ func (it *Iterator) Refresh() {
 		it.s.barrier.Release(currBs)
 	}
 }
+
+func (it *Iterator) Pause() {
+	if it.bs != nil {
+		it.s.barrier.Release(it.bs)
+		it.bs = nil
+	}
+}
+
+func (it *Iterator) Resume() {
+	it.bs = it.s.barrier.Acquire()
+}
