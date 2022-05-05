@@ -8,11 +8,12 @@
 #include "malloc.h"
 #include <stdio.h>
 #include <string.h>
+#include <errno.h>
 
 #ifdef JEMALLOC
 #include <jemalloc/jemalloc.h>
 
-const char* je_malloc_conf = "narenas:2";
+const char* je_malloc_conf = "narenas:2,prof:true,prof_active:false";
 
 void writecb(void *ref, const char *s) {
 	stats_buf *buf = (stats_buf *)(ref);
@@ -140,4 +141,27 @@ int mm_free2os() {
 	return je_mallctl(buf, NULL, NULL, NULL, 0);
 #endif
 	return 0;
+}
+
+int mm_prof_activate() {
+#ifdef JEMALLOC
+    bool active = true;
+    return je_mallctl("prof.active", NULL, NULL, &active, sizeof(active));
+#endif
+    return ENOTSUP;
+}
+
+int mm_prof_deactivate() {
+#ifdef JEMALLOC
+    bool active = false;
+    return je_mallctl("prof.active", NULL, NULL, &active, sizeof(active));
+#endif
+    return ENOTSUP;
+}
+
+int mm_prof_dump(char* filePath) {
+#ifdef JEMALLOC
+    return je_mallctl("prof.dump", NULL, NULL, &filePath, sizeof(const char *));
+#endif
+    return ENOTSUP;
 }

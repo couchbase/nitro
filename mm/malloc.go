@@ -10,6 +10,7 @@ package mm
 
 /*
 #include "malloc.h"
+#include <string.h>
 */
 import "C"
 
@@ -95,6 +96,36 @@ func FreeOSMemory() error {
 	errCode := int(C.mm_free2os())
 	if errCode != 0 {
 		return fmt.Errorf("status: %d", errCode)
+	}
+
+	return nil
+}
+
+func ProfActivate() error {
+	if errCode := int(C.mm_prof_activate()); errCode != 0 {
+		return fmt.Errorf("Error during jemalloc profile activate. err = [%v]",
+			C.GoString(C.strerror(C.int(errCode))))
+	}
+
+	return nil
+}
+
+func ProfDeactivate() error {
+	if errCode := int(C.mm_prof_deactivate()); errCode != 0 {
+		return fmt.Errorf("Error during jemalloc profile deactivate. err = [%v]",
+			C.GoString(C.strerror(C.int(errCode))))
+	}
+
+	return nil
+}
+
+func ProfDump(filePath string) error {
+	filePathAsCString := C.CString(filePath)
+	defer C.free(unsafe.Pointer(filePathAsCString))
+
+	if errCode := int(C.mm_prof_dump(filePathAsCString)); errCode != 0 {
+		return fmt.Errorf("Error during jemalloc profile dump. err = [%v]",
+			C.GoString(C.strerror(C.int(errCode))))
 	}
 
 	return nil
