@@ -103,6 +103,33 @@ size_t mm_alloc_size() {
 #endif
 }
 
+size_t mm_dirty_size() {
+#ifdef JEMALLOC
+    // Force stats cache flush
+    uint64_t epoch = 1;
+    size_t sz = sizeof(epoch);
+    je_mallctl("epoch", &epoch, &sz, &epoch, sz);
+
+    // Just enough to hold "stats.arenas.%d.pdirty" formatted with max uint64
+    char ctl[42];
+    snprintf(ctl, 42, "stats.arenas.%d.pdirty", MALLCTL_ARENAS_ALL);
+
+    // Get page size
+    size_t pageSize = 0;
+    sz = sizeof(size_t);
+    je_mallctl("arenas.page", &pageSize, &sz, NULL, 0);
+
+    // Get number of dirty pages
+    size_t pdirty = 0;
+    je_mallctl(ctl, &pdirty, &sz, NULL, 0);
+
+    // Return number of dirty bytes
+    return pdirty * pageSize;
+#else
+    return 0;
+#endif
+}
+
 int mm_free2os() {
 #ifdef JEMALLOC
 	char buf[100];
