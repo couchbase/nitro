@@ -10,6 +10,7 @@ package mm
 
 import (
 	"fmt"
+	"os"
 	"testing"
 )
 
@@ -23,5 +24,30 @@ func TestSizeAt(t *testing.T) {
 	p := Malloc(89)
 	if sz := SizeAt(p); sz != 96 {
 		t.Errorf("Expected sizeclass 96, but got %d", sz)
+	}
+}
+
+func TestProf(t *testing.T) {
+	profPath := "TestProf.prof"
+
+	if err := os.Remove(profPath); err != nil && !os.IsNotExist(err) {
+		t.Errorf("Could not remove old profile: err[%v]", err)
+		return
+	}
+
+	if err := ProfActivate(); err != nil {
+		t.Error(err)
+		return
+	}
+
+	defer func() {
+		if err := ProfDeactivate(); err != nil {
+			t.Error(err)
+		}
+	}()
+
+	if err := ProfDump(profPath); err != nil {
+		t.Error(err)
+		return
 	}
 }
