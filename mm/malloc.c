@@ -15,25 +15,30 @@
 
 const char* je_malloc_conf = "narenas:2,prof:true,prof_active:false";
 
+// writecb is callback passed to jemalloc used to process a chunk of
+// stats text. It is in charge of making sure that the buffer is
+// sufficiently sized.
 void writecb(void *ref, const char *s) {
 	stats_buf *buf = (stats_buf *)(ref);
 	int len;
 	len = strlen(s);
 	if (buf->offset + len >= buf->size) {
-		buf->size *=2;
+		// Buffer is too small, resize it to fit at least len and string terminator
+		buf->size += len + 2;
 		buf->buf = realloc(buf->buf, buf->size);
 	}
 	strncpy(buf->buf + buf->offset, s, len);
 	buf->offset += len;
 }
 
-
-char *doStats()  {
+// doStats returns a string with jemalloc stats.
+// Caller is responsible to call free on the string buffer.
+char *doStats(char *opts)  {
 	stats_buf buf;
 	buf.size = 1024;
 	buf.buf = malloc(buf.size);
 	buf.offset = 0;
-	je_malloc_stats_print(writecb, &buf, NULL);
+	je_malloc_stats_print(writecb, &buf, opts);
 	buf.buf[buf.offset] = 0;
 	return buf.buf;
 }
@@ -58,7 +63,15 @@ void mm_free(void *p) {
 
 char *mm_stats() {
 #ifdef JEMALLOC
-    return doStats();
+    return doStats(NULL);
+#else
+    return NULL;
+#endif
+}
+
+char *mm_stats_json() {
+#ifdef JEMALLOC
+    return doStats("J");
 #else
     return NULL;
 #endif

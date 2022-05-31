@@ -74,6 +74,21 @@ func Stats() string {
 	return s
 }
 
+func StatsJson() string {
+	mu.Lock()
+	defer mu.Unlock()
+
+	buf := C.mm_stats_json()
+
+	s := ""
+	if buf != nil {
+		s += C.GoString(buf)
+		C.free(unsafe.Pointer(buf))
+	}
+
+	return s
+}
+
 // Size returns total size allocated by mm allocator
 func Size() uint64 {
 	return uint64(C.mm_size())

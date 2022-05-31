@@ -9,6 +9,7 @@
 package mm
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"testing"
@@ -18,6 +19,19 @@ func TestMalloc(t *testing.T) {
 	Malloc(100 * 1024 * 1024)
 	fmt.Println("size:", Size())
 	fmt.Println(Stats())
+
+	stsJsonStr := StatsJson()
+	unmarshaledSts := new(map[string]interface{})
+
+	if err := json.Unmarshal([]byte(stsJsonStr), unmarshaledSts); err != nil {
+		t.Errorf("Failed to unmarshal json stats: %v", err)
+	}
+
+	buf, err := json.MarshalIndent(unmarshaledSts, "", "    ")
+	if err != nil {
+		t.Errorf("Failed to marshal again: %v", err)
+	}
+	fmt.Println(string(buf))
 }
 
 func TestSizeAt(t *testing.T) {

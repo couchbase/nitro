@@ -23,6 +23,8 @@ void mm_free(void *);
 
 char *mm_stats();
 
+char *mm_stats_json();
+
 size_t mm_sizeat(void *);
 
 size_t mm_size();
