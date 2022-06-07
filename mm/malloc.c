@@ -45,6 +45,54 @@ char *doStats(char *opts)  {
 
 #endif
 
+// mm_arenas_nbins returns the stat nbins which is the
+// number of bin size classes.
+unsigned int mm_arenas_nbins() {
+#ifdef JEMALLOC
+    unsigned int nbins = 0;
+    size_t sz = sizeof(unsigned int);
+    je_mallctl("arenas.nbins", &nbins, &sz, NULL, 0);
+
+    return nbins;
+#else
+    return 0;
+#endif
+}
+
+// mm_arenas_bin_i_stat returns the value of the stat `stat` which is
+// something valid which can be used in arenas.bin.<i>.<stat>.
+// Should be used only when value is expected to be a size_t.
+size_t mm_arenas_bin_i_stat(unsigned int i, const char *stat) {
+#ifdef JEMALLOC
+    size_t stat_val = 0;
+    size_t sz = sizeof(size_t);
+    char ctl[128];
+    snprintf(ctl, 128, "arenas.bin.%d.%s", i, stat);
+    je_mallctl(ctl, &stat_val, &sz, NULL, 0);
+
+    return stat_val;
+#else
+    return 0;
+#endif
+}
+
+// mm_stats_arenas_merged_bins_j_stat returns the value of the stat `stat` merged across arenas
+// The `stat` should be something valid which can be used in stats.arenas.<i>.bins.<j>.<stat>.
+// Should be used only when value is expected to be a size_t.
+size_t mm_stats_arenas_merged_bins_j_stat(unsigned int j, const char *stat) {
+#ifdef JEMALLOC
+    size_t stat_val = 0;
+    size_t sz = sizeof(size_t);
+    char ctl[128];
+    snprintf(ctl, 128, "stats.arenas.%d.bins.%d.%s", MALLCTL_ARENAS_ALL, j, stat);
+    je_mallctl(ctl, &stat_val, &sz, NULL, 0);
+
+    return stat_val;
+#else
+    return 0;
+#endif
+}
+
 void *mm_malloc(size_t sz) {
 #ifdef JEMALLOC
     return je_calloc(1, sz);
