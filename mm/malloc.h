@@ -16,6 +16,10 @@ typedef struct {
 	int size;
 } stats_buf;
 
+#define MM_STAT_SIZE     "size"
+#define MM_STAT_NREGS    "nregs"
+#define MM_STAT_CURREGS  "curregs"
+#define MM_STAT_CURSLABS "curslabs"
 
 void *mm_malloc(size_t);
 
@@ -24,6 +28,12 @@ void mm_free(void *);
 char *mm_stats();
 
 char *mm_stats_json();
+
+unsigned int mm_arenas_nbins();
+
+size_t mm_arenas_bin_i_stat(unsigned int, const char *);
+
+size_t mm_stats_arenas_merged_bins_j_stat(unsigned int, const char *);
 
 size_t mm_sizeat(void *);
 
