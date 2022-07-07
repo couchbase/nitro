@@ -167,7 +167,7 @@ func DirtySize() uint64 {
 }
 
 func GetAllocStats() (uint64, uint64) {
-	return stats.allocs, stats.frees
+	return atomic.LoadUint64(&stats.allocs), atomic.LoadUint64(&stats.frees)
 }
 
 // FreeOSMemory forces jemalloc to scrub memory and release back to OS
