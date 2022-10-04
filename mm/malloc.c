@@ -13,7 +13,13 @@
 #ifdef JEMALLOC
 #include <jemalloc/jemalloc.h>
 
-const char* je_malloc_conf = "narenas:2,prof:true,prof_active:false";
+const char* je_malloc_conf = "narenas:2"
+
+// Enable profiling, but keep it deactivated. Profiling is supported only on linux.
+#ifdef __linux__
+        ",prof:true,prof_active:false"
+#endif
+    ;
 
 // writecb is callback passed to jemalloc used to process a chunk of
 // stats text. It is in charge of making sure that the buffer is
