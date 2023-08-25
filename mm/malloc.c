@@ -119,13 +119,11 @@ size_t mm_active_size() {
 #endif
 }
 
+
 int mm_free2os() {
 #ifdef JEMALLOC
 	char buf[100];
-	unsigned int narenas;
-	size_t len = sizeof(narenas);
-	je_mallctl("arenas.narenas", &narenas, &len, NULL, 0);
-	sprintf(buf, "arena.%u.purge", narenas);
+	sprintf(buf, "arena.%u.purge", MALLCTL_ARENAS_ALL);
 	return je_mallctl(buf, NULL, NULL, NULL, 0);
 #endif
 	return 0;
