@@ -103,6 +103,22 @@ size_t mm_alloc_size() {
 #endif
 }
 
+size_t mm_active_size() {
+    size_t active, sz;
+    sz = sizeof(size_t);
+#ifdef JEMALLOC
+    // Force stats cache flush
+    uint64_t epoch = 1;
+    sz = sizeof(epoch);
+    je_mallctl("epoch", &epoch, &sz, &epoch, sz);
+
+    je_mallctl("stats.active", &active, &sz, NULL, 0);
+    return active;
+#else
+    return 0;
+#endif
+}
+
 int mm_free2os() {
 #ifdef JEMALLOC
 	char buf[100];
