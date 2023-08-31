@@ -198,13 +198,27 @@ size_t mm_dirty_size() {
 #endif
 }
 
+size_t mm_active_size() {
+    size_t active, sz;
+    sz = sizeof(size_t);
+#ifdef JEMALLOC
+    // Force stats cache flush
+    uint64_t epoch = 1;
+    sz = sizeof(epoch);
+    je_mallctl("epoch", &epoch, &sz, &epoch, sz);
+
+    je_mallctl("stats.active", &active, &sz, NULL, 0);
+    return active;
+#else
+    return 0;
+#endif
+}
+
+
 int mm_free2os() {
 #ifdef JEMALLOC
 	char buf[100];
-	unsigned int narenas;
-	size_t len = sizeof(narenas);
-	je_mallctl("arenas.narenas", &narenas, &len, NULL, 0);
-	sprintf(buf, "arena.%u.purge", narenas);
+	sprintf(buf, "arena.%u.purge", MALLCTL_ARENAS_ALL);
 	return je_mallctl(buf, NULL, NULL, NULL, 0);
 #endif
 	return 0;

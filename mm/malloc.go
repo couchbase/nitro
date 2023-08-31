@@ -97,7 +97,7 @@ func computeBinFrag(curregs, curslabs, nregs uint64) uint64 {
 		return 0
 	}
 
-	return 100 - ((100*curregs) / (curslabs * nregs))
+	return 100 - ((100 * curregs) / (curslabs * nregs))
 }
 
 func computeBinResident(curslabs, nregs, size uint64) uint64 {
@@ -108,7 +108,7 @@ func getBinsStats() map[string]JemallocBinStats {
 	nbins := uint64(C.mm_arenas_nbins())
 	bs := make(map[string]JemallocBinStats)
 
-	for i:=uint64(0); i<nbins; i++ {
+	for i := uint64(0); i < nbins; i++ {
 		binInd := C.uint(i)
 		size := uint64(C.mm_arenas_bin_i_stat(binInd, statSize))
 		nregs := uint64(C.mm_arenas_bin_i_stat(binInd, statNregs))
@@ -164,6 +164,10 @@ func AllocSize() uint64 {
 
 func DirtySize() uint64 {
 	return uint64(C.mm_dirty_size())
+}
+
+func ActiveSize() uint64 {
+	return uint64(C.mm_active_size())
 }
 
 func GetAllocStats() (uint64, uint64) {

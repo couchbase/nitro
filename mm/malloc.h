@@ -43,6 +43,8 @@ size_t mm_alloc_size();
 
 size_t mm_dirty_size();
 
+size_t mm_active_size();
+
 int mm_free2os();
 
 int mm_prof_activate();
