@@ -27,7 +27,7 @@ var testConf Config
 
 func init() {
 	testConf = DefaultConfig()
-	testConf.UseMemoryMgmt(mm.Malloc, mm.Free)
+	testConf.UseMemoryMgmt(mm.MallocArena, mm.Free)
 	testConf.UseDeltaInterleaving()
 	Debug(true)
 }
