@@ -21,13 +21,23 @@ typedef struct {
 #define MM_STAT_CURREGS  "curregs"
 #define MM_STAT_CURSLABS "curslabs"
 
+int mm_create_arenas();
+
 void *mm_malloc(size_t);
+
+void* mm_malloc_user_arena(size_t, unsigned short);
 
 void mm_free(void *);
 
 char *mm_stats();
 
 char *mm_stats_json();
+
+unsigned int mm_narenas();
+
+unsigned int mm_user_narenas();
+
+size_t mm_arenas_i_stat(unsigned int, const char*);
 
 unsigned int mm_arenas_nbins();
 
@@ -39,13 +49,31 @@ size_t mm_sizeat(void *);
 
 size_t mm_size();
 
+size_t mm_size_user_arena();
+
+size_t mm_size_auto_arena();
+
 size_t mm_alloc_size();
+
+size_t mm_alloc_size_user_arena();
+
+size_t mm_alloc_size_auto_arena();
 
 size_t mm_dirty_size();
 
+size_t mm_dirty_size_user_arena();
+
+size_t mm_dirty_size_auto_arena();
+
 size_t mm_active_size();
 
+size_t mm_active_size_user_arena();
+
+size_t mm_active_size_auto_arena();
+
 int mm_free2os();
+
+int mm_free2os_user_arena(unsigned int);
 
 int mm_prof_activate();
 
