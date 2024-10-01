@@ -45,12 +45,35 @@ func init() {
 	statCurslabs = C.CString(C.MM_STAT_CURSLABS)
 }
 
+// user arenas (note: narenas in je_malloc_conf are auto/default arenas)
+func CreateArenas() int {
+	mu.Lock()
+	defer mu.Unlock()
+
+	return int(C.mm_create_arenas())
+}
+
 // Malloc implements C like memory allocator
 func Malloc(l int) unsafe.Pointer {
 	if Debug {
 		atomic.AddUint64(&stats.allocs, 1)
 	}
 	return C.mm_malloc(C.size_t(l))
+}
+
+func MallocArena(l int) unsafe.Pointer {
+	if Debug {
+		atomic.AddUint64(&stats.allocs, 1)
+	}
+	return C.mm_malloc_user_arena(C.size_t(l), 0)
+}
+
+// key is mainly for windows where we do not do thread based arena assignment
+func MallocArenaByKey(l int, key uint16) unsafe.Pointer {
+	if Debug {
+		atomic.AddUint64(&stats.allocs, 1)
+	}
+	return C.mm_malloc_user_arena(C.size_t(l), C.ushort(key))
 }
 
 // Free implements C like memory deallocator
@@ -85,6 +108,24 @@ func Stats() string {
 	}
 
 	return s
+}
+
+func ArenaStats(i int, str string) uint64 {
+	buf := C.CString(str)
+	if buf == nil {
+		return 0
+	}
+	defer C.free(unsafe.Pointer(buf))
+
+	return uint64(C.mm_arenas_i_stat(C.uint(i), buf))
+}
+
+func NArenas() int {
+	return int(C.mm_narenas())
+}
+
+func NArenasUser() int {
+	return int(C.mm_user_narenas())
 }
 
 type JemallocBinStats struct {
@@ -153,21 +194,53 @@ func StatsJson() string {
 	return string(data)
 }
 
-// Size returns total size allocated by mm allocator
+// Size returns total resident size merged across all arenas
 func Size() uint64 {
 	return uint64(C.mm_size())
+}
+
+func SizeUser() uint64 {
+	return uint64(C.mm_size_user_arena())
+}
+
+func SizeAuto() uint64 {
+	return uint64(C.mm_size_auto_arena())
 }
 
 func AllocSize() uint64 {
 	return uint64(C.mm_alloc_size())
 }
 
+func AllocSizeUser() uint64 {
+	return uint64(C.mm_alloc_size_user_arena())
+}
+
+func AllocSizeAuto() uint64 {
+	return uint64(C.mm_alloc_size_auto_arena())
+}
+
 func DirtySize() uint64 {
 	return uint64(C.mm_dirty_size())
 }
 
+func DirtySizeUser() uint64 {
+	return uint64(C.mm_dirty_size_user_arena())
+}
+
+func DirtySizeAuto() uint64 {
+	return uint64(C.mm_dirty_size_auto_arena())
+}
+
 func ActiveSize() uint64 {
 	return uint64(C.mm_active_size())
+}
+
+func ActiveSizeUser() uint64 {
+	return uint64(C.mm_active_size_user_arena())
+}
+
+func ActiveSizeAuto() uint64 {
+	return uint64(C.mm_active_size_auto_arena())
 }
 
 func GetAllocStats() (uint64, uint64) {
@@ -182,6 +255,26 @@ func FreeOSMemory() error {
 	}
 
 	return nil
+}
+
+// does parallel scrub of user arenas memory and release back to OS
+func FreeOSMemoryUser() error {
+	var err error
+	var wg sync.WaitGroup
+	for i := 0; i < NArenasUser(); i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+
+			errCode := int(C.mm_free2os_user_arena(C.uint(id)))
+			if errCode != 0 && err == nil {
+				err = fmt.Errorf("status: %d", errCode)
+			}
+		}(i)
+	}
+
+	wg.Wait()
+	return err
 }
 
 func ProfActivate() error {
