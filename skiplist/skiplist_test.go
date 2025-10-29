@@ -230,13 +230,13 @@ func TestNodeDCAS(t *testing.T) {
 	// golang memory
 
 	pval1 := new(int)
-	p1 := allocNode(unsafe.Pointer(pval1), level, nil)
+	p1 := allocNode(unsafe.Pointer(pval1), level, nil, true)
 
 	pval2 := new(int)
-	p2 := allocNode(unsafe.Pointer(pval2), level, nil)
+	p2 := allocNode(unsafe.Pointer(pval2), level, nil, true)
 
 	pval3 := new(int)
-	p3 := allocNode(unsafe.Pointer(pval3), level, nil)
+	p3 := allocNode(unsafe.Pointer(pval3), level, nil, true)
 
 	// initialize
 	if !p1.dcasNext(level, nil, p2, false, false) {
@@ -275,13 +275,13 @@ func TestNodeDCAS(t *testing.T) {
 	// user memory
 
 	qval1 := mm.Malloc(8)
-	q1 := allocNode(unsafe.Pointer(qval1), level, mm.Malloc)
+	q1 := allocNode(unsafe.Pointer(qval1), level, mm.Malloc, true)
 
 	qval2 := mm.Malloc(8)
-	q2 := allocNode(unsafe.Pointer(qval2), level, mm.Malloc)
+	q2 := allocNode(unsafe.Pointer(qval2), level, mm.Malloc, true)
 
 	qval3 := mm.Malloc(8)
-	q3 := allocNode(unsafe.Pointer(qval3), level, mm.Malloc)
+	q3 := allocNode(unsafe.Pointer(qval3), level, mm.Malloc, true)
 
 	// initialize
 	if !q1.dcasNext(level, nil, q2, false, false) {
