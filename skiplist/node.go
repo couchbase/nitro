@@ -164,7 +164,7 @@ func (n *Node) GetLink() *Node {
 	return (*Node)(n.Link)
 }
 
-func allocNode(itm unsafe.Pointer, level int, fn MallocFn) *Node {
+func allocNode(itm unsafe.Pointer, level int, fn MallocFn, _ bool) *Node {
 	var n *Node
 	// we reserve level's MSB bit to cache node type
 	if level < 0 || level >= mmFlag {

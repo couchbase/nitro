@@ -14,7 +14,9 @@ import (
 	"unsafe"
 )
 
-var nodeTypes = [33]reflect.Type{
+// SKIPLIST NODE STRUCTS - NO PADDING
+
+var nodeTypesNotPadded = [33]reflect.Type{
 	reflect.TypeOf(node0),
 	reflect.TypeOf(node1),
 	reflect.TypeOf(node2),
@@ -279,12 +281,318 @@ var node32 struct {
 	buf   [33]NodeRef
 }
 
-func allocNode(itm unsafe.Pointer, level int, malloc MallocFn) *Node {
+// SKIPLIST NODE STRUCTS - WITH PADDING
+
+var nodeTypesPadded = [33]reflect.Type{
+	reflect.TypeOf(node0p),
+	reflect.TypeOf(node1p),
+	reflect.TypeOf(node2p),
+	reflect.TypeOf(node3p),
+	reflect.TypeOf(node4p),
+	reflect.TypeOf(node5p),
+	reflect.TypeOf(node6p),
+	reflect.TypeOf(node7p),
+	reflect.TypeOf(node8p),
+	reflect.TypeOf(node9p),
+	reflect.TypeOf(node10p),
+	reflect.TypeOf(node11p),
+	reflect.TypeOf(node12p),
+	reflect.TypeOf(node13p),
+	reflect.TypeOf(node14p),
+	reflect.TypeOf(node15p),
+	reflect.TypeOf(node16p),
+	reflect.TypeOf(node17p),
+	reflect.TypeOf(node18p),
+	reflect.TypeOf(node19p),
+	reflect.TypeOf(node20p),
+	reflect.TypeOf(node21p),
+	reflect.TypeOf(node22p),
+	reflect.TypeOf(node23p),
+	reflect.TypeOf(node24p),
+	reflect.TypeOf(node25p),
+	reflect.TypeOf(node26p),
+	reflect.TypeOf(node27p),
+	reflect.TypeOf(node28p),
+	reflect.TypeOf(node29p),
+	reflect.TypeOf(node30p),
+	reflect.TypeOf(node31p),
+	reflect.TypeOf(node32p),
+}
+
+var node0p struct {
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	_     [PADDING]byte
+	buf   [1]NodeRef
+}
+
+var node1p struct {
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	_     [PADDING]byte
+	buf   [2]NodeRef
+}
+
+var node2p struct {
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	_     [PADDING]byte
+	buf   [3]NodeRef
+}
+
+var node3p struct {
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	_     [PADDING]byte
+	buf   [4]NodeRef
+}
+
+var node4p struct {
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	_     [PADDING]byte
+	buf   [5]NodeRef
+}
+
+var node5p struct {
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	_     [PADDING]byte
+	buf   [6]NodeRef
+}
+
+var node6p struct {
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	_     [PADDING]byte
+	buf   [7]NodeRef
+}
+
+var node7p struct {
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	_     [PADDING]byte
+	buf   [8]NodeRef
+}
+
+var node8p struct {
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	_     [PADDING]byte
+	buf   [9]NodeRef
+}
+
+var node9p struct {
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	_     [PADDING]byte
+	buf   [10]NodeRef
+}
+
+var node10p struct {
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	_     [PADDING]byte
+	buf   [11]NodeRef
+}
+var node11p struct {
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	_     [PADDING]byte
+	buf   [12]NodeRef
+}
+
+var node12p struct {
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	_     [PADDING]byte
+	buf   [13]NodeRef
+}
+
+var node13p struct {
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	_     [PADDING]byte
+	buf   [14]NodeRef
+}
+
+var node14p struct {
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	_     [PADDING]byte
+	buf   [15]NodeRef
+}
+
+var node15p struct {
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	_     [PADDING]byte
+	buf   [16]NodeRef
+}
+
+var node16p struct {
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	_     [PADDING]byte
+	buf   [17]NodeRef
+}
+
+var node17p struct {
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	_     [PADDING]byte
+	buf   [18]NodeRef
+}
+
+var node18p struct {
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	_     [PADDING]byte
+	buf   [19]NodeRef
+}
+
+var node19p struct {
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	_     [PADDING]byte
+	buf   [20]NodeRef
+}
+
+var node20p struct {
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	_     [PADDING]byte
+	buf   [21]NodeRef
+}
+
+var node21p struct {
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	_     [PADDING]byte
+	buf   [22]NodeRef
+}
+
+var node22p struct {
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	_     [PADDING]byte
+	buf   [23]NodeRef
+}
+
+var node23p struct {
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	_     [PADDING]byte
+	buf   [24]NodeRef
+}
+
+var node24p struct {
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	_     [PADDING]byte
+	buf   [25]NodeRef
+}
+
+var node25p struct {
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	_     [PADDING]byte
+	buf   [26]NodeRef
+}
+
+var node26p struct {
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	_     [PADDING]byte
+	buf   [27]NodeRef
+}
+
+var node27p struct {
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	_     [PADDING]byte
+	buf   [28]NodeRef
+}
+
+var node28p struct {
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	_     [PADDING]byte
+	buf   [29]NodeRef
+}
+
+var node29p struct {
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	_     [PADDING]byte
+	buf   [30]NodeRef
+}
+
+var node30p struct {
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	_     [PADDING]byte
+	buf   [31]NodeRef
+}
+var node31p struct {
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	_     [PADDING]byte
+	buf   [32]NodeRef
+}
+
+var node32p struct {
+	itm   unsafe.Pointer
+	gc    unsafe.Pointer
+	cache int64
+	_     [PADDING]byte
+	buf   [33]NodeRef
+}
+
+func allocNode(itm unsafe.Pointer, level int, malloc MallocFn, usePadding bool) *Node {
+
+	nt := nodeTypesNotPadded
+	if usePadding {
+		nt = nodeTypesPadded
+	}
+
 	var block unsafe.Pointer
 	if malloc == nil {
-		block = unsafe.Pointer(reflect.New(nodeTypes[level]).Pointer())
+		block = unsafe.Pointer(reflect.New(nt[level]).Pointer())
 	} else {
-		block = malloc(int(nodeTypes[level].Size()))
+		block = malloc(int(nt[level].Size()))
 	}
 
 	n := (*Node)(block)
@@ -292,13 +600,16 @@ func allocNode(itm unsafe.Pointer, level int, malloc MallocFn) *Node {
 	n.itm = itm
 	n.Link = nil
 	n.Cache = 0
+
+	n.setUsePadding(usePadding)
+
 	return n
 }
 
 var freeBlockContent []byte
 
 func init() {
-	l := int(nodeTypes[32].Size())
+	l := int(nodeTypesPadded[32].Size())
 	freeBlockContent = make([]byte, l)
 	for i := 0; i < l; i++ {
 		freeBlockContent[i] = 0xdd
@@ -308,8 +619,14 @@ func init() {
 // Fill free blocks with a const
 // This can help debugging of memory reclaimer bugs
 func debugMarkFree(n *Node) {
+
+	nt := nodeTypesNotPadded
+	if n.IsUsingPadding() {
+		nt = nodeTypesPadded
+	}
+
 	var block []byte
-	l := int(nodeTypes[n.level].Size())
+	l := int(nt[n.level].Size())
 	sh := (*reflect.SliceHeader)(unsafe.Pointer(&block))
 	sh.Data = uintptr(unsafe.Pointer(n))
 	sh.Len = l

@@ -46,6 +46,7 @@ type Config struct {
 	Malloc            MallocFn
 	Free              FreeFn
 	BarrierDestructor BarrierSessionDestructor
+	UsePaddedNode     bool
 }
 
 // SetItemSizeFunc configures item size function
@@ -91,10 +92,9 @@ func NewWithConfig(cfg Config) *Skiplist {
 		barrier: newAccessBarrier(cfg.UseMemoryMgmt, cfg.BarrierDestructor),
 	}
 
-
 	if cfg.UseMemoryMgmt {
 		s.newNode = func(itm unsafe.Pointer, level int) *Node {
-			return allocNode(itm, level, cfg.Malloc)
+			return allocNode(itm, level, cfg.Malloc, cfg.UsePaddedNode)
 		}
 
 		s.freeNode = func(n *Node) {
@@ -105,7 +105,7 @@ func NewWithConfig(cfg Config) *Skiplist {
 		}
 	} else {
 		s.newNode = func(itm unsafe.Pointer, level int) *Node {
-			return allocNode(itm, level, nil)
+			return allocNode(itm, level, nil, cfg.UsePaddedNode)
 		}
 
 		s.freeNode = func(*Node) {}
