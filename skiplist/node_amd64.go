@@ -13,26 +13,45 @@ import (
 	"unsafe"
 )
 
-// Node structure overlaps with an array of NodeRef struct
+// Memory Layout of <Node struct>:
 //
-//  <Node struct>
-// +--------------+-----------------+----------------+
-// | itm - 8bytes | GClink - 8bytes | level = 2 bytes|  <[]NodeRef struct>
-// +--------------+-----------------+----------------+-----+--------------+--------------+--------------+
-//                                  | flag - 8bytes        | ptr - 8 bytes| flag - 8bytes| ptr - 8 bytes|
-//                                  +----------------------+--------------+--------------+--------------+
+// Without padding:
+// Node structure overlaps with an array of NodeRef struct
+// +--------------+---------------+----------------+----------------+
+// | itm = 8bytes | Link = 8bytes | Cache = 8bytes | level = 2bytes |
+// +--------------+---------------+----------------+----------------+--+---------------+ ... +---------------+---------------+
+// <Node struct>                                   |   flag = 8bytes   | ptr = 8 bytes | ... | flag = 8bytes | ptr = 8 bytes |
+//                                                 +-------------------+---------------+ ... +---------------+---------------+
+//                                                 <[]NodeRef struct>
+//
+// With 8byte padding:
+// +--------------+---------------+----------------+----------------+------------------+
+// | itm = 8bytes | Link = 8bytes | Cache = 8bytes | level = 2bytes | PADDING = 6bytes |
+// +--------------+---------------+----------------+----------------+------------------+---------------+---------------+ ... +---------------+---------------+
+// <Node struct>                                                                       | flag = 8bytes | ptr = 8 bytes | ... | flag = 8bytes | ptr = 8 bytes |
+//                                                                                     +---------------+---------------+ ... +---------------+---------------+
+//                                                                                     <[]NodeRef struct>
 
-var nodeHdrSize = unsafe.Sizeof(struct {
+// If a NodeRef straddles a cache line, then the CAS performed in dcasNext
+// will incur a split lock. To avoid the split locking penalties, pad the
+// node structs so that NodeRef is aligned on 16 bytes. Note that jemalloc
+// gives 16-byte aligned pointers.
+const PADDING = 8
+
+var nodeHdrSizeNotPadded = unsafe.Sizeof(struct {
 	itm     unsafe.Pointer
 	GClink  *Node
 	DataPtr unsafe.Pointer
 }{})
+
+var nodeHdrSizePadded = nodeHdrSizeNotPadded + PADDING
 
 var nodeRefSize = unsafe.Sizeof(NodeRef{})
 
 var nodeRefFlagSize = unsafe.Sizeof(NodeRef{}.flag)
 
 const deletedFlag = 0xff
+const usingPaddingFlag = uint64(0x1 << 47)
 
 // Node represents skiplist node header
 type Node struct {
@@ -47,9 +66,37 @@ func (n Node) Level() int {
 	return int(n.level)
 }
 
+// NodeRef's flag is 8 bytes, but only last byte is used.
+// For the level 0, the first two bytes overlap with level if no padding used
+// If padding is used, then there is no overlap.
+// Use 1 bit right after level in this unused span to indicate whether padding is used or not.
+func (n *Node) setUsePadding(usePadding bool) {
+	levelPtr := (*uint64)(unsafe.Pointer(uintptr(unsafe.Pointer(n)) + nodeHdrSizeNotPadded))
+
+	if usePadding {
+		*levelPtr |= usingPaddingFlag
+	} else {
+		*levelPtr &= (^usingPaddingFlag)
+	}
+}
+
+func (n *Node) IsUsingPadding() bool {
+	levelPtr := (*uint64)(unsafe.Pointer(uintptr(unsafe.Pointer(n)) + nodeHdrSizeNotPadded))
+	return *levelPtr&usingPaddingFlag != 0
+}
+
+func (n *Node) getHdrSize() uintptr {
+	nhs := nodeHdrSizeNotPadded
+	if n.IsUsingPadding() {
+		nhs = nodeHdrSizePadded
+	}
+
+	return nhs
+}
+
 // Size returns memory used by the node
 func (n Node) Size() int {
-	return int(nodeHdrSize + uintptr(n.level+1)*nodeRefSize)
+	return int(n.getHdrSize() + uintptr(n.level+1)*nodeRefSize)
 }
 
 // Item returns item held by the node
@@ -90,18 +137,23 @@ type NodeRef struct {
 }
 
 func (n *Node) setNext(level int, ptr *Node, deleted bool) {
+
+	usePadding := n.IsUsingPadding()
 	nlevel := n.level
-	ref := (*NodeRef)(unsafe.Pointer(uintptr(unsafe.Pointer(n)) + nodeHdrSize + nodeRefSize*uintptr(level)))
+
+	ref := (*NodeRef)(unsafe.Pointer(uintptr(unsafe.Pointer(n)) + n.getHdrSize() + nodeRefSize*uintptr(level)))
 	ref.ptr = ptr
 	ref.flag = 0
-	// Setting flag for level 0 will require reseting of level
+
+	// Setting flag for level 0 will require reseting of level and padding bit
 	if level == 0 {
 		n.level = nlevel
+		n.setUsePadding(usePadding)
 	}
 }
 
 func (n *Node) getNext(level int) (*Node, bool) {
-	nodeRefAddr := uintptr(unsafe.Pointer(n)) + nodeHdrSize + nodeRefSize*uintptr(level)
+	nodeRefAddr := uintptr(unsafe.Pointer(n)) + n.getHdrSize() + nodeRefSize*uintptr(level)
 	wordAddr := (*uint64)(unsafe.Pointer(nodeRefAddr + uintptr(7)))
 
 	v := atomic.LoadUint64(wordAddr)
@@ -119,7 +171,7 @@ func (n *Node) getNext(level int) (*Node, bool) {
 // least-significant to 0xff (denotes deleted). Same applies for loading delete
 // flag and the address atomically.
 func (n *Node) dcasNext(level int, prevPtr, newPtr *Node, prevIsdeleted, newIsdeleted bool) bool {
-	nodeRefAddr := uintptr(unsafe.Pointer(n)) + nodeHdrSize + nodeRefSize*uintptr(level)
+	nodeRefAddr := uintptr(unsafe.Pointer(n)) + n.getHdrSize() + nodeRefSize*uintptr(level)
 	wordAddr := (*uint64)(unsafe.Pointer(nodeRefAddr + uintptr(7)))
 	prevVal := uint64(uintptr(unsafe.Pointer(prevPtr)) << 8)
 	newVal := uint64(uintptr(unsafe.Pointer(newPtr)) << 8)
