@@ -337,6 +337,9 @@ retry:
 
 finished:
 	sts.AddInt64(&sts.nodeAllocs, 1)
+	if uintptr(unsafe.Pointer(x))%16 != 0 {
+		sts.AddInt64(&sts.nodeAllocsNot16Align, 1)
+	}
 	sts.AddInt64(&sts.levelNodesCount[itemLevel], 1)
 	sts.AddInt64(&sts.usedBytes, int64(s.Size(x)))
 	return x, true

@@ -36,6 +36,9 @@ func (s *Segment) Add(itm unsafe.Pointer) {
 	itemLevel := s.builder.store.NewLevel(s.rand.Float32)
 	x := s.builder.store.newNode(itm, itemLevel)
 	s.sts.AddInt64(&s.sts.nodeAllocs, 1)
+	if uintptr(unsafe.Pointer(x))%16 != 0 {
+		s.sts.AddInt64(&s.sts.nodeAllocsNot16Align, 1)
+	}
 	s.sts.AddInt64(&s.sts.levelNodesCount[itemLevel], 1)
 	s.sts.AddInt64(&s.sts.usedBytes, int64(s.builder.store.Size(x)))
 
