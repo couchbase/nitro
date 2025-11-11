@@ -21,8 +21,9 @@ type StatsReport struct {
 	SoftDeletes         int64
 	Memory              int64
 
-	NodeAllocs int64
-	NodeFrees  int64
+	NodeAllocs           int64
+	NodeFrees            int64
+	NodeAllocsNot16Align int64
 }
 
 // Apply updates the report with provided paritial stats
@@ -44,6 +45,7 @@ func (report *StatsReport) Apply(s *Stats) {
 	report.NodeCount = totalNodes
 	report.NodeAllocs += s.nodeAllocs
 	report.NodeFrees += s.nodeFrees
+	report.NodeAllocsNot16Align += s.nodeAllocsNot16Align
 	report.Memory += s.usedBytes
 	if totalNodes != 0 {
 		report.NextPointersPerNode = float64(totalNextPtrs) / float64(totalNodes)
@@ -57,6 +59,7 @@ type Stats struct {
 	levelNodesCount       [MaxLevel + 1]int64
 	softDeletes           int64
 	nodeAllocs, nodeFrees int64
+	nodeAllocsNot16Align  int64
 	usedBytes             int64
 
 	isLocal bool
@@ -97,6 +100,8 @@ func (s *Stats) Merge(sts *Stats) {
 	sts.nodeAllocs = 0
 	atomic.AddInt64(&s.nodeFrees, sts.nodeFrees)
 	sts.nodeFrees = 0
+	atomic.AddInt64(&s.nodeAllocsNot16Align, sts.nodeAllocsNot16Align)
+	sts.nodeAllocsNot16Align = 0
 	atomic.AddInt64(&s.usedBytes, sts.usedBytes)
 	sts.usedBytes = 0
 
@@ -117,9 +122,10 @@ func (s StatsReport) String() string {
 		`"next_pointers_per_node": %.4f,`+"\n"+
 		`"memory_used":            %d,`+"\n"+
 		`"node_allocs":            %d,`+"\n"+
-		`"node_frees":             %d,`+"\n",
+		`"node_frees":             %d,`+"\n"+
+		`"node_allocs_non_aligned":%d,`+"\n",
 		s.NodeCount, s.SoftDeletes, s.ReadConflicts, s.InsertConflicts,
-		s.NextPointersPerNode, s.Memory, s.NodeAllocs, s.NodeFrees)
+		s.NextPointersPerNode, s.Memory, s.NodeAllocs, s.NodeFrees, s.NodeAllocsNot16Align)
 
 	str += `"level_node_distribution":` + "{\n"
 
