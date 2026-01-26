@@ -125,6 +125,40 @@ func NewWithConfig(cfg Config) *Skiplist {
 	return s
 }
 
+func (s *Skiplist) Close(cmp CompareFn) {
+	if !s.UseMemoryMgmt || s.Free == nil {
+		return
+	}
+
+	buf := s.MakeBuf()
+	iter := s.NewIterator(cmp, buf)
+	defer iter.Close()
+
+	var lastNode *Node
+
+	iter.SeekFirst()
+	if iter.Valid() {
+		lastNode = iter.GetNode()
+		iter.Next()
+	}
+
+	for lastNode != nil {
+		s.Free(lastNode.Item())
+		s.Free(unsafe.Pointer(lastNode))
+		lastNode = nil
+
+		if iter.Valid() {
+			lastNode = iter.GetNode()
+			iter.Next()
+		}
+	}
+
+	head := s.HeadNode()
+	tail := s.TailNode()
+	s.Free(unsafe.Pointer(head))
+	s.Free(unsafe.Pointer(tail))
+}
+
 // GetAccesBarrier returns current active access barrier
 func (s *Skiplist) GetAccesBarrier() *AccessBarrier {
 	return s.barrier
