@@ -363,6 +363,21 @@ func (s *Skiplist) softDelete(delNode *Node, sts *Stats) bool {
 }
 
 // Delete an item from the skiplist
+func (s *Skiplist) FindAndDelete(itm unsafe.Pointer, cmp CompareFn,
+	buf *ActionBuffer, sts *Stats) (*Node, bool) {
+	token := s.barrier.Acquire()
+	defer s.barrier.Release(token)
+
+	found := s.findPath(itm, cmp, buf, sts) != nil
+	if !found {
+		return nil, false
+	}
+
+	delNode := buf.succs[0]
+	return delNode, s.deleteNode(delNode, cmp, buf, sts)
+}
+
+// Delete an item from the skiplist
 func (s *Skiplist) Delete(itm unsafe.Pointer, cmp CompareFn,
 	buf *ActionBuffer, sts *Stats) bool {
 	token := s.barrier.Acquire()
