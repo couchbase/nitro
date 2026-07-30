@@ -9,6 +9,7 @@
 package skiplist
 
 import (
+	"container/heap"
 	"math"
 	"sync"
 	"sync/atomic"
@@ -94,7 +95,7 @@ type AccessBarrier struct {
 	session     unsafe.Pointer
 	callb       BarrierSessionDestructor
 
-	freeq               *Skiplist
+	freeq               *bsHeap
 	freeSeqno           uint64
 	isDestructorRunning int32
 
@@ -113,38 +114,43 @@ func newAccessBarrier(active bool, callb BarrierSessionDestructor) *AccessBarrie
 		numAllocated: 1,
 	}
 	if active {
-		ab.freeq = New()
+		ab.freeq = newHeap(CompareBS)
 	}
 	return ab
 }
 
 func (ab *AccessBarrier) GetStats() (int64, int64, int64, uint64) {
+
 	if ab.freeq != nil {
-		return ab.numAllocated, ab.numFreed, int64(ab.freeq.GetStats().NodeCount), ab.freeSeqno
+		ab.freeq.RLock()
+		defer ab.freeq.RUnlock()
+
+		return ab.numAllocated, ab.numFreed, int64(ab.freeq.Len()), ab.freeSeqno
 	}
+
 	return ab.numAllocated, ab.numFreed, 0, ab.freeSeqno
 }
 
 func (ab *AccessBarrier) doCleanup() {
-	buf1 := ab.freeq.MakeBuf()
-	buf2 := ab.freeq.MakeBuf()
-	defer ab.freeq.FreeBuf(buf1)
-	defer ab.freeq.FreeBuf(buf2)
+	ab.freeq.Lock()
+	defer ab.freeq.Unlock()
 
-	iter := ab.freeq.NewIterator(CompareBS, buf1)
-	defer iter.Close()
+	defer func() {
+		ab.freeq.compact()
+	}()
 
-	for iter.SeekFirst(); iter.Valid(); iter.Next() {
-		node := iter.GetNode()
-		bs := (*BarrierSession)(node.Item())
+	for val := ab.freeq.peek(); val != nil; {
+		bs := (*BarrierSession)(val.(unsafe.Pointer))
 		if bs.seqno != ab.freeSeqno+1 {
 			return
 		}
 
 		ab.freeSeqno++
 		ab.callb(bs.objectRef)
-		ab.freeq.DeleteNode(node, CompareBS, buf2, &ab.freeq.Stats)
 		ab.numFreed++
+
+		ab.freeq.pop()
+		val = ab.freeq.peek()
 	}
 }
 
@@ -170,15 +176,13 @@ func (ab *AccessBarrier) Release(bs *BarrierSession) {
 	if ab.active {
 		liveCount := atomic.AddInt32(bs.liveCount, -1)
 		if liveCount == barrierFlushOffset {
-			buf := ab.freeq.MakeBuf()
-			defer ab.freeq.FreeBuf(buf)
-
 			// Accessors which entered a closed barrier session steps down automatically
 			// But, they may try to close an already closed session.
 			if atomic.AddInt32(&bs.closed, 1) == 1 {
-				if !ab.freeq.Insert(unsafe.Pointer(bs), CompareBS, buf, &ab.freeq.Stats) {
-					panic("unable to insert barrier session into free list")
-				}
+				ab.freeq.Lock()
+				ab.freeq.push(unsafe.Pointer(bs))
+				ab.freeq.Unlock()
+
 				if atomic.CompareAndSwapInt32(&ab.isDestructorRunning, 0, 1) {
 					ab.doCleanup()
 					atomic.CompareAndSwapInt32(&ab.isDestructorRunning, 1, 0)
@@ -208,5 +212,68 @@ func (ab *AccessBarrier) FlushSession(ref unsafe.Pointer) {
 
 		atomic.AddInt32(bs.liveCount, barrierFlushOffset+1)
 		ab.Release(bs)
+	}
+}
+
+type bsHeap struct {
+	sync.RWMutex
+
+	items []unsafe.Pointer
+	cmp   func(i, j unsafe.Pointer) int
+}
+
+func newHeap(cmp func(i, j unsafe.Pointer) int) *bsHeap {
+	return &bsHeap{cmp: cmp}
+}
+
+func (h *bsHeap) Less(i, j int) bool {
+	return h.cmp(h.items[i], h.items[j]) <= 0
+}
+
+func (h *bsHeap) Len() int {
+	return len(h.items)
+}
+
+func (h *bsHeap) Swap(i, j int) {
+	h.items[i], h.items[j] = h.items[j], h.items[i]
+}
+
+func (h *bsHeap) Push(x any) {
+	item := x.(unsafe.Pointer)
+	h.items = append(h.items, item)
+}
+
+func (h *bsHeap) Pop() any {
+	old := h.items
+	l := len(old)
+	item := old[l-1]
+	old[l-1] = nil
+	h.items = old[0 : l-1]
+
+	return item
+}
+
+func (h *bsHeap) push(x any) {
+	heap.Push(h, x)
+}
+
+func (h *bsHeap) pop() any {
+	return heap.Pop(h)
+}
+
+func (h *bsHeap) peek() any {
+	if h.Len() == 0 {
+		return nil
+	}
+	return h.items[0]
+}
+
+func (h *bsHeap) compact() {
+	c := cap(h.items)
+	l := len(h.items)
+	if l > 0 && c > 1024 && l < c/4 {
+		newItems := make([]unsafe.Pointer, l)
+		copy(newItems, h.items)
+		h.items = newItems
 	}
 }

@@ -125,6 +125,40 @@ func NewWithConfig(cfg Config) *Skiplist {
 	return s
 }
 
+func (s *Skiplist) Close(cmp CompareFn) {
+	if !s.UseMemoryMgmt || s.Free == nil {
+		return
+	}
+
+	buf := s.MakeBuf()
+	iter := s.NewIterator(cmp, buf)
+	defer iter.Close()
+
+	var lastNode *Node
+
+	iter.SeekFirst()
+	if iter.Valid() {
+		lastNode = iter.GetNode()
+		iter.Next()
+	}
+
+	for lastNode != nil {
+		s.Free(lastNode.Item())
+		s.Free(unsafe.Pointer(lastNode))
+		lastNode = nil
+
+		if iter.Valid() {
+			lastNode = iter.GetNode()
+			iter.Next()
+		}
+	}
+
+	head := s.HeadNode()
+	tail := s.TailNode()
+	s.Free(unsafe.Pointer(head))
+	s.Free(unsafe.Pointer(tail))
+}
+
 // GetAccesBarrier returns current active access barrier
 func (s *Skiplist) GetAccesBarrier() *AccessBarrier {
 	return s.barrier
@@ -360,6 +394,21 @@ func (s *Skiplist) softDelete(delNode *Node, sts *Stats) bool {
 		}
 	}
 	return marked
+}
+
+// Delete an item from the skiplist
+func (s *Skiplist) FindAndDelete(itm unsafe.Pointer, cmp CompareFn,
+	buf *ActionBuffer, sts *Stats) (*Node, bool) {
+	token := s.barrier.Acquire()
+	defer s.barrier.Release(token)
+
+	found := s.findPath(itm, cmp, buf, sts) != nil
+	if !found {
+		return nil, false
+	}
+
+	delNode := buf.succs[0]
+	return delNode, s.deleteNode(delNode, cmp, buf, sts)
 }
 
 // Delete an item from the skiplist

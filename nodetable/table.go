@@ -30,6 +30,7 @@ const approxItemSize = 42
 var dbInstances *skiplist.Skiplist
 
 func init() {
+	// MB-70231: Go-allocated skiplist, susceptible to dcasNext split lock; acceptable as nitro/MemDB is currently unused.
 	dbInstances = skiplist.New()
 }
 

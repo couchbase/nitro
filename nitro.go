@@ -75,6 +75,7 @@ var (
 )
 
 func init() {
+	// MB-70231: Go-allocated skiplist, susceptible to dcasNext split lock
 	dbInstances = skiplist.New()
 }
 
@@ -359,6 +360,7 @@ type Nitro struct {
 // NewWithConfig creates a new Nitro instance based on provided configuration.
 func NewWithConfig(cfg Config) *Nitro {
 	m := &Nitro{
+		// MB-70231: 2 Go-allocated skiplists, susceptible to dcasNext split lock
 		snapshots:   skiplist.New(),
 		gcsnapshots: skiplist.New(),
 		currSn:      1,
