@@ -362,6 +362,10 @@ retry:
 			}
 
 			if buf.preds[i].dcasNext(i, next, x, false, false) {
+				if _, del := x.getNext(i); del {
+					s.findPath(itm, insCmp, buf, sts)
+					goto finished
+				}
 				break fixThisLevel
 			}
 
