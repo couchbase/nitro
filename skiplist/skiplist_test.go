@@ -10,6 +10,7 @@ package skiplist
 import "testing"
 import "fmt"
 import "math/rand"
+import "reflect"
 import "runtime"
 import "sync"
 import "time"
@@ -320,4 +321,95 @@ func TestNodeDCAS(t *testing.T) {
 	mm.Free(qval1)
 	mm.Free(qval2)
 	mm.Free(qval3)
+}
+
+// Closed barrier sessions must be reclaimed strictly in seqno order, and only
+// once every earlier session has drained
+func TestAccessBarrierReclaimOrder(t *testing.T) {
+	var freed []int
+	ab := newAccessBarrier(true, func(ref unsafe.Pointer) {
+		freed = append(freed, *(*int)(ref))
+	})
+
+	const n = 8
+	refs := make([]int, n+1)
+	held := make([]*BarrierSession, n+1)
+	for i := 1; i <= n; i++ {
+		refs[i] = i
+		held[i] = ab.Acquire()
+		ab.FlushSession(unsafe.Pointer(&refs[i]))
+	}
+
+	check := func(wantFreed []int, wantPending int64) {
+		t.Helper()
+		if len(freed) != len(wantFreed) || (len(freed) > 0 && !reflect.DeepEqual(freed, wantFreed)) {
+			t.Fatalf("freed %v, want %v", freed, wantFreed)
+		}
+		_, _, pending, _ := ab.GetStats()
+		if pending != wantPending {
+			t.Fatalf("pending %d, want %d", pending, wantPending)
+		}
+	}
+
+	ab.Release(held[3])
+	check(nil, 1)
+
+	ab.Release(held[1])
+	check([]int{1}, 1)
+
+	ab.Release(held[2])
+	check([]int{1, 2, 3}, 0)
+
+	for i := n; i > 4; i-- {
+		ab.Release(held[i])
+	}
+	check([]int{1, 2, 3}, 4)
+
+	ab.Release(held[4])
+	check([]int{1, 2, 3, 4, 5, 6, 7, 8}, 0)
+
+	allocated, numFreed, _, freeSeqno := ab.GetStats()
+	if allocated != n+1 || numFreed != n || freeSeqno != n {
+		t.Fatalf("stats allocated=%d freed=%d freeSeqno=%d", allocated, numFreed, freeSeqno)
+	}
+}
+
+// The barrier free queue must give back its backing array after a large
+// backlog drains
+func TestAccessBarrierFreeqCompact(t *testing.T) {
+	ab := newAccessBarrier(true, func(unsafe.Pointer) {})
+
+	// sessions 1 and n-1 stay open, every other session queues behind them
+	const n = 5000
+	first := ab.Acquire()
+	ab.FlushSession(nil)
+	for i := 2; i < n-1; i++ {
+		ab.FlushSession(nil)
+	}
+	mid := ab.Acquire()
+	ab.FlushSession(nil)
+	ab.FlushSession(nil)
+
+	_, _, pending, _ := ab.GetStats()
+	if pending != n-2 {
+		t.Fatalf("pending %d, want %d", pending, n-2)
+	}
+	if c := cap(ab.freeq.items); c < n-2 {
+		t.Fatalf("cap %d, want >= %d", c, n-2)
+	}
+
+	ab.Release(first)
+	_, _, pending, _ = ab.GetStats()
+	if pending != 1 {
+		t.Fatalf("pending %d, want 1", pending)
+	}
+	if c := cap(ab.freeq.items); c != 1 {
+		t.Fatalf("cap %d after drain, want 1", c)
+	}
+
+	ab.Release(mid)
+	_, numFreed, pending, freeSeqno := ab.GetStats()
+	if pending != 0 || numFreed != n || freeSeqno != n {
+		t.Fatalf("stats freed=%d pending=%d freeSeqno=%d", numFreed, pending, freeSeqno)
+	}
 }
