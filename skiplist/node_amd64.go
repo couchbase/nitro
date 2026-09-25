@@ -95,7 +95,7 @@ func (n *Node) getHdrSize() uintptr {
 }
 
 // Size returns memory used by the node
-func (n Node) Size() int {
+func (n *Node) Size() int {
 	return int(n.getHdrSize() + uintptr(n.level+1)*nodeRefSize)
 }
 
